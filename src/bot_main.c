@@ -27,6 +27,7 @@ cvar_t	*bot_seed;
 cvar_t	*bot_rollout;
 cvar_t	*bot_claim;
 cvar_t	*bot_pathcost;
+cvar_t	*bot_goalbudget;
 
 // registry indexed by client slot (index i <-> g_edicts[i+1])
 static bot_t	bots[MAX_CLIENTS];
@@ -36,6 +37,13 @@ static char		bot_logged_map[MAX_QPATH];	// map the current log/nav is for
 #define BOT_GRAPH_READY		24		// nodes needed before goal-seeking starts
 #define BOT_GOAL_TIMEOUT	12.0f	// abandon a goal not reached within this
 #define BOT_ITEM_COOLDOWN	10.0f	// how long to avoid a failed item
+
+// bot_goalbudget: timeout scaled to the committed route's A* cost instead of
+// the flat BOT_GOAL_TIMEOUT -- short hops recycle faster, honest long routes
+// get funded.  base + cost/speed crosses the flat 12s at cost ~600u.
+#define BOT_GOAL_BUDGET_BASE	6.0f	// seconds of slack regardless of route
+#define BOT_GOAL_BUDGET_SPEED	100.0f	// effective travel speed (cost units/sec)
+#define BOT_GOAL_BUDGET_MAX		20.0f	// never fund a route longer than this
 
 /*
 =================
@@ -52,6 +60,7 @@ void Bot_Init (void)
 	bot_rollout      = gi.cvar ("bot_rollout", "1", 0);
 	bot_claim        = gi.cvar ("bot_claim", "1", 0);
 	bot_pathcost     = gi.cvar ("bot_pathcost", "1", 0);	// score items by A* route cost, not straight-line distance
+	bot_goalbudget   = gi.cvar ("bot_goalbudget", "1", 0);	// goal timeout scaled to route cost, not flat 12s
 	bot_skilltest    = gi.cvar ("bot_skilltest", "0", 0);
 
 	// Seed the game's RNG.  The vanilla game never calls srand(), so every
@@ -100,6 +109,7 @@ static void Bot_ResetNavState (bot_t *b)
 	b->goal_node = -1;
 	b->goal_item = NULL;
 	b->goal_timing = false;
+	b->goal_cost = 0;
 	b->path_len  = 0;
 	b->path_idx  = 0;
 	b->replan_time  = level.time + 1.0;
@@ -290,6 +300,7 @@ static void Bot_GoExplore (bot_t *b)
 	b->goal_node = -1;
 	b->goal_item = NULL;
 	b->goal_timing = false;
+	b->goal_cost = 0;
 	b->path_len  = 0;
 	b->path_idx  = 0;
 	b->replan_time   = level.time + 1.0 + random() * 2.0;
@@ -421,8 +432,16 @@ static void Bot_Navigate (bot_t *b)
 		}
 
 		// give up on a goal we can't reach so we don't loop on it forever
-		if (level.time - b->goal_time > BOT_GOAL_TIMEOUT)
 		{
+			float budget = BOT_GOAL_TIMEOUT;
+			if (bot_goalbudget->value != 0 && b->goal_cost > 0)
+			{
+				budget = BOT_GOAL_BUDGET_BASE + b->goal_cost / BOT_GOAL_BUDGET_SPEED;
+				if (budget > BOT_GOAL_BUDGET_MAX)
+					budget = BOT_GOAL_BUDGET_MAX;
+			}
+			if (level.time - b->goal_time > budget)
+			{
 			vec3_t	tgt, d;
 			int		atnode = (b->path_idx >= b->path_len) ? 1 : 0;
 			if (b->goal_item)
@@ -437,6 +456,7 @@ static void Bot_Navigate (bot_t *b)
 			Bot_GoExplore (b);
 			Bot_Wander (b);
 			return;
+			}
 		}
 
 		if (b->path_len <= 0 || b->path_idx >= b->path_len)
@@ -549,6 +569,7 @@ static void Bot_Navigate (bot_t *b)
 				b->replan_time   = level.time + 0.5;
 				b->progress_time = level.time;
 				b->goal_time     = level.time;
+				b->goal_cost     = Nav_LastPathCost ();
 				b->goal_best     = 99999;
 				if (b->goal_item)
 					Bot_LogItemEvent (b, "goal_item", b->goal_item->item->pickup_name);

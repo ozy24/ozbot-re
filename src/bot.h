@@ -49,6 +49,7 @@ typedef struct
 	int			path_idx;		// index of the next node to reach
 	float		replan_time;	// next time we may replan
 	float		goal_time;		// level.time the current goal was set
+	float		goal_cost;		// A* g-cost of the committed route (0 = unknown)
 	float		goal_best;		// closest we've come to the goal node this attempt
 	int			pending_link;	// link type to record on next learn step
 
@@ -94,6 +95,7 @@ extern cvar_t	*bot_debug;
 extern cvar_t	*bot_rollout;
 extern cvar_t	*bot_claim;
 extern cvar_t	*bot_pathcost;
+extern cvar_t	*bot_goalbudget;
 
 //
 // bot_move.c -- steering (target point / path following -> usercmd_t)
