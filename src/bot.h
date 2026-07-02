@@ -128,6 +128,8 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw);
 qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_pitch);
 extern cvar_t	*bot_skill;
 extern cvar_t	*bot_skilltest;
+extern cvar_t	*bot_lead;
+extern cvar_t	*bot_leadtest;
 
 //
 // bot_goal.c -- item-driven goal selection

@@ -75,7 +75,9 @@ combat unfroze — %time-in-combat dropped from a pathological 87–99% (bots st
 other on Blasters) to a healthy 0–50% with diversified weapon usage once movement was decoupled
 from aim; hazard avoidance cut q2dm3 deaths 30 → 4; map generality validated by letting the bot
 learn q2dm3 from scratch. The skill model is confirmed real: skill 0.9 bots get **45% more
-kills** than skill 0.1 bots fighting in the same matches (6-seed id-parity test).
+kills** than skill 0.1 bots fighting in the same matches (6-seed id-parity test). **Projectile
+target-leading** (`bot_lead`) moved the leading population's kill ratio from 0.81 to 1.27
+(~57% relative gain, 6/6 seeds, paired id-parity test) — the largest combat improvement so far.
 
 ## What was tried and rejected (and why it matters)
 
@@ -130,9 +132,11 @@ run_parallel.bat --instances 8 --seconds 90 --bots 5 --seed 200 --cvar bot_pathc
 | `bot_goalbudget` | 1 | goal timeout scaled to route cost, not flat 12s |
 | `bot_claim` | 1 | skip items another bot is already going for |
 | `bot_rollout` | 1 | physics-forward rollout recovery when stuck |
+| `bot_lead` | 1 | lead moving targets by projectile flight time (skill-scaled) |
 | `bot_seed` | 0 | >0 = deterministic RNG for reproducible runs |
 | `bot_debug` | 0 | draw nav paths / enemy lines via temp-entity beams |
 | `bot_skilltest` | 0 | diagnostic: id-parity skill split (0.9 vs 0.1) within one match |
+| `bot_leadtest` | 0 | diagnostic: id-parity lead split (even ids lead, odd don't) |
 
 Server console: `sv bot_add N` / `sv bot_remove N` / `sv bot_clear`. The learned graph is saved
 to `<gamedir>/nav/<map>.nav` (autosaved ~30s); telemetry to `<gamedir>/logs/<map>_<ts>.jsonl`.

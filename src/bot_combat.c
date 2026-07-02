@@ -11,6 +11,8 @@ navigation for the frame.
 
 cvar_t	*bot_skill;		// 0 (easy) .. 1 (hard)
 cvar_t	*bot_skilltest;	// head-to-head skill A/B; see Bot_Add in bot_main.c
+cvar_t	*bot_lead;		// lead moving targets by projectile flight time
+cvar_t	*bot_leadtest;	// head-to-head lead A/B: even bot ids lead, odd don't
 
 static float Skill (bot_t *b)
 {
@@ -126,6 +128,25 @@ static void Combat_SelectWeapon (bot_t *b)
 
 /*
 =================
+Combat_ProjectileSpeed
+
+Muzzle speed of the current weapon's projectile, or 0 for hitscan weapons
+(which need no lead) and grenades (whose lobbed arc we don't model).
+Speeds match the fire_* calls in p_weapon.c.
+=================
+*/
+static float Combat_ProjectileSpeed (gitem_t *w)
+{
+	const char *nm = (w && w->pickup_name) ? w->pickup_name : "";
+	if (strstr (nm, "Rocket"))
+		return 650;
+	if (strstr (nm, "Blaster"))		// Blaster and HyperBlaster bolts
+		return 1000;
+	return 0;
+}
+
+/*
+=================
 Combat_Aim
 
 If an enemy is visible: aim toward it (returning the facing in *facing_yaw/
@@ -164,6 +185,22 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	eyes[2] += self->viewheight;
 	VectorCopy (enemy->s.origin, teyes);
 	teyes[2] += enemy->viewheight;
+
+	// lead a moving target by the projectile's flight time, scaled by skill
+	// (hitscan weapons need no lead; aim error below still applies on top)
+	{
+		qboolean lead = (bot_leadtest->value != 0)
+			? ((b->id & 1) == 0)
+			: (bot_lead->value != 0);
+		float pspeed = lead ? Combat_ProjectileSpeed (self->client->pers.weapon) : 0;
+		if (pspeed > 0)
+		{
+			VectorSubtract (teyes, eyes, dir);
+			VectorMA (teyes, skill * VectorLength (dir) / pspeed,
+			          enemy->velocity, teyes);
+		}
+	}
+
 	VectorSubtract (teyes, eyes, dir);
 	range = VectorLength (dir);
 	vectoangles (dir, ang);

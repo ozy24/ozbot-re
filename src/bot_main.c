@@ -62,6 +62,8 @@ void Bot_Init (void)
 	bot_pathcost     = gi.cvar ("bot_pathcost", "1", 0);	// score items by A* route cost, not straight-line distance
 	bot_goalbudget   = gi.cvar ("bot_goalbudget", "1", 0);	// goal timeout scaled to route cost, not flat 12s
 	bot_skilltest    = gi.cvar ("bot_skilltest", "0", 0);
+	bot_lead         = gi.cvar ("bot_lead", "1", 0);		// lead moving targets by projectile flight time
+	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);	// head-to-head: even bot ids lead, odd don't
 
 	// Seed the game's RNG.  The vanilla game never calls srand(), so every
 	// process starts from the same default sequence -- which makes parallel
