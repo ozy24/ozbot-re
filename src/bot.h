@@ -104,6 +104,7 @@ extern cvar_t	*bot_pathcost;
 extern cvar_t	*bot_goalbudget;
 extern cvar_t	*bot_budgetcap;
 extern cvar_t	*bot_itemfail;
+extern cvar_t	*bot_swim;
 
 //
 // bot_move.c -- steering (target point / path following -> usercmd_t)

@@ -7,26 +7,28 @@ Most of these are *measured* limitations with failed fix attempts documented in
 ## Navigation / traversal
 
 ### Vertically-gated items are avoided, not collected
-The big one. Items reachable only via lifts or multi-level ascents have near-zero
-completion: on q2dm1 the **Railgun has never been collected via a goal route (0/67
-attempts)**, Chaingun ~4%, HyperBlaster ~4%, Grenade Launcher ~7%, while flat-route items
-complete at 50–100%. The learned graph + A* *find* routes to these spots (paths exist, so
-goals commit), but the bot cannot reliably execute the ascent — bots strand 100–500u below
-the item and burn the full goal budget. Four architecturally distinct traversal fixes
-(ledge-jump primitive, two lift/vertical-arrival fixes, rollout-based ascent) all lost
-controlled A/Bs even when they demonstrably improved pathing diagnostics.
+The big one. Items reachable only via lifts or multi-level platform ascents have near-zero
+completion: on q2dm1 the Chaingun ~4%, HyperBlaster ~5%, Grenade Launcher ~6%, while
+flat-route items complete at 50–100%. The learned graph + A* *find* routes to these spots
+(paths exist, so goals commit), but the bot cannot reliably execute the ascent — bots
+strand below the item and burn the full goal budget. Four architecturally distinct
+traversal fixes (ledge-jump primitive, two lift/vertical-arrival fixes, rollout-based
+ascent) all lost controlled A/Bs even when they demonstrably improved pathing diagnostics.
 
-Since Track E, `bot_itemfail` (escalating shared blacklist after giveups) makes the bots
-*economically avoid* these items instead of repeatedly failing them — good for throughput,
-but it means the bot concedes Railgun-class map control on maps where the strong items are
-vertically gated. Fixing this needs a genuine locomotion capability (reliable lift riding /
-platform ascent), not more tuning; treat it as a project-scale feature.
+`bot_itemfail` (escalating shared blacklist after giveups) makes the bots *economically
+avoid* these items instead of repeatedly failing them — good for throughput, but it means
+the bot concedes some map control where strong items are gated. Fixing this needs a
+genuine locomotion capability (reliable lift riding / platform ascent), not more tuning.
 
 Confirmed systemic by the Phase-14 multi-map sweep: the ceiling tracks map verticality —
 q2dm1 ~33% / q2dm2 (Tokay's Towers) ~26% ITEM with the same item-above giveup signature,
-versus ~62% / ~55% on flatter q2dm5 / q2dm8, where giveups are a non-issue and the *same*
-Railgun item type completes at 67%. The bot's item logic is fine; the ascent capability is
-the binding constraint on vertical maps.
+versus ~62% / ~55% on flatter q2dm5 / q2dm8. The bot's item logic is fine; the ascent
+capability is the binding constraint on vertical maps.
+
+Encouraging precedent (Phase 15): q2dm1's Railgun looked like this issue but was actually
+**swim-gated** (water tube + vertical shaft), and a small targeted capability — `bot_swim`,
+3D steering in water — took it from 0% to ~48% completion. The remaining offenders are
+lift/platform ascents in air, a different (harder) capability.
 
 ### The graph can claim routes the bot can't execute
 Root cause of the above: links are learned from any successful traversal (including lucky

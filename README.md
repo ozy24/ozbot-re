@@ -74,6 +74,7 @@ ITEM completion on q2dm1, same measurement rig throughout:
 | Route-cost scoring (`bot_pathcost`) | ~29% | score items by A* route cost, not straight-line distance (+52% pickups, 5/5 seeds) |
 | Route-cost time budgets (`bot_goalbudget`) | **~33%** | goal timeout scaled to route cost; ITEM% up in 7/7 seeds |
 | Completability economics (`bot_itemfail` + `bot_budgetcap`) | ~33% (**pickups +14%**) | items bots keep failing get an escalating shared blacklist, and the budget cap is trimmed to what successful runs actually use (pickups p95 ≈ 11s); value-weighted pickups +10%, map-general on q2dm3 |
+| Vertical swimming (`bot_swim`) | **~37%** | first locomotion-layer win: 3D steering in water (swim upmove + 3D waypoint arrival + water-jump exits) unlocked q2dm1's swim-gated Railgun — 0% → 48% completion, pickups +14% and frags +30% in 5/5 seeds, deaths flat, bit-identical on waterless maps |
 
 Other validated improvements along the way: goal-node reach rate 38% → 59% (Phase 1 tuning);
 combat unfroze — %time-in-combat dropped from a pathological 87–99% (bots stuck staring at each
@@ -155,6 +156,7 @@ at real time and `--seconds` is wall-clock.
 | `bot_goalbudget` | 1 | goal timeout scaled to route cost, not flat 12s |
 | `bot_budgetcap` | 15 | max seconds to fund any one goal route (pickups p95 ≈ 11s) |
 | `bot_itemfail` | 1 | escalating shared blacklist (20/40/80/160s) for items bots keep giving up on |
+| `bot_swim` | 1 | 3D steering in water: vertical swim intent + water-jump ledge exits |
 | `bot_claim` | 1 | skip items another bot is already going for |
 | `bot_rollout` | 1 | physics-forward rollout recovery when stuck |
 | `bot_lead` | 1 | lead moving targets by projectile flight time (skill-scaled) |

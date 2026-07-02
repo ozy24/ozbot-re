@@ -16,13 +16,49 @@ looking/shooting somewhere else.
 
 /*
 =================
+Bot_Swimming
+
+True when the bot should steer in 3D: submerged, or in water without footing
+(surface-bobbing under a ledge -- keeping the vertical intent there lets
+Pmove's water-jump fire to climb out).
+=================
+*/
+static qboolean Bot_Swimming (edict_t *ent)
+{
+	if (bot_swim->value == 0)
+		return false;
+	return ent->waterlevel >= 2
+		|| (ent->waterlevel >= 1 && !ent->groundentity);
+}
+
+/*
+=================
 Bot_SetMoveToward / Bot_SetMoveYaw
 =================
 */
 static void Bot_SetMoveToward (bot_t *b, vec3_t target)
 {
-	vec3_t	d;
+	vec3_t	d, h;
 	VectorSubtract (target, b->ent->s.origin, d);
+
+	if (Bot_Swimming (b->ent))
+	{
+		// keep the vertical component: in water the intent is genuinely 3D
+		// (Bot_ApplyMovement turns move_dir[2] into swim upmove)
+		if (VectorLength (d) < 1)
+		{
+			VectorClear (b->move_dir);
+			return;
+		}
+		VectorCopy (d, h);
+		h[2] = 0;
+		VectorNormalize (d);
+		VectorCopy (d, b->move_dir);
+		if (VectorLength (h) > 1)
+			b->move_yaw = vectoyaw (h);
+		return;
+	}
+
 	d[2] = 0;
 	if (VectorLength (d) < 1)
 	{
@@ -312,6 +348,9 @@ qboolean Bot_FollowPath (bot_t *b)
 
 	while (b->path_idx < b->path_len)
 	{
+		qboolean	inwater;
+		float		vdist;
+
 		node = b->path[b->path_idx];
 		if (node < 0 || node >= nav.num_nodes)
 		{
@@ -319,10 +358,17 @@ qboolean Bot_FollowPath (bot_t *b)
 			continue;
 		}
 		VectorSubtract (nav.nodes[node].origin, ent->s.origin, d);
+		vdist = (float)fabs (d[2]);
 		d[2] = 0;
 		hdist = VectorLength (d);
 
-		if (hdist < NAV_ARRIVE_RADIUS)
+		// swimming (or heading for a water node): arrival must be 3D, else a
+		// vertical shaft's nodes all "arrive" at once (their horizontal
+		// distance is ~0) and the bot targets the far side through the wall
+		inwater = bot_swim->value != 0
+			&& (ent->waterlevel >= 2 || (nav.nodes[node].flags & NAV_FLAG_WATER));
+
+		if (hdist < NAV_ARRIVE_RADIUS && (!inwater || vdist < NAV_ARRIVE_RADIUS))
 		{
 			b->path_idx++;
 			continue;
@@ -330,7 +376,7 @@ qboolean Bot_FollowPath (bot_t *b)
 
 		VectorCopy (ent->velocity, vel);
 		vel[2] = 0;
-		if (hdist < 96 && VectorLength (vel) > 40 && DotProduct (vel, d) < 0)
+		if (!inwater && hdist < 96 && VectorLength (vel) > 40 && DotProduct (vel, d) < 0)
 		{
 			b->path_idx++;
 			continue;
@@ -435,6 +481,11 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 
 	cmd->forwardmove = (short)(fm * speed);
 	cmd->sidemove    = (short)(sm * speed);
+
+	// swimming: vertical intent becomes swim upmove (Pmove's water-jump also
+	// keys off upmove when we surface against a ledge, which climbs us out)
+	if (Bot_Swimming (b->ent))
+		cmd->upmove = (short)(b->move_dir[2] * speed);
 
 	if (b->want_jump && b->ent->groundentity)
 		cmd->upmove = 350;
