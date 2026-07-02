@@ -157,6 +157,7 @@ at real time and `--seconds` is wall-clock.
 | `bot_budgetcap` | 15 | max seconds to fund any one goal route (pickups p95 ≈ 11s) |
 | `bot_itemfail` | 1 | escalating shared blacklist (20/40/80/160s) for items bots keep giving up on |
 | `bot_swim` | 1 | 3D steering in water: vertical swim intent + water-jump ledge exits |
+| `bot_lift` | 0 | experimental: plat-column riding (stand still + 3D arrival); lean-positive wash in A/B, boarding still unsolved |
 | `bot_claim` | 1 | skip items another bot is already going for |
 | `bot_rollout` | 1 | physics-forward rollout recovery when stuck |
 | `bot_lead` | 1 | lead moving targets by projectile flight time (skill-scaled) |

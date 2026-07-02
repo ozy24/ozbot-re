@@ -30,6 +30,16 @@ Encouraging precedent (Phase 15): q2dm1's Railgun looked like this issue but was
 3D steering in water — took it from 0% to ~48% completion. The remaining offenders are
 lift/platform ascents in air, a different (harder) capability.
 
+Phase 16 narrowed the diagnosis with user-recorded route demos: the graph *already* knows
+the lift ride (a learned vertical column of links), and demo-route surgery can make every
+high item reachable — but conversion barely moves, because bots (a) fail to *board* the
+lift (every failure stalls 100+ units from the shaft) and (b) fall off the narrow elevated
+walkways en route (the human recording the demo fell off the same ledge). The binding
+constraint is execution precision on narrow/elevated geometry, not route knowledge.
+`bot_lift` (vertical-context steering, the land analogue of `bot_swim`) ships default-OFF:
+it was a lean-positive wash over 13 seeds (+2% pickups, 9W/4L), kept as groundwork.
+`tools/nav_add_route.py` (splice a walked demo into a .nav) is kept as reusable infra.
+
 ### The graph can claim routes the bot can't execute
 Root cause of the above: links are learned from any successful traversal (including lucky
 falls or combat-shoved movement), so A* occasionally sells a path whose reverse or repeat

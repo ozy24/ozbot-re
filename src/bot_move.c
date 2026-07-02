@@ -41,6 +41,25 @@ static void Bot_SetMoveToward (bot_t *b, vec3_t target)
 	vec3_t	d, h;
 	VectorSubtract (target, b->ent->s.origin, d);
 
+	// riding a lift: the waypoint is straight up (a learned plat column).
+	// Keep the 3D intent -- the horizontal projection goes ~zero, so the bot
+	// stands still on the plat and lets it do the climbing, instead of the
+	// flattened+normalized intent turning a few units of offset into a
+	// full-speed push that walks it off the platform.
+	if (bot_lift->value != 0 && !Bot_Swimming (b->ent) && d[2] > 48)
+	{
+		VectorCopy (d, h);
+		h[2] = 0;
+		if (VectorLength (h) < 72)
+		{
+			VectorNormalize (d);
+			VectorCopy (d, b->move_dir);
+			if (VectorLength (h) > 1)
+				b->move_yaw = vectoyaw (h);
+			return;
+		}
+	}
+
 	if (Bot_Swimming (b->ent))
 	{
 		// keep the vertical component: in water the intent is genuinely 3D
@@ -348,8 +367,8 @@ qboolean Bot_FollowPath (bot_t *b)
 
 	while (b->path_idx < b->path_len)
 	{
-		qboolean	inwater;
-		float		vdist;
+		qboolean	vertical;
+		float		dz, vdist;
 
 		node = b->path[b->path_idx];
 		if (node < 0 || node >= nav.num_nodes)
@@ -358,17 +377,21 @@ qboolean Bot_FollowPath (bot_t *b)
 			continue;
 		}
 		VectorSubtract (nav.nodes[node].origin, ent->s.origin, d);
-		vdist = (float)fabs (d[2]);
+		dz = d[2];
+		vdist = (float)fabs (dz);
 		d[2] = 0;
 		hdist = VectorLength (d);
 
-		// swimming (or heading for a water node): arrival must be 3D, else a
-		// vertical shaft's nodes all "arrive" at once (their horizontal
-		// distance is ~0) and the bot targets the far side through the wall
-		inwater = bot_swim->value != 0
-			&& (ent->waterlevel >= 2 || (nav.nodes[node].flags & NAV_FLAG_WATER));
+		// vertical context: arrival must be 3D, else a shaft's nodes all
+		// "arrive" at once (their horizontal distance is ~0) and the bot
+		// targets the far side through the wall/floor.  Applies while
+		// swimming (or heading for a water node), and -- with bot_lift --
+		// when the waypoint is a plat-column node still well above us.
+		vertical = (bot_swim->value != 0
+			&& (ent->waterlevel >= 2 || (nav.nodes[node].flags & NAV_FLAG_WATER)))
+			|| (bot_lift->value != 0 && dz > 48 && hdist < 72);
 
-		if (hdist < NAV_ARRIVE_RADIUS && (!inwater || vdist < NAV_ARRIVE_RADIUS))
+		if (hdist < NAV_ARRIVE_RADIUS && (!vertical || vdist < NAV_ARRIVE_RADIUS))
 		{
 			b->path_idx++;
 			continue;
@@ -376,7 +399,7 @@ qboolean Bot_FollowPath (bot_t *b)
 
 		VectorCopy (ent->velocity, vel);
 		vel[2] = 0;
-		if (!inwater && hdist < 96 && VectorLength (vel) > 40 && DotProduct (vel, d) < 0)
+		if (!vertical && hdist < 96 && VectorLength (vel) > 40 && DotProduct (vel, d) < 0)
 		{
 			b->path_idx++;
 			continue;
