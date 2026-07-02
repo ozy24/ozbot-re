@@ -87,6 +87,13 @@ target-leading** (`bot_lead`) moved the leading population's kill ratio from 0.8
 +23% relative kills with no nav cost — retreating breaks losing fights, so bots keep their
 weapons and re-engage on their own terms.
 
+Cross-map picture (self-learned nav, standard rig, 3 seeds/map): the ITEM-completion ceiling
+tracks map *verticality*, not item logic — vertical maps q2dm1/q2dm2 sit at ~33%/~26% while
+flatter q2dm5/q2dm8 reach **~62%/~55%**; the Railgun that never completes on q2dm1 completes at
+67% on q2dm8. An aim-formula constant sweep (16-seed id-parity per axis) found the hand-tuned
+skill model near a local optimum — halving reaction or error buys only ~8% kills, faster turn
+rate nothing — so combat gains come from behaviors (leading, fleeing), not precision tuning.
+
 ## What was tried and rejected (and why it matters)
 
 Documented negative results, each from a controlled A/B — these are load-bearing project
@@ -158,6 +165,7 @@ at real time and `--seconds` is wall-clock.
 | `bot_skilltest` | 0 | diagnostic: id-parity skill split (0.9 vs 0.1) within one match |
 | `bot_leadtest` | 0 | diagnostic: id-parity lead split (even ids lead, odd don't) |
 | `bot_fleetest` | 0 | diagnostic: id-parity flee split (even ids flee, odd don't) |
+| `bot_aimtest` | 0 | diagnostic: even ids apply the `bot_aimreact/aimturn/aimerr/aimfire` multipliers (each default 1) for aim-formula sweeps |
 
 Server console: `sv bot_add N` / `sv bot_remove N` / `sv bot_clear`. The learned graph is saved
 to `<gamedir>/nav/<map>.nav` (autosaved ~30s); telemetry to `<gamedir>/logs/<map>_<ts>.jsonl`.

@@ -15,6 +15,11 @@ cvar_t	*bot_lead;		// lead moving targets by projectile flight time
 cvar_t	*bot_leadtest;	// head-to-head lead A/B: even bot ids lead, odd don't
 cvar_t	*bot_flee;		// retreat + fetch health/armor when clearly outmatched
 cvar_t	*bot_fleetest;	// head-to-head flee A/B: even bot ids flee, odd don't
+cvar_t	*bot_aimtest;	// head-to-head aim-formula A/B: even bot ids apply the
+cvar_t	*bot_aimreact;	//   bot_aim* multipliers below, odd use the stock
+cvar_t	*bot_aimturn;	//   formula -- for sweeping which aim constant
+cvar_t	*bot_aimerr;	//   (reaction/turn rate/error/fire threshold) actually
+cvar_t	*bot_aimfire;	//   buys kills at a given nominal skill
 
 static float Skill (bot_t *b)
 {
@@ -186,6 +191,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	float	skill = Skill (b);
 	vec3_t	eyes, teyes, dir, ang, toenemy, strafe, comb;
 	float	turnstep, firethresh, reaction, err, range, aimoff, rc;
+	qboolean aimtweak;
 
 	enemy = Combat_FindEnemy (b);
 	if (!enemy)
@@ -194,9 +200,13 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		return false;
 	}
 
+	aimtweak = (bot_aimtest->value != 0) && ((b->id & 1) == 0);
+
 	if (b->enemy != enemy)
 	{
 		reaction = 0.1f + (1.0f - skill) * 0.4f;
+		if (aimtweak)
+			reaction *= bot_aimreact->value;
 		b->enemy = enemy;
 		b->reaction_until = level.time + reaction;
 		b->aim[YAW]   = self->client->ps.viewangles[YAW];
@@ -255,10 +265,14 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	vectoangles (dir, ang);
 
 	err = (1.0f - skill) * 7.0f;
+	if (aimtweak)
+		err *= bot_aimerr->value;
 	ang[YAW]   += crandom () * err;
 	ang[PITCH] += crandom () * err;
 
 	turnstep = 20.0f + skill * 40.0f;
+	if (aimtweak)
+		turnstep *= bot_aimturn->value;
 	b->aim[YAW]   = ApproachAngle (b->aim[YAW],   ang[YAW],   turnstep);
 	b->aim[PITCH] = ApproachAngle (b->aim[PITCH], ang[PITCH], turnstep);
 
@@ -266,6 +280,8 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	*facing_pitch = b->aim[PITCH];
 
 	firethresh = 3.0f + (1.0f - skill) * 12.0f;
+	if (aimtweak)
+		firethresh *= bot_aimfire->value;
 	aimoff = (float)(fabs (AngleDelta (ang[YAW], b->aim[YAW]))
 	               + fabs (AngleDelta (ang[PITCH], b->aim[PITCH])));
 	if (level.time >= b->reaction_until && aimoff < firethresh)

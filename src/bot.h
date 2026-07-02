@@ -141,6 +141,11 @@ extern cvar_t	*bot_lead;
 extern cvar_t	*bot_leadtest;
 extern cvar_t	*bot_flee;
 extern cvar_t	*bot_fleetest;
+extern cvar_t	*bot_aimtest;
+extern cvar_t	*bot_aimreact;
+extern cvar_t	*bot_aimturn;
+extern cvar_t	*bot_aimerr;
+extern cvar_t	*bot_aimfire;
 
 //
 // bot_goal.c -- item-driven goal selection

@@ -22,6 +22,12 @@ but it means the bot concedes Railgun-class map control on maps where the strong
 vertically gated. Fixing this needs a genuine locomotion capability (reliable lift riding /
 platform ascent), not more tuning; treat it as a project-scale feature.
 
+Confirmed systemic by the Phase-14 multi-map sweep: the ceiling tracks map verticality —
+q2dm1 ~33% / q2dm2 (Tokay's Towers) ~26% ITEM with the same item-above giveup signature,
+versus ~62% / ~55% on flatter q2dm5 / q2dm8, where giveups are a non-issue and the *same*
+Railgun item type completes at 67%. The bot's item logic is fine; the ascent capability is
+the binding constraint on vertical maps.
+
 ### The graph can claim routes the bot can't execute
 Root cause of the above: links are learned from any successful traversal (including lucky
 falls or combat-shoved movement), so A* occasionally sells a path whose reverse or repeat
