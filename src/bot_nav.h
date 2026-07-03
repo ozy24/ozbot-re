@@ -29,6 +29,7 @@ NOTE: include "g_local.h" and "bot.h" before this header.
 #define NAV_LINK_JUMP		2		// left ground via jump to reach dest
 #define NAV_LINK_TELEPORT	3
 #define NAV_LINK_WATER		4
+#define NAV_LINK_PLAT		5		// carried up by a func_plat (one-way; bot_lift)
 
 // node flags
 #define NAV_FLAG_WATER		1
@@ -78,5 +79,11 @@ qboolean Nav_CanWalk (vec3_t from, vec3_t to, edict_t *ignore);	// clear player-
 // learning (called per bot per frame)
 //
 int  Nav_LearnStep (edict_t *ent, int prev_node, int link_type);
+
+// retag learned lift-column links (vertical walk links inside a real
+// func_plat's footprint) as NAV_LINK_PLAT.  Needs spawned entities, so it is
+// called from the per-map setup in Bot_RunFrame, not from Nav_Init.  Gated on
+// bot_lift so the capability-off graph stays byte-identical to the baseline.
+void Nav_TagPlatLinks (void);
 
 #endif // OZBOT_BOT_NAV_H

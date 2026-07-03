@@ -75,6 +75,7 @@ ITEM completion on q2dm1, same measurement rig throughout:
 | Route-cost time budgets (`bot_goalbudget`) | **~33%** | goal timeout scaled to route cost; ITEM% up in 7/7 seeds |
 | Completability economics (`bot_itemfail` + `bot_budgetcap`) | ~33% (**pickups +14%**) | items bots keep failing get an escalating shared blacklist, and the budget cap is trimmed to what successful runs actually use (pickups p95 ≈ 11s); value-weighted pickups +10%, map-general on q2dm3 |
 | Vertical swimming (`bot_swim`) | **~37%** | first locomotion-layer win: 3D steering in water (swim upmove + 3D waypoint arrival + water-jump exits) unlocked q2dm1's swim-gated Railgun — 0% → 48% completion, pickups +14% and frags +30% in 5/5 seeds, deaths flat, bit-identical on waterless maps |
+| Lift riding (`bot_lift`) | **~42%** | second locomotion win: `func_plat` links + a wait/board/ride controller that makes deliberate stillness legal (stuck detection, replanning, and the goal budget are suspended while a plat hop is in play) unlocked q2dm1's lift-gated items — Grenade Launcher 5% → **41%**, Chaingun 0% → **55%**, pickups +13% and frags +15% over 5 seeds; q2dm5 +34% pickups, q2dm8 +11%, q2dm3 a wash over 8 seeds |
 
 Other validated improvements along the way: goal-node reach rate 38% → 59% (Phase 1 tuning);
 combat unfroze — %time-in-combat dropped from a pathological 87–99% (bots stuck staring at each
@@ -91,9 +92,11 @@ weapons and re-engage on their own terms.
 Cross-map picture (self-learned nav, standard rig, 3 seeds/map): the ITEM-completion ceiling
 tracks map *verticality*, not item logic — vertical maps q2dm1/q2dm2 sit at ~33%/~26% while
 flatter q2dm5/q2dm8 reach **~62%/~55%**; the Railgun that never completes on q2dm1 completes at
-67% on q2dm8. An aim-formula constant sweep (16-seed id-parity per axis) found the hand-tuned
-skill model near a local optimum — halving reaction or error buys only ~8% kills, faster turn
-rate nothing — so combat gains come from behaviors (leading, fleeing), not precision tuning.
+67% on q2dm8. (`bot_swim` and `bot_lift` have since raised q2dm1 to ~42% by unlocking its
+swim- and lift-gated items.) An aim-formula constant sweep (16-seed id-parity per axis) found
+the hand-tuned skill model near a local optimum — halving reaction or error buys only ~8% kills,
+faster turn rate nothing — so combat gains come from behaviors (leading, fleeing), not precision
+tuning.
 
 ## What was tried and rejected (and why it matters)
 
@@ -117,7 +120,10 @@ The through-line: six locomotion-layer fixes failed before the real levers turne
 **goal-selection contention** (bots with no mutual awareness converging on the same item) and
 **route economics** (an item behind a lift genuinely costs more seconds than an easier one, and
 both the scoring and the time budget must reflect that). Diagnosing *which layer* is the
-bottleneck was worth more than any individual mechanism.
+bottleneck was worth more than any individual mechanism. The locomotion wins that did land
+(`bot_swim`, `bot_lift`) each came from instrumented diagnosis of one named failure — the lift
+fix, for instance, turned out to hinge on a 2D distance check trapping bots *under* the item,
+something no amount of steering work would have touched.
 
 ## Building and running
 
@@ -157,7 +163,8 @@ at real time and `--seconds` is wall-clock.
 | `bot_budgetcap` | 15 | max seconds to fund any one goal route (pickups p95 ≈ 11s) |
 | `bot_itemfail` | 1 | escalating shared blacklist (20/40/80/160s) for items bots keep giving up on |
 | `bot_swim` | 1 | 3D steering in water: vertical swim intent + water-jump ledge exits |
-| `bot_lift` | 0 | experimental: plat-column riding (stand still + 3D arrival); lean-positive wash in A/B, boarding still unsolved |
+| `bot_lift` | 1 | lift riding: learned plat columns become `PLAT` links; a wait/board/ride controller waits clear of the shaft, boards at bottom, rides to the top (suspending stuck/replan/budget while it does), and homing at items only engages on the item's own level |
+| `bot_liftlog` | 0 | diagnostic: per-tick telemetry for bots near `func_plat`s + plat state records |
 | `bot_claim` | 1 | skip items another bot is already going for |
 | `bot_rollout` | 1 | physics-forward rollout recovery when stuck |
 | `bot_lead` | 1 | lead moving targets by projectile flight time (skill-scaled) |

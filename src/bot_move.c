@@ -347,6 +347,288 @@ static int Bot_LinkType (int from, int to)
 	return NAV_LINK_WALK;
 }
 
+//==========================================================================
+// lift riding (bot_lift) -- see plans/lift-riding.md
+//
+// Boarding a func_plat is physically trivial (it rests at the bottom flush
+// with the floor; walking on triggers the ride), but it takes seconds of
+// deliberate waiting, which every other subsystem punishes as being stuck.
+// This controller owns the movement intent while a plat hop is in play:
+// WAIT clear of the footprint until the plat is down (standing inside the
+// footprint would hold the plat up top forever via the shaft-high touch
+// trigger -- measured in Phase 0), BOARD to the plat center, RIDE holding
+// the middle, then hand the path back past the learned column.
+//==========================================================================
+
+// func_plat move states -- mirrors the file-scope defines in g_func.c
+#define PLAT_STATE_TOP		0
+#define PLAT_STATE_BOTTOM	1
+#define PLAT_STATE_UP		2
+#define PLAT_STATE_DOWN		3
+
+#define LIFT_ENGAGE_RANGE	160.0f	// engage when this close to the column base
+#define LIFT_RELEASE_RANGE	280.0f	// disengage hysteresis (combat dodging
+									// must not flap the controller on and off)
+#define LIFT_WAIT_TIMEOUT	10.0f	// covers one full plat cycle (~9s on q2dm1)
+#define LIFT_RIDE_TIMEOUT	15.0f	// safety only; a ride is ~3s
+#define LIFT_BOARD_STALL	2.5f	// boarding is a short walk; longer without
+									// moving means geometry blocks this approach
+#define LIFT_MARGIN			24.0f	// footprint clearance while waiting
+
+static qboolean Lift_IsPlat (edict_t *e)
+{
+	return (e && e->inuse && e->classname
+		&& strcmp (e->classname, "func_plat") == 0);
+}
+
+/*
+=================
+Bot_FindPlatAt
+
+The func_plat whose horizontal footprint contains pos (a plat only travels
+vertically, so its absmin/absmax x,y are position-independent).
+=================
+*/
+edict_t *Bot_FindPlatAt (vec3_t pos)
+{
+	int		i;
+
+	for (i = (int)game.maxclients + 1; i < globals.num_edicts; i++)
+	{
+		edict_t *e = g_edicts + i;
+		if (!Lift_IsPlat (e))
+			continue;
+		if (pos[0] >= e->absmin[0] - 16 && pos[0] <= e->absmax[0] + 16 &&
+			pos[1] >= e->absmin[1] - 16 && pos[1] <= e->absmax[1] + 16)
+			return e;
+	}
+	return NULL;
+}
+
+/*
+=================
+Lift_UpcomingPlatHop
+
+Index into b->path of the FROM node of the plat hop in play: the hop we are
+currently traversing, or the next one once we're near its base.  -1 if none.
+=================
+*/
+static int Lift_UpcomingPlatHop (bot_t *b)
+{
+	if (b->path_len <= 0)
+		return -1;
+
+	if (b->path_idx >= 1 && b->path_idx < b->path_len
+		&& Bot_LinkType (b->path[b->path_idx - 1], b->path[b->path_idx]) == NAV_LINK_PLAT)
+		return b->path_idx - 1;
+
+	if (b->path_idx >= 0 && b->path_idx + 1 < b->path_len
+		&& Bot_LinkType (b->path[b->path_idx], b->path[b->path_idx + 1]) == NAV_LINK_PLAT)
+	{
+		vec3_t	d;
+		float	range = (b->lift_state != LIFT_NONE) ? LIFT_RELEASE_RANGE
+													  : LIFT_ENGAGE_RANGE;
+		VectorSubtract (nav.nodes[b->path[b->path_idx]].origin, b->ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) < range)
+			return b->path_idx;
+	}
+
+	return -1;
+}
+
+/*
+=================
+Bot_LiftReset
+=================
+*/
+void Bot_LiftReset (bot_t *b)
+{
+	b->lift_state = LIFT_NONE;
+	b->lift_plat = NULL;
+	b->lift_deadline = 0;
+}
+
+/*
+=================
+Bot_LiftThink
+
+Returns true while the lift controller owns this frame's movement intent.
+The caller (Bot_Navigate) then skips path following, stuck recovery, and
+freezes the goal-budget clock, so waiting cannot be punished.  LIFT_FAILED
+(state timeout) sticks for the rest of the goal attempt: the controller
+stands aside and the normal giveup machinery resolves the goal.
+=================
+*/
+qboolean Bot_LiftThink (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	edict_t	*plat;
+	vec3_t	c, d;
+	int		hop;
+
+	if (b->lift_state == LIFT_FAILED)
+		return false;
+
+	hop = Lift_UpcomingPlatHop (b);
+	if (hop < 0)
+	{
+		if (b->lift_state != LIFT_NONE)
+			Bot_LiftReset (b);		// path no longer has a lift hop in play
+		return false;
+	}
+
+	// resolve the plat entity for this column (cached per attempt)
+	if (!b->lift_plat)
+	{
+		b->lift_plat = Bot_FindPlatAt (nav.nodes[b->path[hop + 1]].origin);
+		if (!b->lift_plat)
+		{
+			// a plat-typed link with no real plat under it: stand aside
+			Bot_LogEvent (b, "lift_noplat");
+			b->lift_state = LIFT_FAILED;
+			return false;
+		}
+	}
+	plat = b->lift_plat;
+
+	if (b->lift_state == LIFT_NONE)
+		b->lift_deadline = level.time + LIFT_WAIT_TIMEOUT;
+
+	if (level.time > b->lift_deadline)
+	{
+		Bot_LogEvent (b, "lift_timeout");
+		b->lift_state = LIFT_FAILED;
+		return false;
+	}
+
+	// plat footprint center; the boarding/riding target
+	c[0] = (plat->absmin[0] + plat->absmax[0]) * 0.5f;
+	c[1] = (plat->absmin[1] + plat->absmax[1]) * 0.5f;
+	c[2] = ent->s.origin[2];
+
+	b->want_jump = false;
+
+	if (ent->groundentity == plat)
+	{
+		// ---- RIDE: the plat has us; it does the climbing ----
+		int		k, top;
+
+		if (b->lift_state != LIFT_RIDE)
+		{
+			Bot_LogEvent (b, "lift_ride");
+			b->lift_state = LIFT_RIDE;
+			b->lift_deadline = level.time + LIFT_RIDE_TIMEOUT;
+		}
+
+		// top of the consecutive plat-link chain (the learned column)
+		k = hop + 1;
+		while (k + 1 < b->path_len
+			&& Bot_LinkType (b->path[k], b->path[k + 1]) == NAV_LINK_PLAT)
+			k++;
+		top = b->path[k];
+
+		// topped out (plat parked, or risen to the column top): hand the path
+		// back to the normal follower pointing PAST the column -- the top
+		// node hangs over the shaft mouth, and re-targeting it would just
+		// re-engage this controller every frame
+		if (plat->moveinfo.state == PLAT_STATE_TOP
+			|| ent->s.origin[2] > nav.nodes[top].origin[2] - 24.0f)
+		{
+			Bot_LogEvent (b, "lift_exit");
+			b->path_idx = k + 1;
+			Bot_LiftReset (b);
+			return false;			// normal following resumes this frame
+		}
+
+		// still travelling: hold the middle so we can't drift off the edge
+		// (gentle correction only -- move_dir magnitude scales the speed)
+		VectorSubtract (c, ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) > 24)
+		{
+			b->move_yaw = vectoyaw (d);
+			VectorNormalize (d);
+			VectorScale (d, 0.35f, b->move_dir);
+		}
+		else
+			VectorClear (b->move_dir);
+		return true;
+	}
+
+	if (plat->moveinfo.state == PLAT_STATE_BOTTOM)
+	{
+		// ---- BOARD: it's down; walk onto it (the touch trigger fires it) ----
+		if (b->lift_state != LIFT_BOARD)
+		{
+			Bot_LogEvent (b, "lift_board");
+			b->lift_state = LIFT_BOARD;
+			VectorCopy (ent->s.origin, b->lift_move_pos);
+			b->lift_move_time = level.time;
+		}
+
+		// boarding is a short unobstructed walk; stalling means geometry
+		// blocks this approach (e.g. a railing above the shaft -- Phase 0
+		// found paths entering columns from adjacent upper ledges).  Fail
+		// over fast so the normal machinery erodes the bad approach link.
+		VectorSubtract (ent->s.origin, b->lift_move_pos, d);
+		if (VectorLength (d) > 24)
+		{
+			VectorCopy (ent->s.origin, b->lift_move_pos);
+			b->lift_move_time = level.time;
+		}
+		else if (level.time - b->lift_move_time > LIFT_BOARD_STALL)
+		{
+			Bot_LogEvent (b, "lift_timeout");
+			b->lift_state = LIFT_FAILED;
+			return false;
+		}
+
+		VectorSubtract (c, ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) > 1)
+		{
+			VectorNormalize (d);
+			VectorCopy (d, b->move_dir);
+			b->move_yaw = vectoyaw (d);
+		}
+		return true;
+	}
+
+	// ---- WAIT: the plat is away.  Hold CLEAR of the footprint: standing
+	// inside it blocks the plat's descent (our own touch keeps it up) and
+	// risks a crush when it comes down.
+	if (b->lift_state != LIFT_WAIT)
+	{
+		Bot_LogEvent (b, "lift_wait");
+		b->lift_state = LIFT_WAIT;
+	}
+	if (ent->s.origin[0] > plat->absmin[0] - LIFT_MARGIN
+		&& ent->s.origin[0] < plat->absmax[0] + LIFT_MARGIN
+		&& ent->s.origin[1] > plat->absmin[1] - LIFT_MARGIN
+		&& ent->s.origin[1] < plat->absmax[1] + LIFT_MARGIN)
+	{
+		// inside: back straight out, away from the shaft
+		VectorSubtract (ent->s.origin, c, d);
+		d[2] = 0;
+		if (VectorLength (d) < 1)
+			d[0] = 1;				// dead center: any way out will do
+		VectorNormalize (d);
+		VectorCopy (d, b->move_dir);
+		b->move_yaw = vectoyaw (d);
+	}
+	else
+	{
+		// hold position facing the lift; the ride is coming to us
+		VectorClear (b->move_dir);
+		VectorSubtract (c, ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) > 1)
+			b->move_yaw = vectoyaw (d);
+	}
+	return true;
+}
+
 /*
 =================
 Bot_FollowPath

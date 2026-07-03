@@ -220,6 +220,142 @@ void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fightin
 		b->path_idx, b->path_len, b->goal_best);
 }
 
+//==========================================================================
+// bot_liftlog -- Phase-0 diagnosis instrumentation for the lift-riding plan
+// (plans/lift-riding.md).  Gated on the bot_liftlog cvar; throwaway.
+//==========================================================================
+
+#define LIFTLOG_MAX_PLATS	8
+#define LIFTLOG_RANGE		400.0f	// log bots within this 2D range of a plat
+
+static edict_t	*liftlog_plats[LIFTLOG_MAX_PLATS];
+static int		liftlog_num_plats;
+
+/*
+=================
+Bot_LogLiftBegin
+
+Cache the map's func_plat entities and emit one platinfo record per plat, so
+the analyzer knows each plat's footprint, travel range, and rest state.
+Called once per map after entities have spawned.
+=================
+*/
+void Bot_LogLiftBegin (void)
+{
+	int i;
+
+	liftlog_num_plats = 0;
+	if (!bot_liftlog || bot_liftlog->value == 0)
+		return;
+
+	for (i = (int)game.maxclients + 1; i < globals.num_edicts; i++)
+	{
+		edict_t *e = g_edicts + i;
+		if (!e->inuse || !e->classname || strcmp (e->classname, "func_plat") != 0)
+			continue;
+		if (liftlog_num_plats >= LIFTLOG_MAX_PLATS)
+			break;
+		liftlog_plats[liftlog_num_plats] = e;
+		if (log_fp)
+			fprintf (log_fp,
+				"{\"type\":\"platinfo\",\"plat\":%d,\"ent\":%d,"
+				"\"absmin\":[%.0f,%.0f,%.0f],\"absmax\":[%.0f,%.0f,%.0f],"
+				"\"top\":%.0f,\"bottom\":%.0f,"
+				"\"state\":%d,\"targeted\":%d,\"speed\":%.0f}\n",
+				liftlog_num_plats, (int)(e - g_edicts),
+				e->absmin[0], e->absmin[1], e->absmin[2],
+				e->absmax[0], e->absmax[1], e->absmax[2],
+				e->pos1[2], e->pos2[2],
+				e->moveinfo.state, e->targetname ? 1 : 0,
+				e->moveinfo.speed);
+		liftlog_num_plats++;
+	}
+	gi.dprintf ("ozbot: liftlog tracking %d func_plat(s)\n", liftlog_num_plats);
+}
+
+/*
+=================
+Bot_LogLiftTick
+
+One record per bot per frame while within LIFTLOG_RANGE (2D) of a tracked
+plat: where the bot is, what it stands on, the plat's state, and the nav
+context (mode/goal/next waypoint/stall clock) -- enough to attribute an
+approach failure to a specific subsystem.
+=================
+*/
+void Bot_LogLiftTick (bot_t *b)
+{
+	edict_t	*ent;
+	int		i;
+
+	if (!log_fp || !bot_liftlog || bot_liftlog->value == 0 || !liftlog_num_plats)
+		return;
+	if (!b || !b->ent || !b->ent->client || b->ent->deadflag)
+		return;
+
+	ent = b->ent;
+	for (i = 0; i < liftlog_num_plats; i++)
+	{
+		edict_t	*p = liftlog_plats[i];
+		float	cx = (p->absmin[0] + p->absmax[0]) * 0.5f;
+		float	cy = (p->absmin[1] + p->absmax[1]) * 0.5f;
+		float	dx = ent->s.origin[0] - cx;
+		float	dy = ent->s.origin[1] - cy;
+		int		next_node = (b->path_idx < b->path_len) ? b->path[b->path_idx] : -1;
+
+		if (dx*dx + dy*dy > LIFTLOG_RANGE * LIFTLOG_RANGE)
+			continue;
+
+		fprintf (log_fp,
+			"{\"type\":\"liftlog\",\"t\":%.2f,\"bot\":%d,\"plat\":%d,"
+			"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,"
+			"\"pstate\":%d,\"ptopz\":%.1f,"
+			"\"ground\":\"%s\",\"onplat\":%d,"
+			"\"mode\":%d,\"item\":\"%s\",\"pidx\":%d,\"plen\":%d,"
+			"\"nextnode\":%d,\"nextz\":%.0f,"
+			"\"stall\":%.1f,\"lstate\":%d}\n",
+			level.time, b->id, i,
+			ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+			p->moveinfo.state, p->absmax[2],
+			ent->groundentity ? (ent->groundentity->classname ? ent->groundentity->classname : "?") : "",
+			(ent->groundentity == p) ? 1 : 0,
+			b->mode,
+			(b->goal_item && b->goal_item->item && b->goal_item->item->pickup_name)
+				? b->goal_item->item->pickup_name : "",
+			b->path_idx, b->path_len,
+			next_node,
+			(next_node >= 0 && next_node < nav.num_nodes) ? nav.nodes[next_node].origin[2] : 0.0f,
+			level.time - b->progress_time,
+			b->lift_state);
+	}
+}
+
+/*
+=================
+Bot_LogPenalize
+
+Records a Nav_PenalizeLink call (the stuck-replan path punishing a link), so
+the miner can see exactly when the learned lift column gets penalized away.
+=================
+*/
+void Bot_LogPenalize (bot_t *b, int from, int to)
+{
+	if (!log_fp || !bot_liftlog || bot_liftlog->value == 0)
+		return;
+	if (!b || !b->ent)
+		return;
+	if (from < 0 || to < 0 || from >= nav.num_nodes || to >= nav.num_nodes)
+		return;
+
+	fprintf (log_fp,
+		"{\"type\":\"event\",\"event\":\"penalize\",\"t\":%.2f,\"bot\":%d,"
+		"\"from\":%d,\"to\":%d,\"fz\":%.0f,\"tz\":%.0f,"
+		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}\n",
+		level.time, b->id,
+		from, to, nav.nodes[from].origin[2], nav.nodes[to].origin[2],
+		b->ent->s.origin[0], b->ent->s.origin[1], b->ent->s.origin[2]);
+}
+
 /*
 =================
 Bot_LogMaybeFlush

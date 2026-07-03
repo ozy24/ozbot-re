@@ -1,6 +1,14 @@
 # Plan: ride the lift, get the Grenade Launcher
 
-Status: **proposed** (not started)
+Status: **DONE** (2026-07-03, PLAN.md Phase 17) — target beaten: GL 5.2% → **41.1%**
+pooled over the 5-seed rig (plus Chaingun 0% → 54.5% for free), ITEM +3.7pt, no
+regression on q2dm3/q2dm5/q2dm8. `bot_lift` is default ON.
+Phase 0's diagnosis *overturned* the reframe below in one important way: the dominant
+failure was the <200u **2D** final-approach override trapping bots directly under the
+GL with path progress frozen — the wait-punishing subsystems in the table were real but
+secondary. The state machine below was still built (boarding needs the footprint-clear
+wait; standing in the footprint provably holds the plat up via the shaft-high trigger),
+with one addition: a 2.5s BOARD no-movement failover for railed-off approaches.
 Target: q2dm1 Grenade Launcher completion ~5–7% → **>30%** via the lift route,
 with no regression on the standard 5-seed rig.
 Prior art: PLAN.md Phases 15–16, memories `ozbot-swim-win` / `ozbot-lift-demo-findings`.

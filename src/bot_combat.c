@@ -288,6 +288,15 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		cmd->buttons |= BUTTON_ATTACK;
 
 	// --- blend combat movement into the existing (nav) move intent ---
+	// not while boarding/riding a lift: the lift controller owns movement
+	// there (a dodge would carry the bot off the plat); aiming and firing
+	// above still apply -- movement/aim decoupling makes that free.  The
+	// bot_lift check matters: turning the cvar off mid-run strands
+	// lift_state (nothing else advances it), which must not keep gating this.
+	if (bot_lift->value != 0
+		&& (b->lift_state == LIFT_BOARD || b->lift_state == LIFT_RIDE))
+		return true;
+
 	VectorSubtract (enemy->s.origin, self->s.origin, toenemy);
 	toenemy[2] = 0;
 	VectorNormalize (toenemy);

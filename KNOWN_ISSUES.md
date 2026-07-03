@@ -6,39 +6,36 @@ Most of these are *measured* limitations with failed fix attempts documented in
 
 ## Navigation / traversal
 
-### Vertically-gated items are avoided, not collected
-The big one. Items reachable only via lifts or multi-level platform ascents have near-zero
-completion: on q2dm1 the Chaingun ~4%, HyperBlaster ~5%, Grenade Launcher ~6%, while
-flat-route items complete at 50–100%. The learned graph + A* *find* routes to these spots
-(paths exist, so goals commit), but the bot cannot reliably execute the ascent — bots
-strand below the item and burn the full goal budget. Four architecturally distinct
-traversal fixes (ledge-jump primitive, two lift/vertical-arrival fixes, rollout-based
-ascent) all lost controlled A/Bs even when they demonstrably improved pathing diagnostics.
+### Narrow-walkway items still fail (lift-gated items are SOLVED)
+What used to be "the big one" — items behind lifts — was fixed in Phase 17: `bot_lift`
+(default ON) turns learned lift columns into `PLAT` links and runs a wait/board/ride
+controller, taking q2dm1's Grenade Launcher from ~5% to ~41% and the Chaingun from 0% to
+~55% completion. Two capability wins now share the same shape: `bot_swim` (Railgun, Phase
+15) and `bot_lift` (GL/CG, Phase 17), both from instrumented diagnosis of one named
+failure rather than generic movement work. History of the failed attempts (ledge-jump,
+two steering-only lift fixes, rollout ascent, demo-route surgery) is in `../PLAN.md`
+Phases 6–16.
 
-`bot_itemfail` (escalating shared blacklist after giveups) makes the bots *economically
-avoid* these items instead of repeatedly failing them — good for throughput, but it means
-the bot concedes some map control where strong items are gated. Fixing this needs a
-genuine locomotion capability (reliable lift riding / platform ascent), not more tuning.
+What remains vertically-gated:
+- **HyperBlaster / upper Rocket Launcher (q2dm1)**: ~5–10% completion, unchanged. These
+  need *narrow-ledge walking precision* — the z920 walkway has 180–250u drops on both
+  sides, and even the human recording the reference demo fell off it. A ledge-centering
+  path follower is the missing capability (declared out of scope in the lift plan).
+- **q2dm2 (Tokay's Towers)** is still at its ~26% ceiling; its vertical items have not
+  been re-measured since `bot_lift` landed — its plats may need the same treatment
+  validated there.
+- **Conditional shaft-mouth links**: links learned *across* an open lift shaft at the top
+  level are only walkable while the plat is parked up; bots routing across the mouth when
+  it's down fall through (observed in Phase-17 diagnosis). Harmless-ish (they land at the
+  bottom and replan) but it wastes goal budget; a plat-aware link check would fix it.
 
-Confirmed systemic by the Phase-14 multi-map sweep: the ceiling tracks map verticality —
-q2dm1 ~33% / q2dm2 (Tokay's Towers) ~26% ITEM with the same item-above giveup signature,
-versus ~62% / ~55% on flatter q2dm5 / q2dm8. The bot's item logic is fine; the ascent
-capability is the binding constraint on vertical maps.
-
-Encouraging precedent (Phase 15): q2dm1's Railgun looked like this issue but was actually
-**swim-gated** (water tube + vertical shaft), and a small targeted capability — `bot_swim`,
-3D steering in water — took it from 0% to ~48% completion. The remaining offenders are
-lift/platform ascents in air, a different (harder) capability.
-
-Phase 16 narrowed the diagnosis with user-recorded route demos: the graph *already* knows
-the lift ride (a learned vertical column of links), and demo-route surgery can make every
-high item reachable — but conversion barely moves, because bots (a) fail to *board* the
-lift (every failure stalls 100+ units from the shaft) and (b) fall off the narrow elevated
-walkways en route (the human recording the demo fell off the same ledge). The binding
-constraint is execution precision on narrow/elevated geometry, not route knowledge.
-`bot_lift` (vertical-context steering, the land analogue of `bot_swim`) ships default-OFF:
-it was a lean-positive wash over 13 seeds (+2% pickups, 9W/4L), kept as groundwork.
-`tools/nav_add_route.py` (splice a walked demo into a .nav) is kept as reusable infra.
+Phase-17 diagnosis footnote, because it corrects Phase 16's conclusion: the dominant GL
+failure was never boarding mechanics — it was the final-approach override homing on items
+by *2D* distance, which trapped bots directly under the GL (567u below it) with path
+progress frozen. `bot_lift` gates that override to the item's own level. The boarding
+state machine mattered too (a bot standing in a plat's footprint holds the plat up
+forever via the shaft-high touch trigger — waiting must happen *outside* the footprint),
+but the override was the binding constraint.
 
 ### The graph can claim routes the bot can't execute
 Root cause of the above: links are learned from any successful traversal (including lucky
@@ -98,6 +95,13 @@ use cover; survivability comes from `bot_flee`'s retreat and the strafe pattern.
 
 ## Infrastructure / docs
 
+- **Nav files saved by a `bot_lift`-ON run carry `PLAT`-typed links** (type 5, cost
+  includes a +400 wait allowance). Loading such a graph with `bot_lift 0` is safe but not
+  byte-equivalent to the pre-lift baseline (A* sees the +400 costs). The canonical
+  `engine/ozbot/nav/q2dm1.nav` was deliberately left untagged — tagging recomputes from
+  entities at every map load — but any non-parallel run (e.g. `run_server.bat`) will
+  autosave tags into it. For strict A/Bs against pre-Phase-17 baselines, restore a
+  `q2dm1.nav.*` backup first.
 - `CHANGELOG.md` and `src/README.md` are stale Quake-2-mod-template boilerplate predating
   the bot. The living docs are `README.md`, this file, `../PLAN.md`, and the analysis
   tooling in `../tools/` (note: `../PLAN.md` and `../tools/` live outside this git repo).

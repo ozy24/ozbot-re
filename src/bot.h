@@ -20,6 +20,15 @@ Every .c file that includes bot.h must include "g_local.h" first.
 #define BOT_MODE_EXPLORE	0	// wander, growing the nav graph
 #define BOT_MODE_GOAL		1	// follow an A* path to a goal node
 
+// lift controller states (bot_lift; see plans/lift-riding.md).  A lift ride
+// needs deliberate waiting -- these states own the movement intent and keep
+// the stuck/replan/budget machinery from punishing the stillness.
+#define LIFT_NONE		0
+#define LIFT_WAIT		1	// plat is away: hold clear of the footprint
+#define LIFT_BOARD		2	// plat at bottom: walk onto it
+#define LIFT_RIDE		3	// standing on the plat: let it carry us
+#define LIFT_FAILED		4	// timed out this attempt: normal systems resume
+
 // per-bot runtime state, kept in a registry indexed by client slot
 // (0-based: registry index i corresponds to edict g_edicts[i+1]).
 typedef struct
@@ -62,6 +71,14 @@ typedef struct
 	float		progress_time;	// last time we made progress
 	qboolean	was_onground;
 	qboolean	did_jump;		// issued a jump; used to learn jump links
+
+	// lift riding (bot_lift)
+	int			lift_state;		// LIFT_*
+	edict_t		*lift_plat;		// the func_plat being waited for / ridden
+	float		lift_deadline;	// level.time cap on the current lift state
+	vec3_t		lift_move_pos;	// BOARD progress: last position...
+	float		lift_move_time;	// ...and when we were there (geometry-block
+								// detector -- boarding should never stall)
 
 	// combat
 	edict_t		*enemy;			// current target (NULL = none)
@@ -106,6 +123,7 @@ extern cvar_t	*bot_budgetcap;
 extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_swim;
 extern cvar_t	*bot_lift;
+extern cvar_t	*bot_liftlog;
 
 //
 // bot_move.c -- steering (target point / path following -> usercmd_t)
@@ -129,6 +147,14 @@ extern edict_t	*pm_passent;
 trace_t PM_trace (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end);
 // projects move_dir onto the facing to produce forward/side/up in cmd
 void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw);
+
+// lift riding (bot_lift): WAIT/BOARD/RIDE state machine.  Returns true while
+// it owns the frame's movement intent (caller then skips path following,
+// stuck recovery, and the goal-budget clock for the frame).
+qboolean Bot_LiftThink (bot_t *b);
+void Bot_LiftReset (bot_t *b);
+// the func_plat whose horizontal footprint contains pos, or NULL
+edict_t *Bot_FindPlatAt (vec3_t pos);
 
 //
 // bot_combat.c -- enemy selection, aim, fire, dodge
@@ -173,5 +199,9 @@ void Bot_LogEndLevel (void);					// flush + close the current JSONL
 void Bot_LogTick (bot_t *b);					// per-tick state record
 void Bot_LogEvent (bot_t *b, const char *event);	// spawn/death/etc.
 void Bot_LogMaybeFlush (void);					// periodic flush
+// bot_liftlog diagnosis instrumentation (throwaway, see plans/lift-riding.md)
+void Bot_LogLiftBegin (void);					// cache func_plats + emit platinfo
+void Bot_LogLiftTick (bot_t *b);				// per-tick record while near a plat
+void Bot_LogPenalize (bot_t *b, int from, int to);	// link penalization event
 
 #endif // OZBOT_BOT_H

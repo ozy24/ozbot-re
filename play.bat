@@ -3,7 +3,7 @@ REM ozbot - launch a local game (listen server) so you can PLAY against the bots
 REM You spawn in q2dm1 with bots; adjust with the console (~) cvars below.
 REM Override the install location with:  set Q2DIR=C:\path\to\quake2
 setlocal
-if "%Q2DIR%"=="" set "Q2DIR=E:\Projects\ozbot\engine"
+if "%Q2DIR%"=="" set "Q2DIR=%~dp0..\engine"
 cd /d "%Q2DIR%"
 
 if not exist "ozbot\gamex86.dll" (

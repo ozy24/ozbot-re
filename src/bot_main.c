@@ -33,6 +33,7 @@ cvar_t	*bot_budgetcap;
 cvar_t	*bot_itemfail;
 cvar_t	*bot_swim;
 cvar_t	*bot_lift;
+cvar_t	*bot_liftlog;
 
 // registry indexed by client slot (index i <-> g_edicts[i+1])
 static bot_t	bots[MAX_CLIENTS];
@@ -71,7 +72,9 @@ void Bot_Init (void)
 	bot_budgetcap    = gi.cvar ("bot_budgetcap", "15", 0);	// max seconds to fund any one goal route
 	bot_itemfail     = gi.cvar ("bot_itemfail", "1", 0);	// escalating shared blacklist for items bots keep failing
 	bot_swim         = gi.cvar ("bot_swim", "1", 0);		// 3D steering in water (vertical swim + water-jump exits)
-	bot_lift         = gi.cvar ("bot_lift", "0", 0);		// ride plat columns: stand still + 3D waypoint arrival
+	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
+															// controller, 3D column arrival, level-aware homing
+	bot_liftlog      = gi.cvar ("bot_liftlog", "0", 0);		// diagnosis telemetry near func_plats (plans/lift-riding.md)
 	bot_skilltest    = gi.cvar ("bot_skilltest", "0", 0);
 	bot_lead         = gi.cvar ("bot_lead", "1", 0);		// lead moving targets by projectile flight time
 	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);	// head-to-head: even bot ids lead, odd don't
@@ -135,6 +138,7 @@ static void Bot_ResetNavState (bot_t *b)
 	b->path_idx  = 0;
 	b->replan_time  = level.time + 1.0;
 	b->progress_time = level.time;
+	Bot_LiftReset (b);
 	if (b->ent)
 		VectorCopy (b->ent->s.origin, b->last_pos);
 }
@@ -326,6 +330,7 @@ static void Bot_GoExplore (bot_t *b)
 	b->path_idx  = 0;
 	b->replan_time   = level.time + 1.0 + random() * 2.0;
 	b->progress_time = level.time;
+	Bot_LiftReset (b);
 }
 
 /*
@@ -402,6 +407,12 @@ static void Bot_Navigate (bot_t *b)
 			link = NAV_LINK_FALL;					// dropped down
 		else if (b->did_jump && dz > 24)
 			link = NAV_LINK_JUMP;					// jumped up onto something
+		// carried up while standing on a func_plat: a plat link, one-way
+		// (takes priority over jump -- the plat did the lifting)
+		if (bot_lift->value != 0 && dz > 24
+			&& ent->groundentity && ent->groundentity->classname
+			&& strcmp (ent->groundentity->classname, "func_plat") == 0)
+			link = NAV_LINK_PLAT;
 	}
 	b->prev_node = Nav_LearnStep (ent, b->prev_node, link);
 	b->cur_node  = b->prev_node;
@@ -509,6 +520,22 @@ static void Bot_Navigate (bot_t *b)
 			}
 		}
 
+		// lift riding: when a plat hop is in play the controller owns the
+		// movement intent.  Waiting counts as progress (no stuck recovery)
+		// and isn't billed to the goal budget -- deliberate stillness is the
+		// whole capability (plans/lift-riding.md).
+		if (bot_lift->value != 0)
+		{
+			if (Bot_LiftThink (b))
+			{
+				b->progress_time = level.time;
+				b->goal_time += FRAMETIME;
+				return;
+			}
+		}
+		else if (b->lift_state != LIFT_NONE)
+			Bot_LiftReset (b);	// cvar turned off mid-attempt: clear stale state
+
 		if (!Bot_FollowPath (b))
 		{
 			// arrived at the goal node
@@ -538,7 +565,10 @@ static void Bot_Navigate (bot_t *b)
 				// penalize the segment we keep failing to traverse so the replan
 				// routes around it (the graph learns untraversable links)
 				if (b->path_idx > 0 && b->path_idx < b->path_len)
+				{
 					Nav_PenalizeLink (b->path[b->path_idx - 1], b->path[b->path_idx]);
+					Bot_LogPenalize (b, b->path[b->path_idx - 1], b->path[b->path_idx]);
+				}
 				start = Nav_NearestNode (ent->s.origin);
 				b->path_len = Nav_FindPath (start, b->goal_node, b->path, BOT_MAX_PATH);
 				b->path_idx = 0;
@@ -560,9 +590,16 @@ static void Bot_Navigate (bot_t *b)
 		{
 			vec3_t	dv;
 			VectorSubtract (b->goal_item->s.origin, ent->s.origin, dv);
-			dv[2] = 0;
-			if (VectorLength (dv) < 200)
-				Bot_SteerToPoint (b, b->goal_item->s.origin);
+			// (bot_lift) only home when the item is on our level: the 2D-only
+			// check trapped bots directly UNDER elevated items (Phase 0: 6/8
+			// GL giveups orbited beneath it, path progress frozen, while the
+			// route to the lift ran the other way)
+			if (bot_lift->value == 0 || fabs (dv[2]) < 64)
+			{
+				dv[2] = 0;
+				if (VectorLength (dv) < 200)
+					Bot_SteerToPoint (b, b->goal_item->s.origin);
+			}
 		}
 		return;
 	}
@@ -607,6 +644,7 @@ static void Bot_Navigate (bot_t *b)
 				b->goal_time     = level.time;
 				b->goal_cost     = Nav_LastPathCost ();
 				b->goal_best     = 99999;
+				Bot_LiftReset (b);
 				if (b->goal_item)
 					Bot_LogItemEvent (b, "goal_item", b->goal_item->item->pickup_name);
 				else
@@ -758,6 +796,8 @@ void Bot_RunFrame (void)
 		Bot_LogBeginLevel (level.mapname);
 		Nav_Init (level.mapname);
 		Goal_SeedNavNodes ();		// ensure item spots are covered + routable
+		Nav_TagPlatLinks ();		// bot_lift: retag learned lift columns
+		Bot_LogLiftBegin ();		// bot_liftlog: cache plats for diagnosis telemetry
 		Com_sprintf (bot_logged_map, sizeof(bot_logged_map), "%s", level.mapname);
 	}
 
@@ -814,6 +854,7 @@ void Bot_RunFrame (void)
 		ClientThink (ent, &cmd);
 
 		Bot_LogTick (b);
+		Bot_LogLiftTick (b);
 	}
 
 	Bot_DebugDraw ();

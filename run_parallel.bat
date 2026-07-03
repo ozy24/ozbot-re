@@ -6,7 +6,7 @@ REM     run_parallel.bat --instances 4 --seconds 60 --bots 5 --timescale 2
 setlocal
 cd /d "%~dp0"
 
-if "%Q2DIR%"=="" set "Q2DIR=E:\Projects\ozbot\engine"
+if "%Q2DIR%"=="" set "Q2DIR=%~dp0..\engine"
 
 call build.bat
 if errorlevel 1 exit /b 1

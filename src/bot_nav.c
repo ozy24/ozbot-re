@@ -49,6 +49,8 @@ static float Nav_LinkCost (vec3_t a, vec3_t b, int type)
 	case NAV_LINK_JUMP:		return d * 1.5f + 32.0f;
 	case NAV_LINK_TELEPORT:	return 64.0f;	// cheap, fixed
 	case NAV_LINK_WATER:	return d * 1.6f;
+	case NAV_LINK_PLAT:		return d + 400.0f;	// wait allowance: boarding may
+												// mean waiting out a plat cycle
 	default:				return d;
 	}
 }
@@ -195,6 +197,62 @@ int Nav_LearnStep (edict_t *ent, int prev_node, int link_type)
 
 /*
 =================
+Nav_TagPlatLinks
+
+Retag learned lift-column links as NAV_LINK_PLAT so path costs price the
+ride's wait and the lift controller knows where to engage.  A column link is
+a near-vertical walk link (the signature of being carried while "grounded" on
+a rising plat) whose BOTH endpoints sit inside a real func_plat's horizontal
+footprint -- the entity check matters: pure geometry also matches water-jump
+ledge exits (measured on q2dm1, Phase 0 of plans/lift-riding.md).
+
+Gated on bot_lift so the capability-off control graph is untouched.
+=================
+*/
+void Nav_TagPlatLinks (void)
+{
+	int		i, j, tagged = 0;
+
+	if (bot_lift->value == 0)
+		return;
+
+	for (i = 0; i < nav.num_nodes; i++)
+	{
+		nav_node_t *n = &nav.nodes[i];
+		for (j = 0; j < n->num_links; j++)
+		{
+			nav_link_t	*l = &n->links[j];
+			nav_node_t	*m;
+			vec3_t		d;
+			edict_t		*p;
+
+			if (l->type != NAV_LINK_WALK)
+				continue;
+			if (l->to < 0 || l->to >= nav.num_nodes)
+				continue;
+			m = &nav.nodes[l->to];
+			VectorSubtract (m->origin, n->origin, d);
+			if (d[2] < 48)
+				continue;	// not a climb
+			if (d[0]*d[0] + d[1]*d[1] > 30*30)
+				continue;	// not near-vertical
+			p = Bot_FindPlatAt (n->origin);
+			if (!p || Bot_FindPlatAt (m->origin) != p)
+				continue;	// endpoints not on one real plat
+
+			l->type = NAV_LINK_PLAT;
+			l->cost = Nav_LinkCost (n->origin, m->origin, NAV_LINK_PLAT);
+			tagged++;
+			nav_dirty = true;
+		}
+	}
+
+	if (tagged)
+		gi.dprintf ("ozbot: tagged %d plat link(s)\n", tagged);
+}
+
+/*
+=================
 Nav_SeedNode
 
 Ensure a node exists at 'origin' (e.g. an item spot) and connect it to nearby
@@ -278,6 +336,12 @@ void Nav_PenalizeLink (int from, int to)
 	{
 		if (n->links[i].to != to)
 			continue;
+
+		// plat links are executed by the lift controller (bot_move.c), which
+		// suppresses stuck detection during a ride -- a bot that stalls near a
+		// shaft anyway must not erode the learned column
+		if (bot_lift->value != 0 && n->links[i].type == NAV_LINK_PLAT)
+			return;
 
 		if (++link_fails[from][i] >= 3)
 		{
