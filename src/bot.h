@@ -206,6 +206,13 @@ trace_t PM_trace (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end);
 // projects move_dir onto the facing to produce forward/side/up in cmd
 void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw);
 
+// traversal contract (plans/nav-oracle.md Phase B): index into b->path of
+// the FROM node of the next hop of 'type' in play (traversing now, or
+// upcoming within 'engage' range; 'release' is the disengage hysteresis for
+// an already-engaged controller), or -1.  The generic query a typed-link
+// traversal controller engages from.
+int Bot_UpcomingHop (bot_t *b, int type, float engage, float release, qboolean engaged);
+
 // lift riding (bot_lift): WAIT/BOARD/RIDE state machine.  Returns true while
 // it owns the frame's movement intent (caller then skips path following,
 // stuck recovery, and the goal-budget clock for the frame).

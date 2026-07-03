@@ -440,27 +440,31 @@ edict_t *Bot_FindPlatAt (vec3_t pos)
 
 /*
 =================
-Lift_UpcomingPlatHop
+Bot_UpcomingHop
 
-Index into b->path of the FROM node of the plat hop in play: the hop we are
-currently traversing, or the next one once we're near its base.  -1 if none.
+Index into b->path of the FROM node of the next hop of link type 'type' in
+play: the hop being traversed now, or the upcoming one once the bot is
+within 'engage' range of its base ('release' > 'engage' gives an already-
+engaged controller disengage hysteresis, so e.g. combat dodging can't flap
+it on and off).  This is the generic query behind typed-link traversal
+controllers -- the lift today, any future capability keyed to a link type
+(plans/nav-oracle.md Phase B).  -1 if none.
 =================
 */
-static int Lift_UpcomingPlatHop (bot_t *b)
+int Bot_UpcomingHop (bot_t *b, int type, float engage, float release, qboolean engaged)
 {
 	if (b->path_len <= 0)
 		return -1;
 
 	if (b->path_idx >= 1 && b->path_idx < b->path_len
-		&& Bot_LinkType (b->path[b->path_idx - 1], b->path[b->path_idx]) == NAV_LINK_PLAT)
+		&& Bot_LinkType (b->path[b->path_idx - 1], b->path[b->path_idx]) == type)
 		return b->path_idx - 1;
 
 	if (b->path_idx >= 0 && b->path_idx + 1 < b->path_len
-		&& Bot_LinkType (b->path[b->path_idx], b->path[b->path_idx + 1]) == NAV_LINK_PLAT)
+		&& Bot_LinkType (b->path[b->path_idx], b->path[b->path_idx + 1]) == type)
 	{
 		vec3_t	d;
-		float	range = (b->lift_state != LIFT_NONE) ? LIFT_RELEASE_RANGE
-													  : LIFT_ENGAGE_RANGE;
+		float	range = engaged ? release : engage;
 		VectorSubtract (nav.nodes[b->path[b->path_idx]].origin, b->ent->s.origin, d);
 		d[2] = 0;
 		if (VectorLength (d) < range)
@@ -503,7 +507,8 @@ qboolean Bot_LiftThink (bot_t *b)
 	if (b->lift_state == LIFT_FAILED)
 		return false;
 
-	hop = Lift_UpcomingPlatHop (b);
+	hop = Bot_UpcomingHop (b, NAV_LINK_PLAT, LIFT_ENGAGE_RANGE, LIFT_RELEASE_RANGE,
+		b->lift_state != LIFT_NONE);
 	if (hop < 0)
 	{
 		if (b->lift_state != LIFT_NONE)

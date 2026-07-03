@@ -96,6 +96,19 @@ per-config nav copies.
 
 ## Phase B — the traversal contract (follower dispatch on link type)
 
+> **RESULT (2026-07-03): landed smaller than planned, bit-exact.** The
+> premise "PLAT is special-cased at three scattered sites" was wrong on
+> closer read: all three live *inside* the lift controller, and the
+> controller-ownership convention (Bot_LiftThink/Bot_StrafeThink return true
+> while owning the frame) already IS the dispatch contract. What was
+> genuinely missing was the reusable piece: `Lift_UpcomingPlatHop` was the
+> generic typed-hop query with PLAT hardcoded. It is now `Bot_UpcomingHop
+> (b, type, engage, release, engaged)` in bot.h — the query any future
+> typed-link controller engages from. A dispatch table over two controllers
+> (one of them runway-based, not link-typed) would have been speculative
+> structure; skipped. The `bot_navlearn2` teleport-stamping rider is also
+> skipped: unverifiable on q2dm1 (no teleporters) and nothing consumes it yet.
+
 The `PathInfo.pathLinkType` idea: the follower always knows the type of the
 upcoming path segment and hands frame ownership to that type's controller,
 instead of each capability sniffing the path independently.
