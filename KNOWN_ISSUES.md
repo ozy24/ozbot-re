@@ -93,6 +93,35 @@ Directed rocket dodging was tried twice (16-seed A/Bs) and removed: constant com
 already captures the value. Consequence: bots do not deliberately break line-of-sight or
 use cover; survivability comes from `bot_flee`'s retreat and the strafe pattern.
 
+## Humanization (Phase 18)
+
+The humanization stack closed most of the measured bot-vs-human distribution gaps
+(mean KS across 8 features 0.355 → 0.218 vs 1,299 pro demos), but honestly:
+
+- **Strafe-reversal texture regressed** (KS 0.16 → 0.29): `bot_hop`'s demo-fitted
+  strafe legs are right by construction, but the *observable* side-velocity flips now
+  include hop-landing physics jitter the metric can't separate. Fixing the metric
+  (filter airborne frames) would be flattering ourselves; left as measured.
+- **Stillness only partially fixed** (26% → 23% of time vs 12% human): the remaining
+  standing-still time is lift WAITs (deliberate and load-bearing — fidgeting near a
+  plat footprint can hold the lift up, so `bot_fidget` excludes lift states) and
+  explore-mode wall encounters the turn-away only shortens.
+- **Speed texture is capped by capability**: humans exceed 300 u/s via strafe-jump
+  momentum (their p90 is ~428); the bot can't without the movement-capability work
+  this plan explicitly excludes. KS ~0.36 is the floor here.
+- **Open maps lose combat tempo**: on q2dm5 the full stack cut frags ~40% (deaths
+  −28%, K/D flat, ITEM +3.2pt) — FOV'd, hopping, glancing bots simply engage less on
+  long sightlines. Distributed across behaviors, not one cvar. q2dm1/q2dm8 show
+  −2%/−12%. This is the humanness trade expressing per-map; revisit only if a map
+  feels dead to play.
+- **Asymmetric cost vs omniscient bots**: in mixed matches (`bot_humantest`),
+  humanized bots run a kill ratio of 0.818 vs the 0.946 control (~13.5% relative;
+  final binary, 16+16 seeds). Hearing (weapon noise acquires through the cone)
+  already halved the raw FOV cost; the residual is the blind spot working as
+  intended.
+- The parity harness needs an **even** `bot_count` (odd counts split 3:2 by id parity
+  — measured as a phantom 1.53 kill ratio before the fix to the sweep rig).
+
 ## Infrastructure / docs
 
 - **Nav files saved by a `bot_lift`-ON run carry `PLAT`-typed links** (type 5, cost

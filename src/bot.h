@@ -66,6 +66,11 @@ typedef struct
 	float		goal_best;		// closest we've come to the goal node this attempt
 	int			pending_link;	// link type to record on next learn step
 
+	// idle fidget (bot_fidget -- humanization)
+	float		fidget_until;	// next fidget re-roll
+	float		fidget_yaw;		// direction of the current micro-step
+	float		fidget_mag;		// intent magnitude (0 = standing beat)
+
 	// stuck / progress tracking
 	vec3_t		last_pos;
 	float		progress_time;	// last time we made progress
@@ -80,12 +85,30 @@ typedef struct
 	float		lift_move_time;	// ...and when we were there (geometry-block
 								// detector -- boarding should never stall)
 
+	// gaze (bot_gaze / bot_turnrate -- humanization, plans/humanization.md)
+	float		gaze_pitch_wander;	// slow pitch-noise state (OU)
+	float		gaze_cap;		// this look's turn-speed cap (deg/tick)
+	int			gaze_last_node;	// look-ahead node (new node = new turn speed)
+	float		gaze_hold_yaw;	// fixation: the held look target
+	float		gaze_hold_pitch;
+	float		glance_until;	// an active glance expires at this time
+	float		glance_yaw;		// world yaw / pitch of the active glance
+	float		glance_pitch;
+	float		next_glance_time;	// earliest start of the next glance
+
 	// combat
 	edict_t		*enemy;			// current target (NULL = none)
+	edict_t		*threat_ent;	// bot_fov: who hurt us last (pain reflex)
+	float		threat_time;	// ...and when
 	vec3_t		aim;			// current aim angles (tracks toward target)
+	vec3_t		aim_err;		// bot_aimtexture: wandering (OU) aim error
+	float		aim_bearing_prev;	// last tick's target bearing (yaw)
+	float		aim_sweep_sign;	// which way the bearing was sweeping
+	float		aim_flip_time;	// last reversal-overshoot event (rate limit)
 	float		reaction_until;	// earliest time we may fire after acquiring
 	float		dodge_until;	// when to re-pick a strafe direction
 	int			dodge_dir;		// -1 / +1 strafe
+	float		dodge_flip_time;	// bot_hop: when the last reversal began
 	qboolean	flee;			// outmatched: retreat and fetch health/armor
 
 	// transition tracking for event logging
@@ -108,6 +131,8 @@ void Bot_Init (void);			// called from InitGame()
 void Bot_Shutdown (void);		// called from ShutdownGame()
 void Bot_RunFrame (void);		// called from the top of G_RunFrame()
 qboolean Bot_ServerCommand (void);	// handle "sv bot_*"; returns true if consumed
+qboolean Bot_IsClient (edict_t *ent);	// true for DLL-driven bots (no net client)
+void G_UnicastClient (edict_t *ent, qboolean reliable);	// gi.unicast, skips bots
 // true if some OTHER active bot already has 'it' as its current goal_item
 qboolean Bot_ItemClaimed (edict_t *it, bot_t *self);
 
@@ -138,6 +163,9 @@ qboolean Bot_FollowPath (bot_t *b);		// true while still following
 // makes the most progress toward the current path waypoint. Used in place of
 // Bot_Unstick when simple steering has stalled.
 void Bot_RolloutRecover (bot_t *b);
+// humanization: micro-steps while holding a spot (waiting on a respawn)
+void Bot_Fidget (bot_t *b, vec3_t anchor);
+extern cvar_t	*bot_fidget;
 
 // exposed by p_client.c (already file-scope globals there, just not prototyped
 // anywhere) -- reused as the trace/passent plumbing for Bot_RolloutRecover's
@@ -157,6 +185,20 @@ void Bot_LiftReset (bot_t *b);
 edict_t *Bot_FindPlatAt (vec3_t pos);
 
 //
+// bot_gaze.c -- humanization: out-of-combat gaze + view-turn dynamics
+//
+// out-of-combat facing for the frame (handles its own cvar gating; falls back
+// to yaw = move_yaw, pitch = 0 when off)
+void Bot_GazeThink (bot_t *b, float *facing_yaw, float *facing_pitch);
+// exponential-approach angle slew (gain x remaining delta, capped per tick)
+float Bot_SlewAngle (float cur, float target, float gain, float cap);
+// humanization behaviors apply to this bot (bot_humantest parity gate)
+qboolean Bot_Humanized (bot_t *b);
+extern cvar_t	*bot_gaze;
+extern cvar_t	*bot_turnrate;
+extern cvar_t	*bot_humantest;
+
+//
 // bot_combat.c -- enemy selection, aim, fire, dodge
 //
 // Sets aim into *facing_yaw/*facing_pitch and the fire button into cmd; may
@@ -174,6 +216,16 @@ extern cvar_t	*bot_aimreact;
 extern cvar_t	*bot_aimturn;
 extern cvar_t	*bot_aimerr;
 extern cvar_t	*bot_aimfire;
+extern cvar_t	*bot_aimtexture;
+extern cvar_t	*bot_fov;
+extern cvar_t	*bot_hop;
+
+// bot_fov pain reflex: a bot that takes damage learns where from (hooked from
+// player_pain in p_client.c, which vanilla leaves empty)
+void Bot_NotePain (edict_t *self, edict_t *attacker);
+// bot_fov hearing: weapon-noise bookkeeping (hooked from PlayerNoise)
+void Bot_NoteNoise (edict_t *who);
+float Bot_NoiseTime (edict_t *who);
 
 //
 // bot_goal.c -- item-driven goal selection

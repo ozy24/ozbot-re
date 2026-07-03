@@ -130,7 +130,7 @@ void Bot_LogTick (bot_t *b)
 		"{\"type\":\"tick\",\"t\":%.2f,\"bot\":%d,\"name\":\"OzBot%d\","
 		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,"
 		"\"vx\":%.1f,\"vy\":%.1f,\"vz\":%.1f,"
-		"\"yaw\":%.1f,\"onground\":%s,"
+		"\"yaw\":%.2f,\"pitch\":%.2f,\"onground\":%s,"
 		"\"health\":%d,\"armor\":%d,\"weapon\":\"%s\",\"dead\":%s,"
 		"\"mode\":%d,\"cur_node\":%d,\"goal_node\":%d,\"path_len\":%d,\"nav_nodes\":%d,"
 		"\"enemy\":%d,\"score\":%d}\n",
@@ -138,6 +138,7 @@ void Bot_LogTick (bot_t *b)
 		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
 		ent->velocity[0], ent->velocity[1], ent->velocity[2],
 		ent->client->ps.viewangles[YAW],
+		ent->client->ps.viewangles[PITCH],
 		ent->groundentity ? "true" : "false",
 		ent->health, armor, weapon,
 		ent->deadflag ? "true" : "false",

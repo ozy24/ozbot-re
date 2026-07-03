@@ -40,6 +40,10 @@ static bot_t	bots[MAX_CLIENTS];
 static int		bot_next_id;			// monotonically increasing for names
 static char		bot_logged_map[MAX_QPATH];	// map the current log/nav is for
 
+// when each client slot last made weapon noise (bot_fov hearing; kept out of
+// gclient_t deliberately -- no vanilla struct edits)
+static float	bot_noise_time[MAX_CLIENTS];
+
 #define BOT_GRAPH_READY		24		// nodes needed before goal-seeking starts
 #define BOT_GOAL_TIMEOUT	12.0f	// abandon a goal not reached within this
 
@@ -75,6 +79,9 @@ void Bot_Init (void)
 	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
 															// controller, 3D column arrival, level-aware homing
 	bot_liftlog      = gi.cvar ("bot_liftlog", "0", 0);		// diagnosis telemetry near func_plats (plans/lift-riding.md)
+	bot_gaze         = gi.cvar ("bot_gaze", "1", 0);		// humanization: path look-ahead, glances, live pitch
+	bot_turnrate     = gi.cvar ("bot_turnrate", "1", 0);	// humanization: slew-limited view turns
+	bot_humantest    = gi.cvar ("bot_humantest", "0", 0);	// head-to-head: even ids humanized, odd stock
 	bot_skilltest    = gi.cvar ("bot_skilltest", "0", 0);
 	bot_lead         = gi.cvar ("bot_lead", "1", 0);		// lead moving targets by projectile flight time
 	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);	// head-to-head: even bot ids lead, odd don't
@@ -85,6 +92,10 @@ void Bot_Init (void)
 	bot_aimturn      = gi.cvar ("bot_aimturn", "1", 0);		//   turn-rate multiplier
 	bot_aimerr       = gi.cvar ("bot_aimerr", "1", 0);		//   aim-error multiplier
 	bot_aimfire      = gi.cvar ("bot_aimfire", "1", 0);		//   fire-threshold multiplier
+	bot_aimtexture   = gi.cvar ("bot_aimtexture", "1", 0);	// humanization: wandering aim error + reversal overshoot
+	bot_fov          = gi.cvar ("bot_fov", "1", 0);			// humanization: ~120 deg vision cone + pain reflex
+	bot_hop          = gi.cvar ("bot_hop", "1", 0);			// humanization: combat jump/strafe rhythm from demo stats
+	bot_fidget       = gi.cvar ("bot_fidget", "1", 0);		// humanization: idle fidget, wall turn-away, travel hops
 
 	// Seed the game's RNG.  The vanilla game never calls srand(), so every
 	// process starts from the same default sequence -- which makes parallel
@@ -121,6 +132,43 @@ void Bot_Shutdown (void)
 
 /*
 =================
+Bot_IsClient
+
+True for ozbot-driven client slots.  These edicts have no real network
+connection (ClientConnect is called from the DLL), so gi.unicast to them
+spams "PF_Unicast to a free/zombie client" in q2pro.
+=================
+*/
+qboolean Bot_IsClient (edict_t *ent)
+{
+	int	i;
+
+	if (!ent || !ent->client || !ent->inuse)
+		return false;
+	i = ent - g_edicts - 1;
+	if (i < 0 || i >= game.maxclients)
+		return false;
+	return bots[i].inuse && bots[i].ent == ent;
+}
+
+/*
+=================
+G_UnicastClient
+
+gi.unicast wrapper that silently skips bot slots.
+=================
+*/
+void G_UnicastClient (edict_t *ent, qboolean reliable)
+{
+	if (!ent || !ent->inuse || !ent->client)
+		return;
+	if (Bot_IsClient (ent))
+		return;
+	gi.unicast (ent, reliable);
+}
+
+/*
+=================
 Bot_ResetNavState
 =================
 */
@@ -139,6 +187,23 @@ static void Bot_ResetNavState (bot_t *b)
 	b->replan_time  = level.time + 1.0;
 	b->progress_time = level.time;
 	Bot_LiftReset (b);
+	b->glance_until = 0;			// no stale glance across a respawn
+	// deterministic (NO random() here): this runs with humanization off too,
+	// and an extra rand() per respawn would shift the whole stream vs stock,
+	// breaking same-seed comparisons against historical baselines
+	b->next_glance_time = level.time + 1.5f;
+	// a respawn is a fresh start: forget the fight we died in.  Keeping
+	// b->enemy/threat across death let a bot_fov bot re-acquire its killer
+	// cone-free and with no reaction delay the instant it respawned.  The
+	// b->enemy clear is gated so a cvars-off build stays behavior- and
+	// RNG-identical to stock (threat/aim_err are humanization-only state --
+	// stock never reads them, so clearing those is always safe)
+	if (bot_fov->value != 0)
+		b->enemy = NULL;
+	b->threat_ent = NULL;
+	b->threat_time = 0;
+	b->aim_err[YAW] = b->aim_err[PITCH] = 0;
+	b->aim_sweep_sign = 0;
 	if (b->ent)
 		VectorCopy (b->ent->s.origin, b->last_pos);
 }
@@ -166,6 +231,68 @@ qboolean Bot_ItemClaimed (edict_t *it, bot_t *self)
 			return true;
 	}
 	return false;
+}
+
+/*
+=================
+Bot_NotePain
+
+Hooked from player_pain (p_client.c, empty in vanilla): a bot that takes
+damage learns who hurt it.  Combat_FindEnemy treats a recent attacker as
+acquirable regardless of the bot_fov view cone -- getting shot turns you
+around (with the normal aim turn dynamics, not a snap).
+=================
+*/
+void Bot_NotePain (edict_t *self, edict_t *attacker)
+{
+	int		i;
+	bot_t	*b;
+
+	if (!self || !self->client || !attacker || !attacker->client
+		|| attacker == self)
+		return;
+	i = self - g_edicts - 1;
+	if (i < 0 || i >= game.maxclients)
+		return;
+	b = &bots[i];
+	if (!b->inuse || b->ent != self)
+		return;
+	b->threat_ent = attacker;
+	b->threat_time = level.time;
+}
+
+/*
+=================
+Bot_NoteNoise / Bot_NoiseTime
+
+Hooked from PlayerNoise (p_weapon.c) before its deathmatch early-out: any
+client's unsilenced weapon fire is "heard".  Combat_FindEnemy uses it so a
+bot_fov bot can acquire a visible shooter outside its view cone -- Q2 weapons
+are loud, and a human absolutely turns toward gunfire behind them.
+=================
+*/
+void Bot_NoteNoise (edict_t *who)
+{
+	int	i;
+
+	if (!who || !who->client)
+		return;
+	i = who - g_edicts - 1;
+	if (i < 0 || i >= MAX_CLIENTS)
+		return;
+	bot_noise_time[i] = level.time;
+}
+
+float Bot_NoiseTime (edict_t *who)
+{
+	int	i;
+
+	if (!who || !who->client)
+		return -9999;
+	i = who - g_edicts - 1;
+	if (i < 0 || i >= MAX_CLIENTS)
+		return -9999;
+	return bot_noise_time[i];
 }
 
 /*
@@ -543,7 +670,10 @@ static void Bot_Navigate (bot_t *b)
 			{
 				// home in on the item (or hold on the spot while we wait for it
 				// to respawn) until we touch it or time out
+				qboolean waiting = b->goal_timing && !Goal_ItemAvailable (b->goal_item);
 				Bot_SteerToPoint (b, b->goal_item->s.origin);
+				if (waiting)
+					Bot_Fidget (b, b->goal_item->s.origin);	// humanization: no statue waits
 				return;
 			}
 			// roam node reached
@@ -686,12 +816,10 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 	Bot_Navigate (b);
 
 	// 2) combat aims/fires and may bias the move direction (strafe/range); when
-	//    not engaged we face our travel direction
+	//    not engaged the gaze layer picks the facing (stock behavior -- face
+	//    the travel direction, pitch 0 -- when its cvars are off)
 	if (!Combat_Aim (b, cmd, &facing_yaw, &facing_pitch))
-	{
-		facing_yaw = b->move_yaw;
-		facing_pitch = 0;
-	}
+		Bot_GazeThink (b, &facing_yaw, &facing_pitch);
 
 	cmd->angles[YAW]   = (short)(ANGLE2SHORT(facing_yaw)   - ent->client->ps.pmove.delta_angles[YAW]);
 	cmd->angles[PITCH] = (short)(ANGLE2SHORT(facing_pitch) - ent->client->ps.pmove.delta_angles[PITCH]);
@@ -793,6 +921,8 @@ void Bot_RunFrame (void)
 			Nav_Shutdown (bot_logged_map);
 		Bot_ClearAll ();
 		Goal_Reset ();
+		memset (bot_noise_time, 0, sizeof(bot_noise_time));	// level.time restarts;
+									// stale times would hold the hearing gate open
 		Bot_LogBeginLevel (level.mapname);
 		Nav_Init (level.mapname);
 		Goal_SeedNavNodes ();		// ensure item spots are covered + routable

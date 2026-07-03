@@ -76,6 +76,7 @@ ITEM completion on q2dm1, same measurement rig throughout:
 | Completability economics (`bot_itemfail` + `bot_budgetcap`) | ~33% (**pickups +14%**) | items bots keep failing get an escalating shared blacklist, and the budget cap is trimmed to what successful runs actually use (pickups p95 ≈ 11s); value-weighted pickups +10%, map-general on q2dm3 |
 | Vertical swimming (`bot_swim`) | **~37%** | first locomotion-layer win: 3D steering in water (swim upmove + 3D waypoint arrival + water-jump exits) unlocked q2dm1's swim-gated Railgun — 0% → 48% completion, pickups +14% and frags +30% in 5/5 seeds, deaths flat, bit-identical on waterless maps |
 | Lift riding (`bot_lift`) | **~42%** | second locomotion win: `func_plat` links + a wait/board/ride controller that makes deliberate stillness legal (stuck detection, replanning, and the goal budget are suspended while a plat hop is in play) unlocked q2dm1's lift-gated items — Grenade Launcher 5% → **41%**, Chaingun 0% → **55%**, pickups +13% and frags +15% over 5 seeds; q2dm5 +34% pickups, q2dm8 +11%, q2dm3 a wash over 8 seeds |
+| Humanization stack (6 cvars, Phase 18) | ~44–45% (**style goal**) | bots *look/move like humans*: measured against 1,299 pro demos, the mean distribution distance across 8 observable features fell **38%** (pitch, gaze, turn dynamics, jump rate, idle texture) for **−4.6% frags / +2.0pt ITEM** over 10 seeds — plus a deliberate ~11% kill deficit vs 360°-vision bots in mixed matches (`bot_fov` ends wallhack vision) |
 
 Other validated improvements along the way: goal-node reach rate 38% → 59% (Phase 1 tuning);
 combat unfroze — %time-in-combat dropped from a pathological 87–99% (bots stuck staring at each
@@ -88,6 +89,19 @@ target-leading** (`bot_lead`) moved the leading population's kill ratio from 0.8
 **Fight-or-flight** (`bot_flee`: retreat while firing when clearly outmatched) added another
 +23% relative kills with no nav cost — retreating breaks losing fights, so bots keep their
 weapons and re-engage on their own terms.
+
+**Humanization** (Phase 18) is the first *style* milestone: a profiler (`tools/humanness.py`)
+compares the bots' observable behavior distributions — view pitch, gaze-vs-travel offset, turn
+dynamics and their autocorrelation, jump rate, strafe rhythm, speed and stillness texture —
+against 1,299 pro q2dm1 demos, frame-rate-matched at 10Hz. The measured tells drove six
+behaviors (`bot_gaze`, `bot_turnrate`, `bot_aimtexture`, `bot_fov`, `bot_hop`, `bot_fidget`),
+each validated separately for humanness gain and strength cost, then as a stack. Two findings
+worth keeping: correlated aim error fights far worse than white noise at equal spread (miss
+*streaks*), so texture must come at ~0.45× the magnitude with rate-limited reversal overshoot;
+and losing 360° vision costs ~24% of kills against omniscient bots until you give the bot ears
+(unsilenced gunfire within 700u acquires through the cone), which halves the deficit. Jumping
+like a human turned out to be strength-*positive* (parity 1.17) — airborne targets are hard for
+lead-aiming opponents.
 
 Cross-map picture (self-learned nav, standard rig, 3 seeds/map): the ITEM-completion ceiling
 tracks map *verticality*, not item logic — vertical maps q2dm1/q2dm2 sit at ~33%/~26% while
@@ -169,6 +183,12 @@ at real time and `--seconds` is wall-clock.
 | `bot_rollout` | 1 | physics-forward rollout recovery when stuck |
 | `bot_lead` | 1 | lead moving targets by projectile flight time (skill-scaled) |
 | `bot_flee` | 1 | retreat (while firing) when clearly outmatched |
+| `bot_gaze` | 1 | humanization: out-of-combat gaze — lead the path around corners, glance at items/openings/shoulders, pitch follows the look point (stock bots stare flat along their velocity) |
+| `bot_turnrate` | 1 | humanization: all facing changes slew with a per-turn speed drawn from the human envelope (kills the 180°-in-one-tick snap); wander headings arc instead of snapping |
+| `bot_aimtexture` | 1 | humanization: aim error wanders (autocorrelated OU process) instead of vibrating at 10Hz, with rate-limited overshoot on target reversals; `bot_skill` still scales it |
+| `bot_fov` | 1 | humanization: enemy acquisition needs a ~120° view cone, a recent pain event (turn-toward-attacker), or audible unsilenced gunfire within 700u — no more eyes in the back of the head |
+| `bot_hop` | 1 | humanization: combat rhythm — jump rate and strafe-leg lengths from the demo distributions, momentum dip on reversals, commit to close fights |
+| `bot_fidget` | 1 | humanization: locomotion texture — micro-step fidget while holding for a respawn, fast turn-away instead of wall dithering, travel hops |
 | `bot_seed` | 0 | >0 = deterministic RNG for reproducible runs |
 | `bot_quitafter` | 0 | >0 = quit the server after N *game* seconds (timed fastsim runs) |
 | `bot_debug` | 0 | draw nav paths / enemy lines via temp-entity beams |
@@ -176,6 +196,7 @@ at real time and `--seconds` is wall-clock.
 | `bot_leadtest` | 0 | diagnostic: id-parity lead split (even ids lead, odd don't) |
 | `bot_fleetest` | 0 | diagnostic: id-parity flee split (even ids flee, odd don't) |
 | `bot_aimtest` | 0 | diagnostic: even ids apply the `bot_aimreact/aimturn/aimerr/aimfire` multipliers (each default 1) for aim-formula sweeps |
+| `bot_humantest` | 0 | diagnostic: id-parity humanization split — even ids run whatever `bot_gaze/turnrate/aimtexture/fov/hop/fidget` enable, odd ids play stock (use an **even** `bot_count`; odd counts unbalance the parities 3:2) |
 
 Server console: `sv bot_add N` / `sv bot_remove N` / `sv bot_clear`. The learned graph is saved
 to `<gamedir>/nav/<map>.nav` (autosaved ~30s); telemetry to `<gamedir>/logs/<map>_<ts>.jsonl`.

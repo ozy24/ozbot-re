@@ -20,6 +20,16 @@ cvar_t	*bot_aimreact;	//   bot_aim* multipliers below, odd use the stock
 cvar_t	*bot_aimturn;	//   formula -- for sweeping which aim constant
 cvar_t	*bot_aimerr;	//   (reaction/turn rate/error/fire threshold) actually
 cvar_t	*bot_aimfire;	//   buys kills at a given nominal skill
+cvar_t	*bot_aimtexture;	// humanization: autocorrelated aim error + reversal
+							// overshoot instead of per-frame white noise
+							// (plans/humanization.md Phase 2)
+cvar_t	*bot_fov;		// humanization: enemy acquisition needs the target in
+						// a ~120 deg view cone (or a recent pain event -- the
+						// turn-toward-attacker reflex).  Ends 360-degree
+						// vision; pairs with bot_gaze scanning (Phase 3)
+cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
+						// and strafe-leg lengths from the demo stats, momentum
+						// dip on reversals, commit to close fights (Phase 4)
 
 static float Skill (bot_t *b)
 {
@@ -47,17 +57,50 @@ static float ApproachAngle (float cur, float target, float step)
 
 /*
 =================
+Combat_InFov
+
+Target inside a ~120 deg horizontal view cone (or close enough to hear).
+Vertical is deliberately not gated: peripheral vision plus sound covers it,
+and q2dm1's stacked floors would make a pitch gate blind bots to fights one
+step up a ramp.
+=================
+*/
+#define BOT_FOV_HALF	60.0f
+#define BOT_FOV_NEAR	100.0f	// within earshot: you know they're there
+
+static qboolean Combat_InFov (edict_t *self, edict_t *other)
+{
+	vec3_t	d;
+	float	dy;
+
+	VectorSubtract (other->s.origin, self->s.origin, d);
+	d[2] = 0;
+	if (VectorLength (d) < BOT_FOV_NEAR)
+		return true;
+	dy = AngleDelta (vectoyaw (d), self->client->ps.viewangles[YAW]);
+	return dy >= -BOT_FOV_HALF && dy <= BOT_FOV_HALF;
+}
+
+/*
+=================
 Combat_FindEnemy
 
 Nearest visible, living player/bot (deathmatch: everyone is fair game).
+
+With bot_fov (humanization Phase 3): only targets inside the view cone are
+acquired -- plus whoever hurt us recently (the pain reflex, Bot_NotePain) and
+the enemy we are already fighting (aim tracks them, so they stay "seen").
+This is where humanness deliberately costs strength: no more eyes in the back
+of the head.  The gaze layer's scanning (bot_gaze) is what finds targets now.
 =================
 */
 static edict_t *Combat_FindEnemy (bot_t *b)
 {
-	edict_t	*self = b->ent;
-	edict_t	*best = NULL;
-	float	bestd = 1e18f;
-	int		i;
+	edict_t		*self = b->ent;
+	edict_t		*best = NULL;
+	float		bestd = 1e18f;
+	int			i;
+	qboolean	fovgate = (bot_fov->value != 0 && Bot_Humanized (b));
 
 	for (i = 1; i <= (int)maxclients->value; i++)
 	{
@@ -73,9 +116,16 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 			continue;
 		if (!visible (self, o))
 			continue;
-
 		VectorSubtract (o->s.origin, self->s.origin, d);
 		dd = VectorLength (d);
+		// outside the cone, a target is still acquirable if it hurt us
+		// recently (pain reflex) or fired an unsilenced weapon in earshot
+		// (Q2 guns are loud; humans turn toward gunfire behind them)
+		if (fovgate && o != b->enemy
+			&& !(b->threat_ent == o && level.time - b->threat_time < 2.0f)
+			&& !(dd < 700 && level.time - Bot_NoiseTime (o) < 1.0f)
+			&& !Combat_InFov (self, o))
+			continue;
 		if (dd < bestd)
 		{
 			bestd = dd;
@@ -211,6 +261,18 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->reaction_until = level.time + reaction;
 		b->aim[YAW]   = self->client->ps.viewangles[YAW];
 		b->aim[PITCH] = self->client->ps.viewangles[PITCH];
+		b->aim_err[YAW] = b->aim_err[PITCH] = 0;	// no stale texture error
+		b->aim_sweep_sign = 0;						// from an earlier fight
+		// seed with the target's actual bearing, not our own facing -- the
+		// acquisition offset is not a "sweep" and must not prime the
+		// reversal-overshoot detector
+		{
+			vec3_t	bd;
+			VectorSubtract (enemy->s.origin, self->s.origin, bd);
+			bd[2] = 0;
+			b->aim_bearing_prev = (VectorLength (bd) > 1)
+				? vectoyaw (bd) : b->aim[YAW];
+		}
 	}
 
 	// fight-or-flight: when clearly outmatched, retreat (still firing) and let
@@ -264,17 +326,86 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	range = VectorLength (dir);
 	vectoangles (dir, ang);
 
-	err = (1.0f - skill) * 7.0f;
-	if (aimtweak)
-		err *= bot_aimerr->value;
-	ang[YAW]   += crandom () * err;
-	ang[PITCH] += crandom () * err;
-
 	turnstep = 20.0f + skill * 40.0f;
 	if (aimtweak)
 		turnstep *= bot_aimturn->value;
-	b->aim[YAW]   = ApproachAngle (b->aim[YAW],   ang[YAW],   turnstep);
-	b->aim[PITCH] = ApproachAngle (b->aim[PITCH], ang[PITCH], turnstep);
+
+	if (bot_aimtexture->value != 0 && Bot_Humanized (b))
+	{
+		// --- humanization (Phase 2): the stock error below is fresh white
+		// noise every 100ms, which reads as a 10Hz vibration around the
+		// target.  Human aim error *wanders*: it drifts off and gets pulled
+		// back (pursuit lag + correction).  Model it as an OU process whose
+		// stationary spread matches the stock magnitude, so bot_skill keeps
+		// its meaning: sigma (error size) shrinks and theta (correction
+		// speed) grows with skill.
+		// NOT the stock magnitude: correlated error produces miss STREAKS
+		// (the wandering aim point stays wrong for several frames), so at
+		// equal spread it fights far worse than white noise, which averages
+		// out shot to shot -- measured 38% relative kill cost at 0.577x.
+		// Shrink the spread and correct faster to buy the texture for free.
+		float	sd    = 0.26f * (1.0f - skill) * 7.0f;
+		float	theta = 0.35f + 0.30f * skill;
+		float	sigma = sd * (float)sqrt (theta * (2.0f - theta));
+		float	sweep, sweep_sign;
+
+		if (aimtweak)
+			sigma *= bot_aimerr->value;
+		b->aim_err[YAW]   += -theta * b->aim_err[YAW]
+			+ sigma * (crandom () + crandom () + crandom ());
+		b->aim_err[PITCH] += -theta * b->aim_err[PITCH]
+			+ sigma * (crandom () + crandom () + crandom ());
+
+		// overshoot + a beat of re-reaction when the target reverses: humans
+		// keep sweeping the way the target WAS going for a moment
+		sweep = AngleDelta (ang[YAW], b->aim_bearing_prev);
+		sweep_sign = (sweep > 1.5f) ? 1.0f : (sweep < -1.5f) ? -1.0f : 0.0f;
+		if (sweep_sign != 0 && b->aim_sweep_sign != 0
+			&& sweep_sign != b->aim_sweep_sign
+			&& level.time - b->aim_flip_time > 0.6f)
+		{
+			// rate-limited: hopping targets flip the bearing every few ticks,
+			// and overshooting on every flip bled ~6% of stack frags -- the
+			// overshoot is for deliberate strafe reversals, not bounce jitter
+			b->aim_flip_time = level.time;
+			b->aim_err[YAW] += b->aim_sweep_sign * (1.5f + (1.0f - skill) * 3.0f);
+			if (b->reaction_until < level.time + 0.1f)
+				b->reaction_until = level.time + 0.1f + (1.0f - skill) * 0.2f;
+		}
+		if (sweep_sign != 0)
+			b->aim_sweep_sign = sweep_sign;
+		b->aim_bearing_prev = ang[YAW];
+
+		ang[YAW]   += b->aim_err[YAW];
+		ang[PITCH] += b->aim_err[PITCH] * 0.6f;	// humans stabilize pitch better
+
+		// gain-based tracking (a fraction of the remaining delta per tick)
+		// instead of the stock constant-rate chase: same convergence, but the
+		// decaying steps give the human autocorrelation signature
+		{
+			float	gain = 0.65f + 0.20f * skill;
+			float	d;
+			d = AngleDelta (ang[YAW], b->aim[YAW]) * gain;
+			if (d > turnstep)  d = turnstep;
+			if (d < -turnstep) d = -turnstep;
+			b->aim[YAW] += d;
+			d = AngleDelta (ang[PITCH], b->aim[PITCH]) * gain;
+			if (d > turnstep)  d = turnstep;
+			if (d < -turnstep) d = -turnstep;
+			b->aim[PITCH] += d;
+		}
+	}
+	else
+	{
+		err = (1.0f - skill) * 7.0f;
+		if (aimtweak)
+			err *= bot_aimerr->value;
+		ang[YAW]   += crandom () * err;
+		ang[PITCH] += crandom () * err;
+
+		b->aim[YAW]   = ApproachAngle (b->aim[YAW],   ang[YAW],   turnstep);
+		b->aim[PITCH] = ApproachAngle (b->aim[PITCH], ang[PITCH], turnstep);
+	}
 
 	*facing_yaw   = b->aim[YAW];
 	*facing_pitch = b->aim[PITCH];
@@ -301,39 +432,70 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	toenemy[2] = 0;
 	VectorNormalize (toenemy);
 
-	if (level.time >= b->dodge_until)
+	// humanization (Phase 4): combat movement rhythm from the demo stats
 	{
-		b->dodge_dir = (random () < 0.5f) ? -1 : 1;
-		b->dodge_until = level.time + 0.5f + random () * 0.6f;
-	}
-	strafe[0] = -toenemy[1] * b->dodge_dir;	// perpendicular to enemy dir
-	strafe[1] =  toenemy[0] * b->dodge_dir;
-	strafe[2] = 0;
+		qboolean	rhythm = (bot_hop->value != 0 && Bot_Humanized (b));
+		float		sw, navw;
 
-	// approach if far, back off if too close; when fleeing, always disengage
-	// (movement is decoupled from aim, so the bot retreats while firing back)
-	if (b->flee)
-	{
-		rc = -0.9f;
-		comb[0] = b->move_dir[0] * 1.0f + strafe[0] * 0.5f + toenemy[0] * rc;
-		comb[1] = b->move_dir[1] * 1.0f + strafe[1] * 0.5f + toenemy[1] * rc;
-	}
-	else
-	{
-		rc = (range < 200) ? -0.8f : (range > 650) ? 0.6f : 0.0f;
+		if (level.time >= b->dodge_until)
+		{
+			b->dodge_dir = (random () < 0.5f) ? -1 : 1;
+			if (rhythm)
+			{
+				// strafe legs from the human reversal-interval distribution
+				// (right-skewed: p50 0.7s, p90 2.3s) instead of uniform
+				// 0.5-1.1s -- short jinks mixed with long committed runs
+				float u = random ();
+				if (u > 0.98f)
+					u = 0.98f;
+				b->dodge_until = level.time + 0.25f - 0.65f * (float)log (1.0 - u);
+				b->dodge_flip_time = level.time;
+			}
+			else
+				b->dodge_until = level.time + 0.5f + random () * 0.6f;
+		}
+		strafe[0] = -toenemy[1] * b->dodge_dir;	// perpendicular to enemy dir
+		strafe[1] =  toenemy[0] * b->dodge_dir;
+		strafe[2] = 0;
 
-		// nav goal (already in move_dir) + dodge + range adjustment
-		comb[0] = b->move_dir[0] * 0.7f + strafe[0] * 0.7f + toenemy[0] * rc;
-		comb[1] = b->move_dir[1] * 0.7f + strafe[1] * 0.7f + toenemy[1] * rc;
-	}
-	comb[2] = 0;
-	if (VectorLength (comb) < 0.1f)
-		VectorCopy (strafe, comb);
-	VectorNormalize (comb);
-	VectorCopy (comb, b->move_dir);
+		// momentum: a fresh reversal starts slow (humans can't flip
+		// velocity in one tick; the stock bot does)
+		sw = 1.0f;
+		if (rhythm && level.time - b->dodge_flip_time < 0.2f)
+			sw = 0.5f;
 
-	if (self->groundentity && random () < 0.03f)
-		b->want_jump = true;
+		// approach if far, back off if too close; when fleeing, always
+		// disengage (movement is decoupled from aim, so the bot retreats
+		// while firing back)
+		if (b->flee)
+		{
+			rc = -0.9f;
+			comb[0] = b->move_dir[0] * 1.0f + strafe[0] * 0.5f * sw + toenemy[0] * rc;
+			comb[1] = b->move_dir[1] * 1.0f + strafe[1] * 0.5f * sw + toenemy[1] * rc;
+		}
+		else
+		{
+			rc = (range < 200) ? -0.8f : (range > 650) ? 0.6f : 0.0f;
+
+			// commit to close fights instead of half-jogging toward the nav
+			// goal mid-duel
+			navw = (rhythm && range < 250) ? 0.45f : 0.7f;
+
+			// nav goal (already in move_dir) + dodge + range adjustment
+			comb[0] = b->move_dir[0] * navw + strafe[0] * 0.7f * sw + toenemy[0] * rc;
+			comb[1] = b->move_dir[1] * navw + strafe[1] * 0.7f * sw + toenemy[1] * rc;
+		}
+		comb[2] = 0;
+		if (VectorLength (comb) < 0.1f)
+			VectorCopy (strafe, comb);
+		VectorNormalize (comb);
+		VectorCopy (comb, b->move_dir);
+
+		// humans jump a LOT in Q2 fights (demo corpus: ~15 jumps/min overall
+		// vs the stock bot's ~4); airborne targets are also harder to hit
+		if (self->groundentity && random () < (rhythm ? 0.09f : 0.03f))
+			b->want_jump = true;
+	}
 
 	return true;
 }

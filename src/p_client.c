@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 #include "g_local.h"
 #include "m_player.h"
+#include "bot.h"
 
 void ClientUserinfoChanged (edict_t *ent, char *userinfo);
 
@@ -179,6 +180,10 @@ void SP_info_player_intermission(void)
 void player_pain (edict_t *self, edict_t *other, float kick, int damage)
 {
 	// player pain is handled at the end of the frame in P_DamageFeedback
+
+	// ozbot: bots learn who hurt them (the bot_fov turn-toward-attacker
+	// reflex; no-op for non-bot slots)
+	Bot_NotePain (self, other);
 }
 
 

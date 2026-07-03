@@ -14,6 +14,10 @@ looking/shooting somewhere else.
 #include "bot.h"
 #include "bot_nav.h"
 
+cvar_t	*bot_fidget;	// humanization: locomotion texture -- idle fidget at
+						// deliberate holds, fast turn-away instead of wall
+						// dithering, travel hops (plans/humanization.md Ph 5)
+
 /*
 =================
 Bot_Swimming
@@ -122,16 +126,45 @@ void Bot_Wander (bot_t *b)
 {
 	edict_t	*ent = b->ent;
 	float	speed = VectorLength (ent->velocity);
+	float	use_yaw;
+	qboolean texture = (bot_fidget->value != 0 && Bot_Humanized (b));
 
-	if (level.time >= b->next_wander_time ||
-		(speed < 20 && ent->groundentity && (level.time - b->last_repick_time) > 0.4))
+	if (speed < 20 && ent->groundentity
+		&& (level.time - b->last_repick_time) > (texture ? 0.15 : 0.4))
+	{
+		// blocked (wall / ledge stop).  Humanization: re-pick fast and TURN
+		// AWAY (60-180 deg off the blocked heading) instead of waiting 0.4s
+		// on a fresh uniform draw that faces the same wall half the time --
+		// the stock dithering is ~46% of all bot standing-still frames.
+		if (texture)
+			b->desired_yaw = b->move_yaw
+				+ (random () < 0.5f ? 1.0f : -1.0f) * (60.0f + random () * 120.0f);
+		else
+			b->desired_yaw = crandom() * 180.0;
+		b->next_wander_time = level.time + 1.5 + random() * 2.0;
+		b->last_repick_time = level.time;
+	}
+	else if (level.time >= b->next_wander_time)
 	{
 		b->desired_yaw = crandom() * 180.0;
 		b->next_wander_time = level.time + 1.5 + random() * 2.0;
 		b->last_repick_time = level.time;
 	}
 
-	Bot_SetMoveYaw (b, b->desired_yaw);
+	// (read AFTER the re-pick above -- a fresh heading must apply this frame,
+	// not next; hoisting this cost a one-frame lag that broke stock parity)
+	use_yaw = b->desired_yaw;
+
+	// humanization (bot_turnrate): approach a re-picked wander heading
+	// smoothly instead of snapping the whole body 90-180 deg in one tick --
+	// the heading is random anyway, so the arc through intermediate headings
+	// explores just as well, and the view (which tracks the travel direction)
+	// stops whipping.  Keep the snap when crawling/stuck: boxed-in geometry
+	// genuinely demands abrupt turns.
+	if (bot_turnrate->value != 0 && Bot_Humanized (b) && speed >= 20)
+		use_yaw = Bot_SlewAngle (b->move_yaw, b->desired_yaw, 0.35f, 8.0f);
+
+	Bot_SetMoveYaw (b, use_yaw);
 
 	if (ent->groundentity && random() < 0.02)
 	{
@@ -708,6 +741,18 @@ qboolean Bot_FollowPath (bot_t *b)
 		}
 	}
 
+	// humanization (bot_fidget): travel hops.  Humans bounce down corridors
+	// (demo corpus ~15 jumps/min; the stock bot ~4).  did_jump stays honest
+	// so link learning records a JUMP if the hop happens to climb something.
+	if (bot_fidget->value != 0 && Bot_Humanized (b)
+		&& ent->groundentity && !b->enemy && !b->want_jump
+		&& VectorLength (ent->velocity) > 220
+		&& random () < 0.03f)
+	{
+		b->want_jump = true;
+		b->did_jump = true;
+	}
+
 	return true;
 }
 
@@ -755,6 +800,67 @@ static qboolean Bot_StepIsSafe (bot_t *b)
 			return false;
 	}
 	return true;
+}
+
+/*
+=================
+Bot_Fidget
+
+Humanization (bot_fidget): idle texture while deliberately holding a spot
+(waiting for an item respawn).  Statue-stillness is a loud tell -- humans
+shift their weight in small steps.  Micro-steps are leashed to the anchor and
+safety-checked, and the intent magnitude stays small so the "hold" still does
+its job.  Never during lift states: a wiggle near a plat footprint can hold
+the lift up (see bot_lift's WAIT).
+=================
+*/
+void Bot_Fidget (bot_t *b, vec3_t anchor)
+{
+	edict_t	*ent = b->ent;
+	vec3_t	d;
+
+	if (bot_fidget->value == 0 || !Bot_Humanized (b))
+		return;
+	if (!ent->groundentity || b->lift_state != LIFT_NONE)
+		return;
+
+	VectorSubtract (anchor, ent->s.origin, d);
+	d[2] = 0;
+	if (VectorLength (d) > 40)
+		return;					// still traveling to the spot; don't meddle
+
+	if (level.time >= b->fidget_until)
+	{
+		if (random () < 0.45f)
+		{
+			b->fidget_yaw = random () * 360.0f;
+			b->fidget_mag = 0.2f + random () * 0.15f;
+		}
+		else
+			b->fidget_mag = 0;	// stand for a beat
+		b->fidget_until = level.time + 0.4f + random () * 1.3f;
+	}
+
+	if (b->fidget_mag > 0)
+	{
+		if (VectorLength (d) > 24)
+		{
+			// drifted off the spot: this step goes back toward it
+			VectorNormalize (d);
+			VectorScale (d, b->fidget_mag, b->move_dir);
+			return;
+		}
+		{
+			vec3_t	a = {0, 0, 0}, f, r, u;
+			a[YAW] = b->fidget_yaw;
+			AngleVectors (a, f, r, u);
+			f[2] = 0;
+			VectorNormalize (f);
+			VectorScale (f, b->fidget_mag, b->move_dir);
+		}
+		if (!Bot_StepIsSafe (b))
+			VectorClear (b->move_dir);
+	}
 }
 
 void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)

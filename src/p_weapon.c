@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "g_local.h"
 #include "m_player.h"
+#include "bot.h"
 
 
 static qboolean	is_quad;
@@ -66,6 +67,7 @@ void PlayerNoise(edict_t *who, vec3_t where, int type)
 			who->client->silencer_shots--;
 			return;
 		}
+		Bot_NoteNoise (who);	// ozbot: bots hear unsilenced gunfire (bot_fov)
 	}
 
 	if (deathmatch->value)
