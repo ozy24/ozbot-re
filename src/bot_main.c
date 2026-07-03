@@ -36,6 +36,7 @@ cvar_t	*bot_budgetcap;
 cvar_t	*bot_itemfail;
 cvar_t	*bot_navmask;
 cvar_t	*bot_reachlog;
+cvar_t	*bot_goalnode;
 cvar_t	*bot_swim;
 cvar_t	*bot_lift;
 cvar_t	*bot_liftlog;
@@ -60,9 +61,8 @@ static float	bot_noise_time[MAX_CLIENTS];
 // get funded.  base + cost/speed crosses the flat 12s at cost ~600u.
 // The cap comes from the bot_budgetcap cvar (default 15): pickups p95 is
 // ~11s, so budget past that mostly funds giveups, not successes.
-#define BOT_GOAL_BUDGET_BASE	6.0f	// seconds of slack regardless of route
-#define BOT_GOAL_BUDGET_SPEED	100.0f	// effective travel speed (cost units/sec)
-#define BOT_GOAL_BUDGET_MAX		20.0f	// cap fallback if bot_budgetcap <= 0
+// (constants live in bot.h so Goal_Select's bot_goalnode 2 fundability
+// filter prices candidates with the same formula)
 
 /*
 =================
@@ -93,6 +93,8 @@ void Bot_Init (void)
 	bot_navmask      = gi.cvar ("bot_navmask", "0", 0);		// A* skips link types whose capability cvar is off
 															// (plans/nav-oracle.md Phase A)
 	bot_reachlog     = gi.cvar ("bot_reachlog", "1", 0);	// map-load item reachability sweep (oracle diagnostics)
+	bot_goalnode     = gi.cvar ("bot_goalnode", "0", 0);	// resolve item goal nodes to CONNECTED nodes (skip
+															// in-degree-0 orphans that shadow real coverage)
 	bot_swim         = gi.cvar ("bot_swim", "1", 0);		// 3D steering in water (vertical swim + water-jump exits)
 	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
 															// controller, 3D column arrival, level-aware homing
@@ -857,7 +859,8 @@ static void Bot_Navigate (bot_t *b)
 		int goal  = -1;
 
 		if (Goal_Select (b) && b->goal_item)
-			goal = Nav_NearestNode (b->goal_item->s.origin);
+			goal = Nav_NearestGoalNode (b->goal_item->s.origin);	// must match
+											// Goal_Select's resolution exactly
 
 		if (goal < 0)
 			goal = Bot_PickGoal (start);	// nothing worth grabbing -> roam

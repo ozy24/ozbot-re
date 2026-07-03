@@ -246,6 +246,34 @@ largest in this plan.
 
 ---
 
+## Addendum — the island-node fix (`bot_goalnode`, tried 2026-07-03)
+
+Discovery 1's candidate lever, implemented and measured the same evening.
+`Nav_NearestGoalNode` resolves item goal nodes to the nearest node with
+in-degree > 0 (per an incrementally-maintained in-degree cache), so an
+exact-at-item orphan can't shadow real coverage; the oracle uses the same
+resolution so sweeps predict Goal_Select.  Gated `bot_goalnode` (1 =
+connected-node resolution; 2 = also skip routes whose budget-formula price
+exceeds 1.5x the cap).  Bit-exact at default-off (pinned-nav md5 gate).
+
+**Verdict: mechanism correct, default stays OFF.** The sweep confirmed the
+unlock (no_path 19 -> 11; CA/Ammo Pack/Grenades correctly became plat-gated;
+RL flipped to the honest no_goal_node -- its orphan was the only node in
+range).  But the A/B (2x 8-seed bases): mode 1 = pickups +3%, ITEM -3pts,
+giveups +40% -- the newly routable items are mostly low-value upper-deck
+ammo behind 7000-9000-cost routes the 15s budget can't finish (the
+lift-demo lesson again: reachable != completable).  Mode 2's fundability
+filter overcorrected: it also rejected routine completable goals (the
+budget cost model is conservative; travel routinely beats 100 u/s),
+pickups -17%.  The real prerequisite is last-leg conversion at elevated
+items, not resolution or economics.
+
+**Rig note:** mid-session, a server running in the canonical gamedir (user
+play/test) autosaved q2dm1.nav and silently broke same-seed comparability.
+A/B and gate runs now pin DLL+nav in a scratch source gamedir via
+`run_parallel --mod` (e.g. `ozbot_ab`) whenever the canonical dir may be
+live.
+
 ## Order, effort, success criteria
 
 | Phase | effort | gate to next | success looks like |

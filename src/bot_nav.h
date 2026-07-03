@@ -89,6 +89,8 @@ void Nav_MaybeSave (const char *mapname);	// periodic autosave if dirty
 //
 int  Nav_SeedNode (vec3_t origin);					// ensure+connect a node here
 int  Nav_NearestNode (vec3_t origin);				// nearest node, or -1
+int  Nav_NearestGoalNode (vec3_t origin);			// nearest A*-targetable node
+													// (bot_goalnode: skips in-degree-0 orphans)
 int  Nav_NearestVisibleNode (vec3_t origin, edict_t *ignore);	// nearest with a clear walk, or -1
 int  Nav_FindPath (int start, int goal, int *out, int max);	// A*; returns node count
 int  Nav_FindPathMasked (int start, int goal, int mask, int *out, int max);	// A* over NAV_MASK-allowed link types

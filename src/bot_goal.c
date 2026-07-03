@@ -409,8 +409,9 @@ qboolean Goal_Select (bot_t *b)
 			tm = true;
 		}
 
-		// nav graph must cover the item spot
-		node = Nav_NearestNode (it->s.origin);
+		// nav graph must cover the item spot (bot_goalnode: with a routable
+		// node -- an orphan exactly at the item must not shadow real coverage)
+		node = Nav_NearestGoalNode (it->s.origin);
 		if (node < 0)
 			continue;
 		VectorSubtract (nav.nodes[node].origin, it->s.origin, d);
@@ -462,10 +463,25 @@ qboolean Goal_Select (bot_t *b)
 				break;
 			rejected[best] = 1;	// consumed (reachable or not)
 
-			node = Nav_NearestNode (cand[best]->s.origin);
+			node = Nav_NearestGoalNode (cand[best]->s.origin);
 			len = Nav_FindPathMasked (start, node, Bot_NavMask (b), pathbuf, BOT_MAX_PATH);
 			if (len <= 0)
 				continue;		// unreachable from here; try the next best
+
+			// bot_goalnode 2: also skip routes the goal budget can't
+			// plausibly fund.  Connected-node resolution (mode 1) makes
+			// distant vertically-gated items routable, but a route costing
+			// several budget-caps of travel is a giveup foretold (measured:
+			// +40% giveups for flat pickups when these commit).  1.5x slack
+			// because strafejump travel beats the budget's cost model.
+			if (bot_goalnode->value >= 2 && bot_goalbudget->value != 0)
+			{
+				float cap = (bot_budgetcap->value > 0) ? bot_budgetcap->value
+													   : BOT_GOAL_BUDGET_MAX;
+				if (BOT_GOAL_BUDGET_BASE + Nav_LastPathCost () / BOT_GOAL_BUDGET_SPEED
+					> cap * 1.5f)
+					continue;	// not fundable: try the next best
+			}
 
 			if (bot_pathcost->value == 0)
 			{

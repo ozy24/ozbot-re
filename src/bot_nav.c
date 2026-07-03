@@ -24,6 +24,12 @@ static qboolean	nav_dirty;
 // failing to traverse gets penalized, then removed, so A* routes around it
 static byte		link_fails[NAV_MAX_NODES][NAV_MAX_LINKS];
 
+// in-link count per node, maintained incrementally (AddLink / PenalizeLink
+// removal / load).  A node with in-degree 0 can never be an A* *target* --
+// Nav_NearestGoalNode (bot_goalnode) skips such orphans so they can't shadow
+// real coverage next to an item (the Phase C reach-sweep discovery).
+static short	nav_indegree[NAV_MAX_NODES];
+
 // player bounding box, used for walkability traces
 static const vec3_t pl_mins = {-16, -16, -24};
 static const vec3_t pl_maxs = { 16,  16,  32};
@@ -147,6 +153,7 @@ static void Nav_AddLink (int from, int to, int type)
 	n->links[n->num_links].type = (byte)type;
 	n->links[n->num_links].cost = Nav_LinkCost (n->origin, nav.nodes[to].origin, type);
 	n->num_links++;
+	nav_indegree[to]++;
 	nav_dirty = true;
 }
 
@@ -353,6 +360,8 @@ void Nav_PenalizeLink (int from, int to)
 			}
 			n->num_links--;
 			link_fails[from][n->num_links] = 0;
+			if (to >= 0 && to < nav.num_nodes && nav_indegree[to] > 0)
+				nav_indegree[to]--;
 			nav_dirty = true;
 		}
 		else
@@ -387,6 +396,48 @@ int Nav_NearestNode (vec3_t origin)
 			best = i;
 		}
 	}
+	return best;
+}
+
+/*
+=================
+Nav_NearestGoalNode
+
+Nearest node that can serve as an A* *target*: one some link leads INTO
+(in-degree > 0).  Exact-at-item seeded nodes that never connected otherwise
+shadow real coverage nearby: Nav_NearestNode returns the orphan, A* to it
+fails, and Goal_Select wrongly rejects the item as unreachable -- the Phase C
+reach sweep measured ~20 elevated q2dm1 items lost this way
+(plans/completed/nav-oracle.md, Discovery 1).  Falls back to the plain
+nearest node when no linked node exists (or with bot_goalnode off: legacy
+behavior, orphan and all).
+=================
+*/
+int Nav_NearestGoalNode (vec3_t origin)
+{
+	int		i, best = -1;
+	float	bestd = 1e18f;
+
+	if (bot_goalnode->value == 0)
+		return Nav_NearestNode (origin);
+
+	for (i = 0; i < nav.num_nodes; i++)
+	{
+		vec3_t	d;
+		float	dsq;
+		if (nav_indegree[i] <= 0)
+			continue;	// nothing routes INTO it: useless as a goal
+		VectorSubtract (origin, nav.nodes[i].origin, d);
+		d[2] *= 2.0f;	// penalize vertical separation (as Nav_NearestNode)
+		dsq = d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
+		if (dsq < bestd)
+		{
+			bestd = dsq;
+			best = i;
+		}
+	}
+	if (best < 0)
+		return Nav_NearestNode (origin);
 	return best;
 }
 
@@ -568,7 +619,8 @@ int Nav_QueryPath (vec3_t from, vec3_t to, int mask, float *cost, int *gate)
 	start = Nav_NearestNode (from);
 	if (start < 0 || Nav_Dist (nav.nodes[start].origin, from) > NAVQ_NEAR)
 		return NAVQ_NO_START_NODE;
-	goal = Nav_NearestNode (to);
+	goal = Nav_NearestGoalNode (to);	// same resolution Goal_Select uses,
+										// so verdicts predict bot behavior
 	if (goal < 0 || Nav_Dist (nav.nodes[goal].origin, to) > NAVQ_NEAR)
 		return NAVQ_NO_GOAL_NODE;
 
@@ -689,6 +741,19 @@ static qboolean Nav_Load (const char *mapname)
 	}
 	fclose (f);
 
+	// rebuild the in-degree cache from the loaded links
+	memset (nav_indegree, 0, sizeof(nav_indegree));
+	for (i = 0; i < count; i++)
+	{
+		int j;
+		for (j = 0; j < nav.nodes[i].num_links; j++)
+		{
+			int to = nav.nodes[i].links[j].to;
+			if (to >= 0 && to < count)
+				nav_indegree[to]++;
+		}
+	}
+
 	gi.dprintf ("ozbot: loaded nav %s (%d nodes)\n", path, count);
 	return true;
 }
@@ -765,6 +830,7 @@ void Nav_Init (const char *mapname)
 {
 	memset (&nav, 0, sizeof(nav));
 	memset (link_fails, 0, sizeof(link_fails));
+	memset (nav_indegree, 0, sizeof(nav_indegree));
 	nav_dirty = false;
 	Nav_Load (mapname);
 }

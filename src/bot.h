@@ -16,6 +16,13 @@ Every .c file that includes bot.h must include "g_local.h" first.
 // bot_goal.c's escalating failure blacklist both build on this)
 #define BOT_ITEM_COOLDOWN	10.0f
 
+// bot_goalbudget constants (see the comment block in bot_main.c); shared so
+// Goal_Select's bot_goalnode 2 fundability filter prices candidates with the
+// exact budget formula the giveup clock uses
+#define BOT_GOAL_BUDGET_BASE	6.0f	// seconds of slack regardless of route
+#define BOT_GOAL_BUDGET_SPEED	100.0f	// effective travel speed (cost units/sec)
+#define BOT_GOAL_BUDGET_MAX		20.0f	// cap fallback if bot_budgetcap <= 0
+
 // bot behavior mode
 #define BOT_MODE_EXPLORE	0	// wander, growing the nav graph
 #define BOT_MODE_GOAL		1	// follow an A* path to a goal node
@@ -176,6 +183,7 @@ extern cvar_t	*bot_budgetcap;
 extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_navmask;
 extern cvar_t	*bot_reachlog;
+extern cvar_t	*bot_goalnode;
 extern cvar_t	*bot_swim;
 extern cvar_t	*bot_lift;
 extern cvar_t	*bot_liftlog;
