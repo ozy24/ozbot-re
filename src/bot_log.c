@@ -79,6 +79,13 @@ void Bot_LogBeginLevel (const char *mapname)
 		return;
 	}
 
+	// run header: lets analyzers know the game tick rate instead of assuming
+	// 10Hz (the ozbot-re 40Hz port varies it).  No wall-clock fields -- the
+	// same-seed bit-exact md5 gate hashes this line too.
+	fprintf (log_fp, "{\"type\":\"run\",\"map\":\"%s\",\"tick_rate\":%d,\"maxclients\":%d}\n",
+		(mapname && mapname[0]) ? mapname : "unknown",
+		(int)(1.0f / FRAMETIME + 0.5f), (int)game.maxclients);
+
 	log_last_flush = level.time;
 	gi.dprintf ("ozbot: logging telemetry to %s\n", path);
 }

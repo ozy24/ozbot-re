@@ -9,6 +9,7 @@ build/
 
 # Intermediate files
 *.def
+!src/game.def
 *.exp
 *.lib
 *.pdb
