@@ -122,8 +122,12 @@ typedef struct
 	int			pb_state;		// PB_*
 	int			pb_entry;		// index into the loaded playbook entries
 	int			pb_tick;		// replay cursor
+	int			pb_frame;		// frames since engage (time clock for the cursor)
 	int			pb_hiwater;		// furthest tick ever matched (progress watchdog)
 	float		pb_deadline;	// ALIGN timeout / replay progress deadline
+	float		pb_dwell_start;	// time the bot first satisfied a dwell-gated
+								// anchor (0 = not currently on it); rescue-only
+								// entries engage only after sitting >= dwell
 	short		pb_cmd_fwd;		// exact usercmd for this replay frame
 	short		pb_cmd_side;	//   (Bot_ApplyMovement copies these verbatim,
 	short		pb_cmd_up;		//    same contract as the sj_cmd_* fields)

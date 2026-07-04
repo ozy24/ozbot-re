@@ -34,6 +34,7 @@ REM load) is reliable -- command-line quoting through the batch is not.
   echo set vid_fullscreen 0
   echo set vid_geometry "1280x720"
   echo set cl_beginmapcmd "record %DEMO%"
+  echo set sv_fps 40
   echo map q2dm1
 )
 

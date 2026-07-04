@@ -43,3 +43,8 @@ build/
 Thumbs.db
 desktop.ini
 
+# recording / capture artifacts (media, not source)
+recordings/
+screenshots/
+*.mp4
+*.dm2

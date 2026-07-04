@@ -16,11 +16,30 @@ failure rather than generic movement work. History of the failed attempts (ledge
 two steering-only lift fixes, rollout ascent, demo-route surgery) is in `../PLAN.md`
 Phases 6–16.
 
+**Megahealth (q2dm1) is SOLVED** as of 2026-07-04 via a recorded **playbook**
+(`engine/ozbotre/playbooks/q2dm1.pbk`, `bot_playback.c`): a human strafe-jump capture routed as
+a `NAV_LINK_PLAYBOOK`. `item_health_mega` 0 → 10 pickups / 8 seeds, ~85% climb success. The trick-
+jump the bot could never do is now a replayed input stream. Count mega via **health-jump** (+100
+near the ledge z>900) — the item's rot countdown under-logs the `pickup` event. Note: raw pickup
+*count* is capped by the single item's respawn + bot contention on it, not by execution.
+
 What remains vertically-gated:
-- **HyperBlaster / upper Rocket Launcher (q2dm1)**: ~5–10% completion, unchanged. These
-  need *narrow-ledge walking precision* — the z920 walkway has 180–250u drops on both
-  sides, and even the human recording the reference demo fell off it. A ledge-centering
-  path follower is the missing capability (declared out of scope in the lift plan).
+- **Upper Rocket Launcher (q2dm1) is SOLVED** as of 2026-07-04 via the `rl_walkway`
+  playbook (`q2dm1.pbk`): a human strafe-jump run across the z912 north walkway
+  (300→483 ups, mined from a full-game `bot_inputlog` capture, `--start 222.4 --end
+  226.65`). The upper RL (704,104,912) was **`no_path`** — the graph had no inbound edge
+  at all — so the playbook link is what connects it. A/B (16 seeds, sv_fps 40): upper-RL
+  pickups **0 → 5 per seed-base**, node `no_path → ok` at quit, **ITEM completion flat**
+  (46 vs 46.5 pooled — cheaper than the reverted lift-demo attempt, which cost 3 pts).
+  Caveat: ~65% drift-abort rate (the walkway's 180–250u drops are unforgiving to open-loop
+  replay), so it converts ~1-in-4 engages — tuning headroom, but the pickups are already
+  free. This is the first *narrow-walkway* playbook and validates the capability.
+- **HyperBlaster (q2dm1)**: ~5–10% completion, still open. Plat-gated (not `no_path`),
+  reachable via lift once nav matures, but rarely completed. Same z912 walkway; the natural
+  next `rl_walkway`-style capture (human approaches recorded in the full-game log at
+  t=388.3 / t=490.5). Needs *narrow-ledge walking precision* — the walkway has 180–250u
+  drops on both sides, and even the human recording the reference fell off it. The
+  `rl_walkway` win shows a recorded walkway-traversal playbook is exactly that follower.
 - **q2dm2 (Tokay's Towers)** is still at its ~26% ceiling; its vertical items have not
   been re-measured since `bot_lift` landed — its plats may need the same treatment
   validated there.
@@ -106,6 +125,15 @@ The humanization stack closed most of the measured bot-vs-human distribution gap
   standing-still time is lift WAITs (deliberate and load-bearing — fidgeting near a
   plat footprint can hold the lift up, so `bot_fidget` excludes lift states) and
   explore-mode wall encounters the turn-away only shortens.
+  - **40Hz stillness breakdown (2026-07-04, still ~20% vs human 4.3%):** categorized bot
+    still-frames (spd<10) by cause — **combat plant-and-shoot is #1 at 46%** (goal-mode with
+    a live target, standing to aim), lift footprint wait/board 39% (mostly legit plat cycles),
+    airborne apex/fall 9%, explore wall-stall 5%. The biggest lever is COMBAT: the move/aim
+    decoupling lets the bot strafe while firing, but with no travel goal it plants — humans
+    keep moving. A "combat jitter when stationary-and-engaged" is the untried fix (bot_flee/
+    strafe already blends when there's move intent; the gap is the no-goal stationary fight).
+    Lift-wait stillness is mostly irreducible (the plat cycle); the CG descent-trap slice of
+    it was halved by the Bot_LiftThink ascent-gate above.
 - **Speed texture is capped by capability**: humans exceed 300 u/s via strafe-jump
   momentum (their p90 is ~428); the bot can't without the movement-capability work
   this plan explicitly excludes. KS ~0.36 is the floor here.
@@ -121,6 +149,54 @@ The humanization stack closed most of the measured bot-vs-human distribution gap
   intended.
 - The parity harness needs an **even** `bot_count` (odd counts split 3:2 by id parity
   — measured as a phantom 1.53 kill ratio before the fix to the sweep rig).
+
+## Variable-FPS conversion (fixed 40Hz port bugs, kept here as a checklist)
+
+The port converted per-frame game logic from the fixed 10Hz assumption to variable FPS, but
+three movers/spectator paths were missed and only bit at 40Hz (all fixed 2026-07-04):
+
+- **Accelerative movers (`func_plat`/`func_door` with speed≠accel) stopped at 1/4 travel.**
+  `Think_AccelMove` and its helpers (`plat_Accelerate`, `plat_CalcAcceleratedMove`) are
+  authored in **per-10Hz-frame units** (`current_speed`, `remaining_distance -= current_speed`,
+  velocity `*10` = ÷0.1s), but the think reschedules every server frame → at 40Hz it steps 4×
+  per 10Hz tick, draining `remaining_distance` 4× too fast → the mover halts at 25% of its
+  travel with NO blocker. This was q2dm1's "lift stuck half-way at 40Hz." Fix: gate the accel
+  accounting to `FRAMESYNC` (step once per 10Hz keyframe), keep re-thinking each frame so the
+  velocity stays applied. **Any map with accelerative movers hits this** if run at 40Hz on an
+  un-patched DLL. Constant-velocity movers (`Move_Begin`) were already correct.
+- **`plat_blocked` / `door_blocked` reversed direction every frame** (the crush *damage* was
+  `FRAMESYNC`-gated, the *reversal* below it wasn't) → a blocked mover buzzes in place at 40Hz.
+  Fixed by gating the reversal too. Rarer than the accel bug (needs a blocker).
+- **Accelerative-mover-adjacent: lift controller trapped DESCENDING bots at the shaft
+  top** (fixed 2026-07-04, `bot_move.c Bot_LiftThink`). `Bot_UpcomingHop` engages the lift
+  whenever a PLAT link is within 160u of the path, without checking direction. A bot
+  transiting/descending the q2dm1 NE upper platform (z920, above the Chaingun) got captured
+  into a WAIT for the CG lift's top landing (node 251). But standing at the shaft top holds
+  the plat UP via the shaft-high touch trigger, so the ride never comes — the bot burned the
+  full 10s `LIFT_WAIT_TIMEOUT` with stuck-detection and the goal budget both frozen, then
+  re-routed straight back in. This was the user-reported "bots stuck on the floor above the
+  chaingun": #1 stall cluster (1408,1152,896), ~45s dead-standing/run, 8 `lift_timeout`/run.
+  Fix: gate the fresh engage to ASCENTS — if the bot is already at/above the plat column top
+  (`origin[2] > top_node_z - 24`), stand aside and let normal follow + stuck-penalize erode
+  the (fluke) descent link. A/B 2 seeds @40Hz: lift_timeout 27→14 (−48%), CG-region stall
+  72s→35s (−51%), **ITEM% flat** (45.5→45.3), giveups flat. Descent-by-riding-a-plat-down is
+  not a q2dm1 route; revisit the gate if a map needs it. (Diagnosis method: measure — stall
+  clustering + `lift_timeout` event coords + the 9.4s≈10s-timeout stall trace nailed it.)
+  **Follow-up (`cg_descend` playbook, 2026-07-05):** the lift-gate killed the 10s freeze but
+  left bots fumbling ~2.5s (they had no clean WAY DOWN — the descent links are flukes). A
+  human-recorded descent off the HB floor to the arena (`q2dm1_000235`, t=35.83-38.4, anchor =
+  node 61, the exact stuck node) bakes that missing route. First attempt over-fired (immediate
+  engage pulled bots pausing there off their upper task: −1.6pt ITEM, +item_lost), so added a
+  per-entry **`dwell`** option (`bot_playback.c`: engage only after the bot sits on the anchor
+  ≥N s — rescue-only, not a through-route magnet). Sweet spot `dwell 0.75`: **ITEM flat**
+  (45.7→45.4), CG-stall −24% (55→42s), giveups −7% (149→138). dwell 0/0.4 both cost ITEM;
+  0.75 filters the false engages. Bots now cleanly descend instead of fumbling.
+- **Chase-cam / eyecam spectator crashed** on a `game3_proxy` assert (`origin[2]`
+  VERIFY_UNCHANGED) — an engine-side (`q2repro`) assert, not our DLL. The classic chase-cam
+  legitimately teleports the spectator edict to the chased entity; excluded client edicts from
+  the origin/angles asserts. See `../q2repro/BUGREPORT_game3proxy_chasecam_assert.md`. Eyecam
+  spectating works now. NOTE: `sv_fps 40` must be set for playbooks to replay (10Hz = tickrate-
+  mismatch skip); all launch bats set it.
 
 ## Infrastructure / docs
 

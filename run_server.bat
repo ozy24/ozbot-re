@@ -23,5 +23,5 @@ echo [ozbot-re] Adjust bots live with:  bot_count 4   (or)   sv bot_add 2
 echo.
 
 REM com_rerelease -1: never auto-detect Steam/GoG installs -- stay hermetic in %Q2DIR%
-"%Q2EXE%" +set com_rerelease -1 +set dedicated 1 +set game ozbotre +set deathmatch 1 +set maxclients 16 +set bot_count 2 +map q2dm1
+"%Q2EXE%" +set com_rerelease -1 +set dedicated 1 +set game ozbotre +set sv_fps 40 +set deathmatch 1 +set maxclients 16 +set bot_count 2 +map q2dm1
 endlocal

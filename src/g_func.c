@@ -333,6 +333,22 @@ void plat_Accelerate (moveinfo_t *moveinfo)
 
 void Think_AccelMove (edict_t *ent)
 {
+	// variable FPS: the whole accel subsystem (current_speed, accel, decel,
+	// remaining_distance) is authored in per-10Hz-FRAME units, and the *10
+	// below is a hardcoded 1/0.1s conversion.  This think reschedules every
+	// server frame, so at 40Hz it would step the accel accounting 4x per 10Hz
+	// tick -- remaining_distance depletes 4x too fast and the plat HALTS at a
+	// quarter of its travel (the "stuck half-way at 40Hz" bug, no blocker
+	// needed).  Fix: keep re-thinking each frame so the velocity stays applied
+	// (the engine integrates it at full rate), but step the accel logic only
+	// once per 10Hz keyframe -- exactly the authored cadence.  Between keyframes
+	// velocity carries the plat current_speed units per 10Hz tick, matching the
+	// remaining_distance decrement.
+	ent->nextthink = level.time + FRAMETIME;
+	ent->think = Think_AccelMove;
+	if (!FRAMESYNC)
+		return;
+
 	ent->moveinfo.remaining_distance -= ent->moveinfo.current_speed;
 
 	if (ent->moveinfo.current_speed == 0)		// starting or blocked
@@ -340,7 +356,7 @@ void Think_AccelMove (edict_t *ent)
 
 	plat_Accelerate (&ent->moveinfo);
 
-	// will the entire move complete on next frame?
+	// will the entire move complete before the next keyframe?
 	if (ent->moveinfo.remaining_distance <= ent->moveinfo.current_speed)
 	{
 		Move_Final (ent);
@@ -348,8 +364,6 @@ void Think_AccelMove (edict_t *ent)
 	}
 
 	VectorScale (ent->moveinfo.dir, ent->moveinfo.current_speed*10, ent->velocity);
-	ent->nextthink = level.time + FRAMETIME;
-	ent->think = Think_AccelMove;
 }
 
 
@@ -416,15 +430,22 @@ void plat_blocked (edict_t *self, edict_t *other)
 		return;
 	}
 
-	// variable FPS: blocked() fires per game frame -- crush damage is
-	// authored at 10Hz (a plat nudge at 40Hz would do 4x the damage)
+	// variable FPS: blocked() fires per game frame.  BOTH the crush damage
+	// (authored at 10Hz -- 4x at 40Hz) AND the direction reversal must act
+	// only on the 10Hz keyframe.  Reversing every 40Hz frame gives each
+	// direction just a quarter-frame of travel, so the plat vibrates in place
+	// against the blocker and never backs off -- the "stuck half-way at 40Hz"
+	// bug.  Gating the reversal to FRAMESYNC restores 10Hz behaviour: back off
+	// a full frame each flip, letting the blocker ride clear.
 	if (FRAMESYNC)
+	{
 		T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
 
-	if (self->moveinfo.state == STATE_UP)
-		plat_go_down (self);
-	else if (self->moveinfo.state == STATE_DOWN)
-		plat_go_up (self);
+		if (self->moveinfo.state == STATE_UP)
+			plat_go_down (self);
+		else if (self->moveinfo.state == STATE_DOWN)
+			plat_go_up (self);
+	}
 }
 
 
@@ -1101,7 +1122,9 @@ void door_blocked  (edict_t *self, edict_t *other)
 
 // if a door has a negative wait, it would never come back if blocked,
 // so let it just squash the object to death real fast
-	if (self->moveinfo.wait >= 0)
+// variable FPS: gate the reversal to the 10Hz keyframe (same as plat_blocked)
+// -- reversing every 40Hz frame traps the door against the blocker mid-travel.
+	if (FRAMESYNC && self->moveinfo.wait >= 0)
 	{
 		if (self->moveinfo.state == STATE_DOWN)
 		{

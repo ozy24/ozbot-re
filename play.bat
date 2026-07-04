@@ -12,6 +12,8 @@ if not exist "ozbotre\gamex86_64.dll" (
 )
 
 REM com_rerelease -1: never auto-detect Steam/GoG installs -- stay hermetic in %Q2DIR%
-q2repro.exe +set com_rerelease -1 +set game ozbotre +set deathmatch 1 +set maxclients 16 ^
+REM sv_fps 40: the ozbot-re tick rate (without it the game runs the vanilla 10Hz
+REM path and the recorded playbooks won't replay).
+q2repro.exe +set com_rerelease -1 +set game ozbotre +set sv_fps 40 +set deathmatch 1 +set maxclients 16 ^
   +set bot_count 4 +set bot_skill 0.6 +map q2dm1
 endlocal

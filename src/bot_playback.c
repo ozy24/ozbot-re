@@ -49,6 +49,8 @@ cvar_t	*bot_playbook;	// master gate (inert when no playbook file exists)
 #define PB_ALIGN_TIMEOUT	6.0f	// seconds to satisfy the anchor preconditions
 #define PB_DRIFT_MAX		56.0f	// live-vs-recorded origin divergence abort
 #define PB_COOLDOWN			1.0f	// after a completed replay (no instant re-engage)
+#define PB_MAX_LAG			2		// ticks the cursor may lag the time clock
+#define PB_MAX_LEAD			3		// ticks it may lead (entry faster than recorded)
 
 typedef struct
 {
@@ -64,6 +66,9 @@ typedef struct
 	float		anchor_yaw;
 	float		pos_tol, yaw_tol;
 	float		min_speed, max_speed;
+	float		drift_max;		// per-entry drift abort ceiling (0 => PB_DRIFT_MAX)
+	float		dwell;			// rescue-only: engage only after the bot has sat
+								// on the anchor this long (0 => engage immediately)
 	vec3_t		exit;
 	int			tick_rate;
 	int			num_ticks;
@@ -119,6 +124,16 @@ void Playbook_Load (const char *mapname)
 			sscanf (line + 7, "%f %f %f %f %f %f %f %f",
 				&e->anchor[0], &e->anchor[1], &e->anchor[2], &e->anchor_yaw,
 				&e->pos_tol, &e->yaw_tol, &e->min_speed, &e->max_speed);
+		else if (!strncmp (line, "drift ", 6))
+			e->drift_max = atof (line + 6);		// optional: looser abort for
+									// narrow-walkway strafe runs (open-loop
+									// replay drifts more than a short trick jump)
+		else if (!strncmp (line, "dwell ", 6))
+			e->dwell = atof (line + 6);			// optional: rescue-only engage --
+									// only fire after the bot has been stuck on
+									// the anchor this long (a descent that
+									// should trigger when a bot is trapped, not
+									// pull a merely-passing bot off its task)
 		else if (!strncmp (line, "exit ", 5))
 			sscanf (line + 5, "%f %f %f", &e->exit[0], &e->exit[1], &e->exit[2]);
 		else if (!strncmp (line, "tick ", 5))
@@ -224,6 +239,8 @@ void Bot_PlaybackReset (bot_t *b)
 	b->pb_state = PB_NONE;
 	b->pb_entry = -1;
 	b->pb_tick = 0;
+	b->pb_frame = 0;
+	b->pb_dwell_start = 0;
 }
 
 static void Playbook_Abort (bot_t *b, pb_entry_t *e, const char *why)
@@ -271,17 +288,23 @@ qboolean Bot_PlaybackThink (bot_t *b)
 		}
 		e = &pb_entries[b->pb_entry];
 
-		// rail-match with cursor slip: execute the recorded tick whose
-		// pre-tick position best matches where we actually are.  An entry
-		// speed a few percent off the recording makes the bot lead/lag the
-		// timeline (measured: 60u of pure phase error 9 ticks in) -- letting
-		// the cursor slip a little each frame absorbs that, and drift becomes
-		// a true distance-to-rail measure.
-		lo = b->pb_tick - 1;
+		// time-driven cursor with bounded position slip: a 40Hz replay of a
+		// 40Hz capture advances one recorded tick per frame, so the wall clock
+		// (pb_frame) is the primary cursor.  Position matching only slips it
+		// within [-PB_MAX_LAG, +PB_MAX_LEAD] to absorb entry-speed phase error
+		// (measured: 60u of pure phase error 9 ticks in).  Crucially the clock
+		// floor must never let position pin the cursor behind time: a standing
+		// or jump start barely moves for its first ticks, so a pure position
+		// follower matches the pre-launch tick forever and never leaves the
+		// ground (the recorded launch ticks, e.g. up>0, never get applied).
+		b->pb_frame++;
+		lo = b->pb_frame - PB_MAX_LAG;
+		if (lo < b->pb_tick) lo = b->pb_tick;	// monotonic: never rewind
 		if (lo < 0) lo = 0;
-		hi = b->pb_tick + 3;
+		hi = b->pb_frame + PB_MAX_LEAD;
 		if (hi > e->num_ticks) hi = e->num_ticks;
-		best_k = b->pb_tick;
+		if (hi < lo) hi = lo;
+		best_k = lo;
 		best_d = 1e18f;
 		for (k = lo; k <= hi; k++)
 		{
@@ -294,7 +317,7 @@ qboolean Bot_PlaybackThink (bot_t *b)
 				best_k = k;
 			}
 		}
-		if (best_d > PB_DRIFT_MAX)
+		if (best_d > (e->drift_max > 0 ? e->drift_max : PB_DRIFT_MAX))
 		{
 			gi.dprintf ("ozbot: pb_abort_drift %s: tick %d/%d drift %.0f\n",
 				e->name, best_k, e->num_ticks, best_d);
@@ -522,9 +545,23 @@ qboolean Bot_PlaybackThink (bot_t *b)
 		&& dyaw >= -e->yaw_tol && dyaw <= e->yaw_tol
 		&& speed >= e->min_speed && (e->max_speed <= 0 || speed <= e->max_speed))
 	{
+		// rescue-only (dwell): a descent that should fire when a bot is TRAPPED
+		// on the anchor node, not when one merely pauses there en route to an
+		// upper item -- immediate engage pulled bots off their task (+item_lost,
+		// -1.6pt ITEM in A/B).  Require the preconditions to hold continuously
+		// for `dwell` seconds before committing; being off-anchor resets it.
+		if (e->dwell > 0)
+		{
+			if (b->pb_dwell_start == 0)
+				b->pb_dwell_start = level.time;
+			if (level.time - b->pb_dwell_start < e->dwell)
+				return true;		// hold on the anchor, keep accumulating
+			b->pb_dwell_start = 0;
+		}
 		Bot_LogEvent (b, "pb_engage");
 		b->pb_state = PB_REPLAY;
 		b->pb_tick = 0;
+		b->pb_frame = 0;
 		b->pb_hiwater = -1;
 		b->pb_deadline = level.time + 0.75f;	// forward-progress watchdog
 		// facing/cmds start next call -- this frame just holds the anchor
@@ -533,6 +570,8 @@ qboolean Bot_PlaybackThink (bot_t *b)
 		b->pb_pitch = 0;
 		return true;
 	}
+	b->pb_dwell_start = 0;		// preconditions not (all) met: off the anchor,
+								// so a dwell-gated entry restarts its stuck timer
 
 	// ---- ALIGN steering ----
 	// A moving-start maneuver can't be entered by walking AT the anchor and

@@ -538,8 +538,28 @@ qboolean Bot_LiftThink (bot_t *b)
 	}
 	plat = b->lift_plat;
 
+	// ascent-only engage: a bot already at/above the column top is transiting
+	// or descending, NOT boarding.  Entering a WAIT there is a trap -- standing
+	// at the shaft top holds the plat up (the shaft-high touch trigger), so the
+	// ride it waits for never comes and it burns the full 10s timeout, with
+	// stuck-detection and the goal budget both frozen.  This is q2dm1's "stuck
+	// above the chaingun": bots descending the NE platform (z920) got captured
+	// by the CG lift's top landing (node 251) and timed out ~8x/run, ~45s of
+	// dead standing.  Stand aside so normal follow + stuck-penalize erodes the
+	// (usually fluke) descent link and reroutes.  Only gated on a fresh engage
+	// so an in-progress RIDE is never interrupted.  (Descent-by-riding-the-plat-
+	// down is not a q2dm1 route; revisit if a map needs it.)
 	if (b->lift_state == LIFT_NONE)
+	{
+		int	k = hop + 1, top;
+		while (k + 1 < b->path_len
+			&& Bot_LinkType (b->path[k], b->path[k + 1]) == NAV_LINK_PLAT)
+			k++;
+		top = b->path[k];
+		if (ent->s.origin[2] > nav.nodes[top].origin[2] - 24.0f)
+			return false;
 		b->lift_deadline = level.time + LIFT_WAIT_TIMEOUT;
+	}
 
 	if (level.time > b->lift_deadline)
 	{

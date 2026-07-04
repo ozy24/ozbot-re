@@ -288,12 +288,26 @@ closed-loop yaw bias, wedge recovery, high-water progress watchdog.
 NAV_MAX_LINKS 8→12 (playbook links silently dropped on saturated nodes).
 Reference validation data: `baselines/validation-q2dm1.pbk`.
 
+**R4b — MH jump baked (2026-07-04): megahealth 0 → 10 / 8 seeds.** The user
+recorded 7 clean takes; the q2dm1 route is a *pure strafe-jump* (no rocket):
+near-standstill launch pad **(688,1168,792)** → vertical climb to the upper
+ledge z920 → strafe-jump leap onto the mega. Baked to
+`engine/ozbotre/playbooks/q2dm1.pbk` (take @ t≈53.3). **item_health_mega 0 → 10
+across 8×90s** (control 0 — unreachable without the replay), ~85% climb success,
+headline metrics flat (no regression). Two latent bugs fixed en route (R4 only
+exercised *grounded* bot segments): (1) `make_playbook.py` now resamples human
+captures to the tick grid, OR-ing momentary buttons so brief jump presses
+survive; (2) the `bot_playback.c` replay cursor is now **time-driven** with
+bounded position slip (a pure position follower pinned the cursor on the pre-
+launch tick and never jumped — `pb_frame` + `PB_MAX_LAG/LEAD`). Telemetry: count
+mega via **health-jump** (+100 near the ledge) — the item's rot countdown makes
+the `pickup` event under-log; `analyze.py` fixed for bot-less `pb_*`/world events.
+See `plans/in progress/post-port-improvements.md` P1a.
+
 **Remaining / next:**
-- **Record the MH jump** (the real payload): `record_inputs.bat` (server runs
-  40Hz), do the box+strafe jump cleanly a few times, then
-  `py tools/make_playbook.py <log> --slot 0 --start T0 --end T1 --name mh_jump
-  --out engine/ozbotre/playbooks/q2dm1.pbk` and A/B `item_health_mega` pickups.
-- bot_playbook default is ON (inert without a .pbk); run a proper pickup/ITEM
-  A/B once real entries exist.
+- Improve MH conversion (contention: ~7 bots pile onto one respawning mega —
+  `bot_claim` should thin this; the low pickup *count* is item-supply-bound, not
+  execution-bound) and generalize playbooks: HB / upper-RL narrow-walkway
+  captures (post-port-improvements.md P1b).
 - Optional: humanness.py re-profile at 40Hz; multi-map re-baseline; revisit
-  bot_lift/HyperBlaster conversion on the new epoch.
+  bot_lift/HyperBlaster conversion on the new epoch (P2/P3).
