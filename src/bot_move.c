@@ -93,7 +93,7 @@ static void Bot_SetMoveToward (bot_t *b, vec3_t target)
 	b->move_yaw = vectoyaw (d);
 }
 
-static void Bot_SetMoveYaw (bot_t *b, float yaw)
+void Bot_SetMoveYaw (bot_t *b, float yaw)
 {
 	vec3_t	a = {0, 0, 0}, f, r, u;
 	a[YAW] = yaw;
@@ -374,7 +374,7 @@ void Bot_Unstick (bot_t *b)
 Bot_LinkType
 =================
 */
-static int Bot_LinkType (int from, int to)
+int Bot_LinkType (int from, int to)
 {
 	nav_node_t	*n;
 	int			i;
@@ -1570,6 +1570,17 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 	vec3_t	a = {0, 0, 0}, f, r, u;
 	float	speed = bot_forwardspeed->value;
 	float	fm, sm;
+
+	// playbook replay: the recorded usercmd is the maneuver -- apply verbatim
+	// (facing was already set to the recorded view in Bot_Think, so these
+	// move values mean exactly what they meant when captured)
+	if (bot_playbook->value != 0 && b->pb_state == PB_REPLAY)
+	{
+		cmd->forwardmove = b->pb_cmd_fwd;
+		cmd->sidemove    = b->pb_cmd_side;
+		cmd->upmove      = b->pb_cmd_up;
+		return;
+	}
 
 	// strafe jumping: the controller computed the exact usercmd (forward and
 	// side BOTH saturated -- the unit projection below would cap the diagonal

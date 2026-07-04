@@ -57,6 +57,13 @@ static float Nav_LinkCost (vec3_t a, vec3_t b, int type)
 	case NAV_LINK_WATER:	return d * 1.6f;
 	case NAV_LINK_PLAT:		return d + 400.0f;	// wait allowance: boarding may
 												// mean waiting out a plat cycle
+	case NAV_LINK_PLAYBOOK:	return 64.0f + d * 0.6f;	// recorded runs move at strafe-jump
+												// pace (~1.5x run speed) plus an
+												// align-up allowance; pricing below
+												// walk distance is what routes A*
+												// through the maneuver (teleport
+												// links already break strict
+												// distance admissibility)
 	default:				return d;
 	}
 }
@@ -155,6 +162,18 @@ static void Nav_AddLink (int from, int to, int type)
 	n->num_links++;
 	nav_indegree[to]++;
 	nav_dirty = true;
+}
+
+/*
+=================
+Nav_AddLinkType
+
+Explicit link injection for the playbook loader (bot_playback.c).
+=================
+*/
+void Nav_AddLinkType (int from, int to, int type)
+{
+	Nav_AddLink (from, to, type);
 }
 
 /*
@@ -790,10 +809,21 @@ static void Nav_Save (const char *mapname)
 	for (i = 0; i < nav.num_nodes; i++)
 	{
 		nav_node_t *n = &nav.nodes[i];
+		int			j, keep = 0;
+
+		// PLAYBOOK links are derived from the playbook file at map load, not
+		// learned -- persisting them would leave dangling maneuvers if the
+		// playbook changes (and breaks the playbook-off byte-identical graph)
+		for (j = 0; j < n->num_links; j++)
+			if (n->links[j].type != NAV_LINK_PLAYBOOK)
+				keep++;
+
 		fwrite (n->origin, sizeof(n->origin), 1, f);
 		fwrite (&n->flags, sizeof(n->flags), 1, f);
-		fwrite (&n->num_links, sizeof(n->num_links), 1, f);
-		fwrite (n->links, sizeof(nav_link_t), n->num_links, f);
+		fwrite (&keep, sizeof(keep), 1, f);
+		for (j = 0; j < n->num_links; j++)
+			if (n->links[j].type != NAV_LINK_PLAYBOOK)
+				fwrite (&n->links[j], sizeof(nav_link_t), 1, f);
 	}
 	fclose (f);
 

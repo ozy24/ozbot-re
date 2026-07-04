@@ -45,6 +45,14 @@ float Bot_TickGain (float gain10);
 #define LIFT_RIDE		3	// standing on the plat: let it carry us
 #define LIFT_FAILED		4	// timed out this attempt: normal systems resume
 
+// playback controller states (bot_playbook; bot_playback.c).  A playbook
+// entry replays a recorded input sequence; ALIGN gets the bot onto the
+// recorded anchor first, FAILED sticks for the goal attempt like LIFT_FAILED.
+#define PB_NONE			0
+#define PB_ALIGN		1	// steering onto the anchor preconditions
+#define PB_REPLAY		2	// feeding recorded usercmds, drift-monitored
+#define PB_FAILED		3	// aborted this attempt: normal systems resume
+
 // strafe-jump controller states (bot_strafejump).  Chained bunny hops with a
 // forward+side wishdir and a per-tick yaw sweep build speed past the 300 run
 // cap on long clear runways -- calibrated from a human input capture (see
@@ -109,6 +117,18 @@ typedef struct
 	vec3_t		lift_move_pos;	// BOARD progress: last position...
 	float		lift_move_time;	// ...and when we were there (geometry-block
 								// detector -- boarding should never stall)
+
+	// playback (bot_playbook -- recorded maneuvers, bot_playback.c)
+	int			pb_state;		// PB_*
+	int			pb_entry;		// index into the loaded playbook entries
+	int			pb_tick;		// replay cursor
+	int			pb_hiwater;		// furthest tick ever matched (progress watchdog)
+	float		pb_deadline;	// ALIGN timeout / replay progress deadline
+	short		pb_cmd_fwd;		// exact usercmd for this replay frame
+	short		pb_cmd_side;	//   (Bot_ApplyMovement copies these verbatim,
+	short		pb_cmd_up;		//    same contract as the sj_cmd_* fields)
+	float		pb_yaw;			// facing this frame (the recording's view)
+	float		pb_pitch;
 
 	// strafe jumping (bot_strafejump)
 	int			sj_state;		// SJ_*
@@ -197,6 +217,7 @@ extern cvar_t	*bot_swim;
 extern cvar_t	*bot_lift;
 extern cvar_t	*bot_liftlog;
 extern cvar_t	*bot_inputlog;
+extern cvar_t	*bot_cmdlog;
 
 //
 // bot_move.c -- steering (target point / path following -> usercmd_t)
@@ -247,6 +268,21 @@ qboolean Bot_StrafeThink (bot_t *b);
 void Bot_StrafeReset (bot_t *b);
 extern cvar_t	*bot_strafejump;
 extern cvar_t	*bot_sjlog;
+
+// generic movement helpers shared with the playback controller
+void Bot_SetMoveYaw (bot_t *b, float yaw);
+int Bot_LinkType (int from, int to);	// NAV_LINK_* of from->to, or -1
+
+// playbooks (bot_playbook, Phase R4): recorded map-specific maneuvers as
+// replayable NAV_LINK_PLAYBOOK links (bot_playback.c).  Bot_PlaybackThink
+// returns true while it owns the frame's movement intent AND facing (caller
+// skips path following/stuck recovery and freezes the goal-budget clock --
+// align waiting must not be billed, like a lift wait).
+void Playbook_Load (const char *mapname);	// parse <gamedir>/playbooks/<map>.pbk
+void Playbook_Register (void);				// seed nodes + inject PLAYBOOK links
+qboolean Bot_PlaybackThink (bot_t *b);
+void Bot_PlaybackReset (bot_t *b);
+extern cvar_t	*bot_playbook;
 
 // strafe-jump qualification funnel (diagnosis only; bot_sjlog >= 2)
 #define SJ_DIAG_QUALIFY		0	// SJ_QualifyRunway calls

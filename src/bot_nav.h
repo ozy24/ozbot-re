@@ -18,7 +18,10 @@ NOTE: include "g_local.h" and "bot.h" before this header.
 #define NAV_VERSION			1
 
 #define NAV_MAX_NODES		2048
-#define NAV_MAX_LINKS		8		// per node
+#define NAV_MAX_LINKS		12		// per node (was 8; playbook links need room on
+									// saturated corridor nodes -- the .nav format
+									// stores num_links per node, so files written
+									// at either cap load fine)
 #define NAV_NODE_DENSITY	96.0f	// min spacing between distinct nodes
 #define NAV_ARRIVE_RADIUS	48.0f	// horizontal "reached this node" radius
 #define NAV_ARRIVE_Z		48.0f	// vertical tolerance for arrival
@@ -30,6 +33,10 @@ NOTE: include "g_local.h" and "bot.h" before this header.
 #define NAV_LINK_TELEPORT	3
 #define NAV_LINK_WATER		4
 #define NAV_LINK_PLAT		5		// carried up by a func_plat (one-way; bot_lift)
+#define NAV_LINK_PLAYBOOK	6		// recorded-input maneuver (one-way; bot_playbook).
+									// Injected from <gamedir>/playbooks/<map>.pbk at map
+									// load, never saved to the .nav (the executor data
+									// lives in the playbook file, not the graph)
 
 // capability masks for filtered pathfinding (bot_navmask): bit (1 << type)
 // lets A* expand links of that type.  Masks never touch the graph itself --
@@ -109,6 +116,10 @@ qboolean Nav_CanWalk (vec3_t from, vec3_t to, edict_t *ignore);	// clear player-
 // learning (called per bot per frame)
 //
 int  Nav_LearnStep (edict_t *ent, int prev_node, int link_type);
+
+// explicit link injection (bot_playback.c playbook registration); same
+// dedup/cost rules as learned links
+void Nav_AddLinkType (int from, int to, int type);
 
 // retag learned lift-column links (vertical walk links inside a real
 // func_plat's footprint) as NAV_LINK_PLAT.  Needs spawned entities, so it is

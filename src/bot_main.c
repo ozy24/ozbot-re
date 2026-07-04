@@ -25,6 +25,7 @@ cvar_t	*bot_forwardspeed;
 cvar_t	*bot_debug;
 cvar_t	*bot_seed;
 cvar_t	*bot_quitafter;
+cvar_t	*bot_cmdlog;
 cvar_t	*bot_rollout;
 cvar_t	*bot_stucktime;
 cvar_t	*bot_wallslide;
@@ -119,6 +120,10 @@ void Bot_Init (void)
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
+	bot_playbook     = gi.cvar ("bot_playbook", "1", 0);	// recorded maneuvers as nav links (Phase R4;
+															// inert unless playbooks/<map>.pbk exists)
+	bot_cmdlog       = gi.cvar ("bot_cmdlog", "0", 0);		// log BOT usercmds in the input-log schema
+															// (playbook pipeline validation)
 	bot_gaze         = gi.cvar ("bot_gaze", "1", 0);		// humanization: path look-ahead, glances, live pitch
 	bot_turnrate     = gi.cvar ("bot_turnrate", "1", 0);	// humanization: slew-limited view turns
 	bot_humantest    = gi.cvar ("bot_humantest", "0", 0);	// head-to-head: even ids humanized, odd stock
@@ -232,6 +237,7 @@ static void Bot_ResetNavState (bot_t *b)
 	b->progress_time = level.time;
 	Bot_LiftReset (b);
 	Bot_StrafeReset (b);
+	Bot_PlaybackReset (b);
 	b->glance_until = 0;			// no stale glance across a respawn
 	// deterministic (NO random() here): this runs with humanization off too,
 	// and an extra rand() per respawn would shift the whole stream vs stock,
@@ -532,6 +538,7 @@ static void Bot_GoExplore (bot_t *b)
 	b->steer_item    = NULL;	// fresh explore leg: no stale steering target
 	Bot_LiftReset (b);
 	Bot_StrafeReset (b);
+	Bot_PlaybackReset (b);
 }
 
 /*
@@ -774,6 +781,18 @@ static void Bot_Navigate (bot_t *b)
 		else if (b->lift_state != LIFT_NONE)
 			Bot_LiftReset (b);	// cvar turned off mid-attempt: clear stale state
 
+		// playbook maneuvers (bot_playbook): when a recorded-move hop is next
+		// on the path the controller owns movement AND facing.  Budget clock
+		// freezes like a lift (the align-up wait must not be billed).
+		if (Bot_PlaybackThink (b))
+		{
+			b->progress_time = level.time;
+			b->goal_time += FRAMETIME;
+			if (b->sj_state != SJ_NONE)
+				Bot_StrafeReset (b);	// the replay owns the frame now
+			return;
+		}
+
 		// strafe jumping: on a qualified runway the controller owns movement
 		// AND facing.  Unlike the lift, the goal budget keeps billing (we are
 		// travelling faster than budgeted) and stuck detection stays live
@@ -897,6 +916,7 @@ static void Bot_Navigate (bot_t *b)
 				b->goal_best     = 99999;
 				Bot_LiftReset (b);
 				Bot_StrafeReset (b);	// fresh path: any runway is stale
+				Bot_PlaybackReset (b);
 				if (b->goal_item)
 					Bot_LogItemEvent (b, "goal_item", b->goal_item->item->pickup_name);
 				else
@@ -948,8 +968,17 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 
 	// 2) combat aims/fires and may bias the move direction (strafe/range); when
 	//    not engaged the gaze layer picks the facing (stock behavior -- face
-	//    the travel direction, pitch 0 -- when its cvars are off)
-	if (!Combat_Aim (b, cmd, &facing_yaw, &facing_pitch))
+	//    the travel direction, pitch 0 -- when its cvars are off).
+	//    A playbook replay owns the facing outright (the recorded view IS the
+	//    maneuver -- e.g. a strafe-jump's yaw sweep) and suppresses combat for
+	//    its few seconds: firing mid-trick would corrupt the recorded inputs.
+	if (bot_playbook->value != 0
+		&& (b->pb_state == PB_REPLAY || b->pb_state == PB_ALIGN))
+	{
+		facing_yaw = b->pb_yaw;
+		facing_pitch = b->pb_pitch;
+	}
+	else if (!Combat_Aim (b, cmd, &facing_yaw, &facing_pitch))
 	{
 		// strafe jumping: the controller's yaw IS the maneuver (the wishdir
 		// angle the speed gain depends on) -- the gaze slew/glances would
@@ -1069,6 +1098,8 @@ void Bot_RunFrame (void)
 		Nav_Init (level.mapname);
 		Goal_SeedNavNodes ();		// ensure item spots are covered + routable
 		Nav_TagPlatLinks ();		// bot_lift: retag learned lift columns
+		Playbook_Load (level.mapname);	// bot_playbook: recorded maneuvers...
+		Playbook_Register ();			// ...surfaced as NAV_LINK_PLAYBOOK links
 		Goal_ReachSweep ("load");	// bot_reachlog: the persisted graph's reachability truth
 		Bot_LogLiftBegin ();		// bot_liftlog: cache plats for diagnosis telemetry
 		Com_sprintf (bot_logged_map, sizeof(bot_logged_map), "%s", level.mapname);
@@ -1124,6 +1155,12 @@ void Bot_RunFrame (void)
 		}
 
 		Bot_Think (b, &cmd);
+		// bot_cmdlog: log the bot's own usercmd stream in the bot_inputlog
+		// schema -- tools/make_playbook.py can bake a playbook from a bot's
+		// traversal (the pipeline validation source; human captures come via
+		// bot_inputlog/record_inputs.bat)
+		if (bot_cmdlog->value != 0)
+			Bot_LogInput (ent, &cmd);
 		ClientThink (ent, &cmd);
 
 		// strafe jumping (bot_strafejump): physics parity with real clients.
