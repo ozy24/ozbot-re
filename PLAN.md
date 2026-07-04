@@ -1,6 +1,9 @@
 # ozbot-re — Porting ozbot to the q2repro 40Hz engine
 
-*Drafted 2026-07-03. Status: plan approved-pending-review, no code yet.*
+*Drafted 2026-07-03. Status: **R0–R4 EXECUTED 2026-07-04** — see "Results" at the
+bottom. The port is live: 40Hz classic-API game + bot on q2repro, all gates
+passed, playbook machinery validated end-to-end. Remaining: record the real
+Megahealth-jump capture (human input) and bake it.*
 
 **ozbot-re** is a port of ozbot (self-learning Q2 deathmatch bot, currently on q2pro at
 10Hz) to the **q2repro** engine (`E:\code\projects\ozbot\q2repro`) running at a **40Hz
@@ -241,3 +244,56 @@ long-term fate of the frozen 10Hz rig, revisit shelved Route A notes.
 3. Port fastsim patch; commit.
 4. `git clone ozbot ozbot-re`-style repo seed (this PLAN.md moves in as the repo's plan).
 5. x64 `build.bat` + first compile of the game DLL.
+
+---
+
+## 8. Results (executed 2026-07-04)
+
+**R0 — engine.** q2repro built x64 with `-Dvariable-fps=true` (one upstream
+bit-rot fix: duplicate `set_server_fps` in `src/client/parse.c`); fastsim
+ported tick-rate-aware (injects one `sv_fps`-sized tick per iteration).
+Gotcha found: q2repro auto-detects Steam/GoG installs and an OneDrive homedir
+— every rig launch passes `com_rerelease -1` to stay hermetic.
+
+**R1 — 10Hz parity.** x64 DLL (offsetof FOFS macros; game.def now tracked)
+through the game3 proxy: same-seed md5 bit-exact; 8-seed parity vs the q2pro
+rig 268/265 pickups, 55%/55% ITEM, 79/78 frags. Fastsim ~2s wall per
+8×90s batch. `run_parallel --repro` is the rig switch.
+
+**R2 — variable FPS.** GMF_VARIABLE_FPS + FRAMETIME/FRAMESYNC/ANIMTIME
+conversion (seconds-based nextthink kept; `game.frametime` is a double so
+10Hz is exactly the vanilla `0.1`). Gates: conversion bit-invisible at
+sv_fps 10 (same-seed md5 identical to pre-conversion DLL); all 8 weapon fire
+periods identical at 10 vs 40 Hz; respawn scheduler error ≤0.01s
+(tools/verify_timing.py, fire + respawn_scheduled/item_respawned telemetry).
+
+**R3 — bot at 40Hz.** Per-tick dynamics normalized (BOT_TICK_RATIO /
+Bot_TickGain); the combat *decision* layer FRAMESYNC-keyframed — per-tick
+decisions, even per-second-normalized, are worth +28..41% frags (fresher
+combat information). Mover crush damage FRAMESYNC-gated (plat nudges did 4×).
+**New epoch (16 seeds × 90s, same build):** 10Hz 488 pickups / 53% ITEM /
+157 frags — 40Hz 418 / 47% / 235. The +50% kill intensity is emergent and
+symmetric (fires/min flat, frags-per-fire +67%: smoother 40Hz velocity
+between 10Hz aim samples tracks better); the ITEM gap is death-interrupted
+attempts, not navigation (giveups/pathfails flat, re-decides 1%). A/B of
+also-keyframing combat *movement*: no lethality change, pickups cost →
+rejected; the 10Hz-brain/40Hz-body split is the shipped shape.
+
+**R4 — playbooks.** Full pipeline shipped and validated with bot-recorded
+segments (bot_cmdlog): 57 engages → 26 completed replays over 8×180s, failed
+entries self-penalize, no stuck bots. The controller learnings are in the
+bot_playback.c header + R4 commit: run-up staging, lateral engage gate,
+rail-matching cursor slip (pure open-loop replay is hopeless), capped
+closed-loop yaw bias, wedge recovery, high-water progress watchdog.
+NAV_MAX_LINKS 8→12 (playbook links silently dropped on saturated nodes).
+Reference validation data: `baselines/validation-q2dm1.pbk`.
+
+**Remaining / next:**
+- **Record the MH jump** (the real payload): `record_inputs.bat` (server runs
+  40Hz), do the box+strafe jump cleanly a few times, then
+  `py tools/make_playbook.py <log> --slot 0 --start T0 --end T1 --name mh_jump
+  --out engine/ozbotre/playbooks/q2dm1.pbk` and A/B `item_health_mega` pickups.
+- bot_playbook default is ON (inert without a .pbk); run a proper pickup/ITEM
+  A/B once real entries exist.
+- Optional: humanness.py re-profile at 40Hz; multi-map re-baseline; revisit
+  bot_lift/HyperBlaster conversion on the new epoch.
