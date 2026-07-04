@@ -23,6 +23,10 @@ cvar_t	*bot_aimfire;	//   buys kills at a given nominal skill
 cvar_t	*bot_aimtexture;	// humanization: autocorrelated aim error + reversal
 							// overshoot instead of per-frame white noise
 							// (plans/humanization.md Phase 2)
+cvar_t	*bot_aimsmooth;		// 40Hz view smoothing: the aim DECISION is 10Hz
+							// (FRAMESYNC); glide the sent view toward it every
+							// frame instead of snapping+holding (kills the 10Hz
+							// view judder that reads as jerky/robotic aim)
 cvar_t	*bot_fov;		// humanization: enemy acquisition needs the target in
 						// a ~120 deg view cone (or a recent pain event -- the
 						// turn-toward-attacker reflex).  Ends 360-degree
@@ -282,6 +286,8 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->reaction_until = level.time + reaction;
 		b->aim[YAW]   = self->client->ps.viewangles[YAW];
 		b->aim[PITCH] = self->client->ps.viewangles[PITCH];
+		b->aim_view[YAW]   = self->client->ps.viewangles[YAW];	// view starts
+		b->aim_view[PITCH] = self->client->ps.viewangles[PITCH];	// where we look
 		b->aim_err[YAW] = b->aim_err[PITCH] = 0;	// no stale texture error
 		b->aim_sweep_sign = 0;						// from an earlier fight
 		// seed with the target's actual bearing, not our own facing -- the
@@ -439,8 +445,40 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		cmd->buttons |= BUTTON_ATTACK;
 
 aim_held:
-	*facing_yaw   = b->aim[YAW];
-	*facing_pitch = b->aim[PITCH];
+	// 40Hz view smoothing (bot_aimsmooth): b->aim is the aim the 10Hz decision
+	// layer committed to; snapping the view to it on the keyframe and holding it
+	// for the 3 off-frames makes the view lurch 10x/sec -- the "jerky/robotic"
+	// aim.  Glide the sent view toward the committed aim every frame instead
+	// (smooth pursuit, like a hand on a mouse).  Fire keys off b->aim vs the
+	// bearing at FRAMESYNC, and when settled-on-target aim barely moves so the
+	// view is already there -- accuracy is unchanged, only the between-commit
+	// swing is smoothed.  At 10Hz (BOT_TICK_RATIO>=1) g=1: exact, a no-op.
+	if (bot_aimsmooth->value != 0 && BOT_TICK_RATIO < 1.0f)
+	{
+		// gap-dependent gain: a BIG committed step (a 40-deg acquisition snap,
+		// held 3 frames = the robotic jerk) glides over several frames; a SMALL
+		// one (fine tracking, where the trigger pulls) is followed tightly so
+		// the shot still goes where the 10Hz layer aimed.  g -> 1 as the gap
+		// shrinks, so settled aim == b->aim (no accuracy cost).
+		float	dy = AngleDelta (b->aim[YAW],   b->aim_view[YAW]);
+		float	dp = AngleDelta (b->aim[PITCH], b->aim_view[PITCH]);
+		float	gap = (float)(fabs (dy) + fabs (dp));
+		float	g = 1.0f / (1.0f + gap * 0.06f);
+		if (g < 0.30f) g = 0.30f;
+		// on a firing frame the shot travels down the sent view, so snap it to
+		// the committed aim -- accuracy is never traded for smoothness, only the
+		// between-shot swing glides (firing frames are a fraction of combat)
+		if (cmd->buttons & BUTTON_ATTACK) g = 1.0f;
+		b->aim_view[YAW]   += dy * g;
+		b->aim_view[PITCH] += dp * g;
+		*facing_yaw   = b->aim_view[YAW];
+		*facing_pitch = b->aim_view[PITCH];
+	}
+	else
+	{
+		*facing_yaw   = b->aim[YAW];
+		*facing_pitch = b->aim[PITCH];
+	}
 
 	// --- blend combat movement into the existing (nav) move intent ---
 	// not while boarding/riding a lift: the lift controller owns movement
