@@ -18,6 +18,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 #include "g_local.h"
+#include "bot.h"
 
 
 qboolean	Pickup_Weapon (edict_t *ent, edict_t *other);
@@ -141,6 +142,8 @@ void DoRespawn (edict_t *ent)
 
 	// send an effect
 	ent->s.event = EV_ITEM_RESPAWN;
+
+	Bot_LogRespawn ("item_respawned", ent, 0);	// ozbot-re: timing invariants
 }
 
 void SetRespawn (edict_t *ent, float delay)
@@ -151,6 +154,8 @@ void SetRespawn (edict_t *ent, float delay)
 	ent->nextthink = level.time + delay;
 	ent->think = DoRespawn;
 	gi.linkentity (ent);
+
+	Bot_LogRespawn ("respawn_scheduled", ent, delay);	// ozbot-re: timing invariants
 }
 
 
@@ -350,7 +355,7 @@ void Use_Quad (edict_t *ent, gitem_t *item)
 	}
 	else
 	{
-		timeout = 300;
+		timeout = 30 * HZ;
 	}
 
 	if (ent->client->quad_framenum > level.framenum)
@@ -369,9 +374,9 @@ void Use_Breather (edict_t *ent, gitem_t *item)
 	ValidateSelectedItem (ent);
 
 	if (ent->client->breather_framenum > level.framenum)
-		ent->client->breather_framenum += 300;
+		ent->client->breather_framenum += 30 * HZ;
 	else
-		ent->client->breather_framenum = level.framenum + 300;
+		ent->client->breather_framenum = level.framenum + 30 * HZ;
 
 //	gi.sound(ent, CHAN_ITEM, gi.soundindex("items/damage.wav"), 1, ATTN_NORM, 0);
 }
@@ -384,9 +389,9 @@ void Use_Envirosuit (edict_t *ent, gitem_t *item)
 	ValidateSelectedItem (ent);
 
 	if (ent->client->enviro_framenum > level.framenum)
-		ent->client->enviro_framenum += 300;
+		ent->client->enviro_framenum += 30 * HZ;
 	else
-		ent->client->enviro_framenum = level.framenum + 300;
+		ent->client->enviro_framenum = level.framenum + 30 * HZ;
 
 //	gi.sound(ent, CHAN_ITEM, gi.soundindex("items/damage.wav"), 1, ATTN_NORM, 0);
 }
@@ -399,9 +404,9 @@ void	Use_Invulnerability (edict_t *ent, gitem_t *item)
 	ValidateSelectedItem (ent);
 
 	if (ent->client->invincible_framenum > level.framenum)
-		ent->client->invincible_framenum += 300;
+		ent->client->invincible_framenum += 30 * HZ;
 	else
-		ent->client->invincible_framenum = level.framenum + 300;
+		ent->client->invincible_framenum = level.framenum + 30 * HZ;
 
 	gi.sound(ent, CHAN_ITEM, gi.soundindex("items/protect.wav"), 1, ATTN_NORM, 0);
 }

@@ -70,7 +70,21 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define FL_RESPAWN				0x80000000	// used for item respawning
 
 
-#define	FRAMETIME		0.1
+// ozbot-re variable server FPS (q2repro 40Hz port).  On an engine built with
+// variable-fps support, the game exports GMF_VARIABLE_FPS and reads the real
+// rate from sv_fps at InitGame; on stock engines these resolve to the vanilla
+// 10Hz values.  Vanilla game logic was authored assuming frame == 100ms:
+//   FRAMETIME  seconds per *game* frame (0.025 at 40Hz)  -- physics scaling
+//   FRAMESYNC  true on the 10Hz keyframes (every FRAMEDIV-th frame) -- gate
+//              weapon/animation stepping so per-"frame" sequences keep their
+//              authored 10Hz pacing (else fire rates would quadruple)
+//   ANIMTIME   one authored-rate frame in seconds (always 0.1) -- use instead
+//              of FRAMETIME in nextthink chains that step a sequence per think
+#define	FRAMETIME		(game.frametime)
+#define	HZ				(game.framerate)
+#define	FRAMEDIV		(game.framediv)
+#define	FRAMESYNC		(!(level.framenum % game.framediv))
+#define	ANIMTIME		(game.framediv * game.frametime)
 
 // memory tags to allow dynamic memory to be cleaned up
 #define	TAG_GAME	765		// clear when unloading the dll
@@ -266,6 +280,7 @@ typedef struct gitem_s
 #define GMF_CLIENTNUM				1
 #define GMF_PROPERINUSE				2
 #define GMF_WANT_ALL_DISCONNECTS	8
+#define GMF_VARIABLE_FPS			0x00000800	// game supports variable server FPS (sv_fps)
 
 //
 // this structure is left intact through an entire game
@@ -298,6 +313,14 @@ typedef struct
 	qboolean	autosaved;
 
 	int			server_features;	// q2pro sv_features (0 = stock server)
+
+	// variable server FPS (see the FRAMETIME/FRAMESYNC macros): resolved once
+	// in InitGame from sv_fps when the server advertises GMF_VARIABLE_FPS.
+	// frametime is a double so that at 10Hz it is exactly the vanilla `0.1`
+	// double literal -- keeps converted float math bit-identical to vanilla.
+	int			framerate;			// game frames per second (10 on stock servers)
+	double		frametime;			// seconds per game frame (0.1 on stock servers)
+	int			framediv;			// framerate / 10 (1 on stock servers)
 } game_locals_t;
 
 

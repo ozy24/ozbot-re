@@ -1783,11 +1783,18 @@ void ClientBeginServerFrame (edict_t *ent)
 		return;
 	}
 
-	// run weapon animations if it hasn't been done by a ucmd_t
-	if (!client->weapon_thunk && !client->resp.spectator)
-		Think_Weapon (ent);
-	else
-		client->weapon_thunk = false;
+	// run weapon animations if it hasn't been done by a ucmd_t.
+	// FRAMESYNC: weapon frames are authored at 10Hz -- at 40Hz only step
+	// them on keyframes or fire rates would quadruple (ClientThink's
+	// immediate fire path stays; weapon_thunk limits it to one think per
+	// keyframe window)
+	if (FRAMESYNC)
+	{
+		if (!client->weapon_thunk && !client->resp.spectator)
+			Think_Weapon (ent);
+		else
+			client->weapon_thunk = false;
+	}
 
 	if (ent->deadflag)
 	{

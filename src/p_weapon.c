@@ -68,6 +68,7 @@ void PlayerNoise(edict_t *who, vec3_t where, int type)
 			return;
 		}
 		Bot_NoteNoise (who);	// ozbot: bots hear unsilenced gunfire (bot_fov)
+		Bot_LogFire (who);		// ozbot-re: fire event telemetry (weapon-rate invariants)
 	}
 
 	if (deathmatch->value)

@@ -178,6 +178,48 @@ void Bot_LogEvent (bot_t *b, const char *event)
 
 /*
 =================
+Bot_LogFire
+
+One record per weapon discharge (hooked from PlayerNoise PNOISE_WEAPON, which
+every firing weapon reaches).  Built for tools/verify_timing.py: fire-rate
+invariants are the acceptance gate for the variable-FPS (40Hz) conversion --
+a miss in the FRAMESYNC weapon gating shows up here as a 4x rate change.
+=================
+*/
+void Bot_LogFire (edict_t *who)
+{
+	if (!log_fp || !who->client)
+		return;
+
+	fprintf (log_fp,
+		"{\"type\":\"event\",\"event\":\"fire\",\"t\":%.2f,\"bot\":%d,\"weapon\":\"%s\"}\n",
+		level.time, (int)(who - g_edicts) - 1,
+		who->client->pers.weapon ? who->client->pers.weapon->classname : "unknown");
+}
+
+/*
+=================
+Bot_LogItemEvent
+
+Item respawn scheduling ("respawn_scheduled", with the requested delay) and
+firing ("item_respawned").  tools/verify_timing.py pairs them per entity: the
+elapsed time must equal the delay at every sv_fps -- this validates the whole
+seconds-based nextthink scheduler under variable FPS.
+=================
+*/
+void Bot_LogRespawn (const char *event, edict_t *item_ent, float delay)
+{
+	if (!log_fp || !item_ent->item)
+		return;
+
+	fprintf (log_fp,
+		"{\"type\":\"event\",\"event\":\"%s\",\"t\":%.2f,\"ent\":%d,\"item\":\"%s\",\"delay\":%.1f}\n",
+		event, level.time, (int)(item_ent - g_edicts),
+		item_ent->item->pickup_name, delay);
+}
+
+/*
+=================
 Bot_LogInput
 
 bot_inputlog: one record per frame of a REAL player's usercmd_t -- the exact

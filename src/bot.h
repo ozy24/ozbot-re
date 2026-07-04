@@ -326,6 +326,8 @@ void Bot_LogBeginLevel (const char *mapname);	// open a fresh JSONL for this map
 void Bot_LogEndLevel (void);					// flush + close the current JSONL
 void Bot_LogTick (bot_t *b);					// per-tick state record
 void Bot_LogEvent (bot_t *b, const char *event);	// spawn/death/etc.
+void Bot_LogFire (edict_t *who);				// weapon discharge (timing invariants)
+void Bot_LogRespawn (const char *event, edict_t *item_ent, float delay);	// respawn scheduling/firing
 void Bot_LogInput (edict_t *ent, usercmd_t *ucmd);	// bot_inputlog: human usercmd trace
 void Bot_LogMaybeFlush (void);					// periodic flush
 // bot_liftlog diagnosis instrumentation (throwaway, see plans/lift-riding.md)

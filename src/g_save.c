@@ -207,16 +207,41 @@ void InitGame (void)
 	// items
 	InitItems ();
 
-	// q2pro: advertise clientNum support for proper spectator eyecam
+	// q2pro: advertise clientNum support for proper spectator eyecam;
+	// ozbot-re: advertise variable-FPS support (q2repro runs us at sv_fps 40)
 	{
 		cvar_t	*sv_features;
 
 		gi.cvar ("g_features", "0", CVAR_NOSET);
 		gi.cvar_forceset ("g_features",
-			va ("%d", GMF_CLIENTNUM | GMF_PROPERINUSE | GMF_WANT_ALL_DISCONNECTS));
+			va ("%d", GMF_CLIENTNUM | GMF_PROPERINUSE | GMF_WANT_ALL_DISCONNECTS | GMF_VARIABLE_FPS));
 		sv_features = gi.cvar ("sv_features", "0", 0);
 		game.server_features = sv_features ? (int)sv_features->value : 0;
 	}
+
+	// variable server FPS: resolve the actual game frame rate.  The engine
+	// only honors GMF_VARIABLE_FPS if it was built with the feature AND
+	// advertises it in sv_features; otherwise we run at the vanilla 10Hz.
+	game.framerate = 10;
+	game.frametime = 0.1;
+	game.framediv = 1;
+	if (game.server_features & GMF_VARIABLE_FPS)
+	{
+		cvar_t	*fps = gi.cvar ("sv_fps", "10", 0);
+		int		rate = fps ? (int)fps->value : 10;
+
+		if (rate >= 10 && rate <= 60 && (rate % 10) == 0)
+		{
+			game.framerate = rate;
+			game.frametime = 1.0 / rate;
+			game.framediv = rate / 10;
+		}
+		else if (rate != 10)
+			gi.dprintf ("ozbot: ignoring invalid sv_fps %d (want a multiple of 10 in 10..60)\n", rate);
+	}
+	if (game.framediv != 1)
+		gi.dprintf ("ozbot: variable FPS active: %d Hz (frame %.3fs, div %d)\n",
+			game.framerate, game.frametime, game.framediv);
 
 	// ozbot
 	Bot_Init ();

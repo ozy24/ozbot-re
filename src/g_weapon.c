@@ -756,7 +756,8 @@ void bfg_explode (edict_t *self)
 		}
 	}
 
-	self->nextthink = level.time + FRAMETIME;
+	// ANIMTIME: 5 damage waves authored at 10Hz (variable FPS)
+	self->nextthink = level.time + ANIMTIME;
 	self->s.frame++;
 	if (self->s.frame == 5)
 		self->think = G_FreeEdict;
@@ -791,7 +792,7 @@ void bfg_touch (edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf
 	self->s.sound = 0;
 	self->s.effects &= ~EF_ANIM_ALLFAST;
 	self->think = bfg_explode;
-	self->nextthink = level.time + FRAMETIME;
+	self->nextthink = level.time + ANIMTIME;
 	self->enemy = other;
 
 	gi.WriteByte (svc_temp_entity);
@@ -875,7 +876,8 @@ void bfg_think (edict_t *self)
 		gi.multicast (self->s.origin, MULTICAST_PHS);
 	}
 
-	self->nextthink = level.time + FRAMETIME;
+	// ANIMTIME: in-flight laser damage is authored per 10Hz frame (variable FPS)
+	self->nextthink = level.time + ANIMTIME;
 }
 
 
@@ -905,7 +907,7 @@ void fire_bfg (edict_t *self, vec3_t start, vec3_t dir, int damage, int speed, f
 	bfg->s.sound = gi.soundindex ("weapons/bfg__l1a.wav");
 
 	bfg->think = bfg_think;
-	bfg->nextthink = level.time + FRAMETIME;
+	bfg->nextthink = level.time + ANIMTIME;
 	bfg->teammaster = bfg;
 	bfg->teamchain = NULL;
 

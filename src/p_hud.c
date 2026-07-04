@@ -239,7 +239,7 @@ void DeathmatchScoreboardMessage (edict_t *ent, edict_t *killer)
 		// send the layout
 		Com_sprintf (entry, sizeof(entry),
 			"client %i %i %i %i %i %i ",
-			x, y, sorted[i], cl->resp.score, cl->ping, (level.framenum - cl->resp.enterframe)/600);
+			x, y, sorted[i], cl->resp.score, cl->ping, (level.framenum - cl->resp.enterframe)/(60*HZ));
 		j = strlen(entry);
 		if (stringlength + j > 1024)
 			break;
@@ -418,7 +418,7 @@ void G_SetStats (edict_t *ent)
 	}
 
 	index = ArmorIndex (ent);
-	if (power_armor_type && (!index || (level.framenum & 8) ) )
+	if (power_armor_type && (!index || ((level.framenum / FRAMEDIV) & 8) ) )
 	{	// flash between power armor and other armor icon
 		ent->client->ps.stats[STAT_ARMOR_ICON] = gi.imageindex ("i_powershield");
 		ent->client->ps.stats[STAT_ARMOR] = cells;
@@ -450,22 +450,22 @@ void G_SetStats (edict_t *ent)
 	if (ent->client->quad_framenum > level.framenum)
 	{
 		ent->client->ps.stats[STAT_TIMER_ICON] = gi.imageindex ("p_quad");
-		ent->client->ps.stats[STAT_TIMER] = (ent->client->quad_framenum - level.framenum)/10;
+		ent->client->ps.stats[STAT_TIMER] = (ent->client->quad_framenum - level.framenum)/HZ;
 	}
 	else if (ent->client->invincible_framenum > level.framenum)
 	{
 		ent->client->ps.stats[STAT_TIMER_ICON] = gi.imageindex ("p_invulnerability");
-		ent->client->ps.stats[STAT_TIMER] = (ent->client->invincible_framenum - level.framenum)/10;
+		ent->client->ps.stats[STAT_TIMER] = (ent->client->invincible_framenum - level.framenum)/HZ;
 	}
 	else if (ent->client->enviro_framenum > level.framenum)
 	{
 		ent->client->ps.stats[STAT_TIMER_ICON] = gi.imageindex ("p_envirosuit");
-		ent->client->ps.stats[STAT_TIMER] = (ent->client->enviro_framenum - level.framenum)/10;
+		ent->client->ps.stats[STAT_TIMER] = (ent->client->enviro_framenum - level.framenum)/HZ;
 	}
 	else if (ent->client->breather_framenum > level.framenum)
 	{
 		ent->client->ps.stats[STAT_TIMER_ICON] = gi.imageindex ("p_rebreather");
-		ent->client->ps.stats[STAT_TIMER] = (ent->client->breather_framenum - level.framenum)/10;
+		ent->client->ps.stats[STAT_TIMER] = (ent->client->breather_framenum - level.framenum)/HZ;
 	}
 	else
 	{
@@ -512,7 +512,7 @@ void G_SetStats (edict_t *ent)
 	//
 	// help icon / current weapon if not shown
 	//
-	if (ent->client->pers.helpchanged && (level.framenum&8) )
+	if (ent->client->pers.helpchanged && ((level.framenum / FRAMEDIV) & 8) )
 		ent->client->ps.stats[STAT_HELPICON] = gi.imageindex ("i_help");
 	else if ( (ent->client->pers.hand == CENTER_HANDED || ent->client->ps.fov > 91)
 		&& ent->client->pers.weapon)

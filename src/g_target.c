@@ -554,7 +554,8 @@ void target_laser_think (edict_t *self)
 
 	VectorCopy (tr.endpos, self->s.old_origin);
 
-	self->nextthink = level.time + FRAMETIME;
+	// ANIMTIME: laser damage is authored per 10Hz frame (variable FPS)
+	self->nextthink = level.time + ANIMTIME;
 }
 
 void target_laser_on (edict_t *self)
@@ -779,13 +780,13 @@ void target_earthquake_think (edict_t *self)
 	}
 
 	if (level.time < self->timestamp)
-		self->nextthink = level.time + FRAMETIME;
+		self->nextthink = level.time + ANIMTIME;	// shake impulses authored at 10Hz (variable FPS)
 }
 
 void target_earthquake_use (edict_t *self, edict_t *other, edict_t *activator)
 {
 	self->timestamp = level.time + self->count;
-	self->nextthink = level.time + FRAMETIME;
+	self->nextthink = level.time + ANIMTIME;
 	self->activator = activator;
 	self->last_move_time = 0;
 }

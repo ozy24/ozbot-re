@@ -478,11 +478,11 @@ void hurt_touch (edict_t *self, edict_t *other, cplane_t *plane, csurface_t *sur
 	if (self->spawnflags & 16)
 		self->timestamp = level.time + 1;
 	else
-		self->timestamp = level.time + FRAMETIME;
+		self->timestamp = level.time + ANIMTIME;	// dmg rate authored at 10Hz (variable FPS)
 
 	if (!(self->spawnflags & 4))
 	{
-		if ((level.framenum % 10) == 0)
+		if ((level.framenum % (10 * FRAMEDIV)) == 0)
 			gi.sound (other, CHAN_AUTO, self->noise_index, 1, ATTN_NORM, 0);
 	}
 

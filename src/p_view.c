@@ -80,6 +80,10 @@ void P_DamageFeedback (edict_t *player)
 	static	vec3_t	acolor = {1.0, 1.0, 1.0};
 	static	vec3_t	bcolor = {1.0, 0.0, 0.0};
 
+	// variable FPS: damage accumulators/feedback are authored per 10Hz frame
+	if (!FRAMESYNC)
+		return;
+
 	client = player->client;
 
 	// flash the backgrounds behind the status numbers
@@ -231,17 +235,26 @@ void SV_CalcViewOffset (edict_t *ent)
 
 //===================================
 
-	// base angles
-	angles = ent->client->ps.kick_angles;
-
-	// if dead, fix the angle and don't add any kick
+	// if dead, fix the angle (every frame, so the view snaps immediately)
 	if (ent->deadflag)
 	{
-		VectorClear (angles);
-
 		ent->client->ps.viewangles[ROLL] = 40;
 		ent->client->ps.viewangles[PITCH] = -15;
 		ent->client->ps.viewangles[YAW] = ent->client->killer_yaw;
+	}
+
+	// variable FPS: kick/bob view math is authored per 10Hz frame; off-frames
+	// keep the last computed kick_angles/viewoffset (client interpolates)
+	if (!FRAMESYNC)
+		return;
+
+	// base angles
+	angles = ent->client->ps.kick_angles;
+
+	// if dead, don't add any kick
+	if (ent->deadflag)
+	{
+		VectorClear (angles);
 	}
 	else
 	{
@@ -348,6 +361,10 @@ void SV_CalcGunOffset (edict_t *ent)
 	int		i;
 	float	delta;
 
+	// variable FPS: gun sway/delta math is authored per 10Hz frame
+	if (!FRAMESYNC)
+		return;
+
 	// gun angles from bobbing
 	ent->client->ps.gunangles[ROLL] = xyspeed * bobfracsin * 0.005;
 	ent->client->ps.gunangles[YAW] = xyspeed * bobfracsin * 0.01;
@@ -444,33 +461,33 @@ void SV_CalcBlend (edict_t *ent)
 	if (ent->client->quad_framenum > level.framenum)
 	{
 		remaining = ent->client->quad_framenum - level.framenum;
-		if (remaining == 30)	// beginning to fade
+		if (remaining == 3 * HZ)	// beginning to fade
 			gi.sound(ent, CHAN_ITEM, gi.soundindex("items/damage2.wav"), 1, ATTN_NORM, 0);
-		if (remaining > 30 || (remaining & 4) )
+		if (remaining > 3 * HZ || ((remaining / FRAMEDIV) & 4) )
 			SV_AddBlend (0, 0, 1, 0.08, ent->client->ps.blend);
 	}
 	else if (ent->client->invincible_framenum > level.framenum)
 	{
 		remaining = ent->client->invincible_framenum - level.framenum;
-		if (remaining == 30)	// beginning to fade
+		if (remaining == 3 * HZ)	// beginning to fade
 			gi.sound(ent, CHAN_ITEM, gi.soundindex("items/protect2.wav"), 1, ATTN_NORM, 0);
-		if (remaining > 30 || (remaining & 4) )
+		if (remaining > 3 * HZ || ((remaining / FRAMEDIV) & 4) )
 			SV_AddBlend (1, 1, 0, 0.08, ent->client->ps.blend);
 	}
 	else if (ent->client->enviro_framenum > level.framenum)
 	{
 		remaining = ent->client->enviro_framenum - level.framenum;
-		if (remaining == 30)	// beginning to fade
+		if (remaining == 3 * HZ)	// beginning to fade
 			gi.sound(ent, CHAN_ITEM, gi.soundindex("items/airout.wav"), 1, ATTN_NORM, 0);
-		if (remaining > 30 || (remaining & 4) )
+		if (remaining > 3 * HZ || ((remaining / FRAMEDIV) & 4) )
 			SV_AddBlend (0, 1, 0, 0.08, ent->client->ps.blend);
 	}
 	else if (ent->client->breather_framenum > level.framenum)
 	{
 		remaining = ent->client->breather_framenum - level.framenum;
-		if (remaining == 30)	// beginning to fade
+		if (remaining == 3 * HZ)	// beginning to fade
 			gi.sound(ent, CHAN_ITEM, gi.soundindex("items/airout.wav"), 1, ATTN_NORM, 0);
-		if (remaining > 30 || (remaining & 4) )
+		if (remaining > 3 * HZ || ((remaining / FRAMEDIV) & 4) )
 			SV_AddBlend (0.4, 1, 0.4, 0.04, ent->client->ps.blend);
 	}
 
@@ -482,15 +499,19 @@ void SV_CalcBlend (edict_t *ent)
 	if (ent->client->bonus_alpha > 0)
 		SV_AddBlend (0.85, 0.7, 0.3, ent->client->bonus_alpha, ent->client->ps.blend);
 
-	// drop the damage value
-	ent->client->damage_alpha -= 0.06;
-	if (ent->client->damage_alpha < 0)
-		ent->client->damage_alpha = 0;
+	// variable FPS: fade rates are authored per 10Hz frame
+	if (FRAMESYNC)
+	{
+		// drop the damage value
+		ent->client->damage_alpha -= 0.06;
+		if (ent->client->damage_alpha < 0)
+			ent->client->damage_alpha = 0;
 
-	// drop the bonus value
-	ent->client->bonus_alpha -= 0.1;
-	if (ent->client->bonus_alpha < 0)
-		ent->client->bonus_alpha = 0;
+		// drop the bonus value
+		ent->client->bonus_alpha -= 0.1;
+		if (ent->client->bonus_alpha < 0)
+			ent->client->bonus_alpha = 0;
+	}
 }
 
 
@@ -509,6 +530,11 @@ void P_FallingDamage (edict_t *ent)
 		return;		// not in the player model
 
 	if (ent->movetype == MOVETYPE_NOCLIP)
+		return;
+
+	// variable FPS: oldvelocity is sampled on 10Hz keyframes (see
+	// ClientEndServerFrame), so the landing delta must be too
+	if (!FRAMESYNC)
 		return;
 
 	if ((ent->client->oldvelocity[2] < 0) && (ent->velocity[2] > ent->client->oldvelocity[2]) && (!ent->groundentity))
@@ -658,7 +684,7 @@ void P_WorldEffects (void)
 		{
 			current_player->air_finished = level.time + 10;
 
-			if (((int)(current_client->breather_framenum - level.framenum) % 25) == 0)
+			if (((int)(current_client->breather_framenum - level.framenum) % (25 * FRAMEDIV)) == 0)
 			{
 				if (!current_client->breather_sound)
 					gi.sound (current_player, CHAN_AUTO, gi.soundindex("player/u_breath1.wav"), 1, ATTN_NORM, 0);
@@ -721,15 +747,19 @@ void P_WorldEffects (void)
 				current_player->pain_debounce_time = level.time + 1;
 			}
 
-			if (envirosuit)	// take 1/3 damage with envirosuit
-				T_Damage (current_player, world, world, vec3_origin, current_player->s.origin, vec3_origin, 1*waterlevel, 0, 0, MOD_LAVA);
-			else
-				T_Damage (current_player, world, world, vec3_origin, current_player->s.origin, vec3_origin, 3*waterlevel, 0, 0, MOD_LAVA);
+			// variable FPS: sizzle damage is authored per 10Hz frame
+			if (FRAMESYNC)
+			{
+				if (envirosuit)	// take 1/3 damage with envirosuit
+					T_Damage (current_player, world, world, vec3_origin, current_player->s.origin, vec3_origin, 1*waterlevel, 0, 0, MOD_LAVA);
+				else
+					T_Damage (current_player, world, world, vec3_origin, current_player->s.origin, vec3_origin, 3*waterlevel, 0, 0, MOD_LAVA);
+			}
 		}
 
 		if (current_player->watertype & CONTENTS_SLIME)
 		{
-			if (!envirosuit)
+			if (!envirosuit && FRAMESYNC)
 			{	// no damage from slime with envirosuit
 				T_Damage (current_player, world, world, vec3_origin, current_player->s.origin, vec3_origin, 1*waterlevel, 0, 0, MOD_SLIME);
 			}
@@ -771,14 +801,14 @@ void G_SetClientEffects (edict_t *ent)
 	if (ent->client->quad_framenum > level.framenum)
 	{
 		remaining = ent->client->quad_framenum - level.framenum;
-		if (remaining > 30 || (remaining & 4) )
+		if (remaining > 3 * HZ || ((remaining / FRAMEDIV) & 4) )
 			ent->s.effects |= EF_QUAD;
 	}
 
 	if (ent->client->invincible_framenum > level.framenum)
 	{
 		remaining = ent->client->invincible_framenum - level.framenum;
-		if (remaining > 30 || (remaining & 4) )
+		if (remaining > 3 * HZ || ((remaining / FRAMEDIV) & 4) )
 			ent->s.effects |= EF_PENT;
 	}
 
@@ -799,6 +829,10 @@ G_SetClientEvent
 void G_SetClientEvent (edict_t *ent)
 {
 	if (ent->s.event)
+		return;
+
+	// variable FPS: footsteps track the 10Hz bob cycle
+	if (!FRAMESYNC)
 		return;
 
 	if ( ent->groundentity && xyspeed > 225)
@@ -824,7 +858,7 @@ void G_SetClientSound (edict_t *ent)
 	}
 
 	// help beep (no more than three times)
-	if (ent->client->pers.helpchanged && ent->client->pers.helpchanged <= 3 && !(level.framenum&63) )
+	if (ent->client->pers.helpchanged && ent->client->pers.helpchanged <= 3 && !(level.framenum & (64 * FRAMEDIV - 1)) )
 	{
 		ent->client->pers.helpchanged++;
 		gi.sound (ent, CHAN_VOICE, gi.soundindex ("misc/pc_up.wav"), 1, ATTN_STATIC, 0);
@@ -860,6 +894,10 @@ void G_SetClientFrame (edict_t *ent)
 
 	if (ent->s.modelindex != 255)
 		return;		// not in the player model
+
+	// variable FPS: player model animations are authored at 10Hz
+	if (!FRAMESYNC)
+		return;
 
 	client = ent->client;
 
@@ -1012,30 +1050,35 @@ void ClientEndServerFrame (edict_t *ent)
 	// calculate speed and cycle to be used for
 	// all cyclic walking effects
 	//
-	xyspeed = sqrt(ent->velocity[0]*ent->velocity[0] + ent->velocity[1]*ent->velocity[1]);
-
-	if (xyspeed < 5)
+	// variable FPS: the bob cycle advances per authored 10Hz frame; off-frames
+	// reuse the last xyspeed/bobcycle/bobfracsin (statics above)
+	if (FRAMESYNC)
 	{
-		bobmove = 0;
-		current_client->bobtime = 0;	// start at beginning of cycle again
-	}
-	else if (ent->groundentity)
-	{	// so bobbing only cycles when on ground
-		if (xyspeed > 210)
-			bobmove = 0.25;
-		else if (xyspeed > 100)
-			bobmove = 0.125;
-		else
-			bobmove = 0.0625;
-	}
-	
-	bobtime = (current_client->bobtime += bobmove);
+		xyspeed = sqrt(ent->velocity[0]*ent->velocity[0] + ent->velocity[1]*ent->velocity[1]);
 
-	if (current_client->ps.pmove.pm_flags & PMF_DUCKED)
-		bobtime *= 4;
+		if (xyspeed < 5)
+		{
+			bobmove = 0;
+			current_client->bobtime = 0;	// start at beginning of cycle again
+		}
+		else if (ent->groundentity)
+		{	// so bobbing only cycles when on ground
+			if (xyspeed > 210)
+				bobmove = 0.25;
+			else if (xyspeed > 100)
+				bobmove = 0.125;
+			else
+				bobmove = 0.0625;
+		}
 
-	bobcycle = (int)bobtime;
-	bobfracsin = fabs(sin(bobtime*M_PI));
+		bobtime = (current_client->bobtime += bobmove);
+
+		if (current_client->ps.pmove.pm_flags & PMF_DUCKED)
+			bobtime *= 4;
+
+		bobcycle = (int)bobtime;
+		bobfracsin = fabs(sin(bobtime*M_PI));
+	}
 
 	// detect hitting the floor
 	P_FallingDamage (ent);
@@ -1071,15 +1114,20 @@ void ClientEndServerFrame (edict_t *ent)
 
 	G_SetClientFrame (ent);
 
-	VectorCopy (ent->velocity, ent->client->oldvelocity);
-	VectorCopy (ent->client->ps.viewangles, ent->client->oldviewangles);
+	// variable FPS: sample old velocity/angles and clear weapon kicks on the
+	// 10Hz keyframes only, so falling damage and gun sway see full deltas
+	if (FRAMESYNC)
+	{
+		VectorCopy (ent->velocity, ent->client->oldvelocity);
+		VectorCopy (ent->client->ps.viewangles, ent->client->oldviewangles);
 
-	// clear weapon kicks
-	VectorClear (ent->client->kick_origin);
-	VectorClear (ent->client->kick_angles);
+		// clear weapon kicks
+		VectorClear (ent->client->kick_origin);
+		VectorClear (ent->client->kick_angles);
+	}
 
 	// if the scoreboard is up, update it
-	if (ent->client->showscores && !(level.framenum & 31) )
+	if (ent->client->showscores && !(level.framenum & (32 * FRAMEDIV - 1)) )
 	{
 		DeathmatchScoreboardMessage (ent, ent->enemy);
 		G_UnicastClient (ent, false);
