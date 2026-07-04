@@ -243,6 +243,27 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	float	turnstep, firethresh, reaction, err, range, aimoff, rc;
 	qboolean aimtweak;
 
+	// FRAMESYNC (40Hz adaptation): the whole combat DECISION layer --
+	// acquisition, flee, weapon choice, target sampling, error step, tracking
+	// step, trigger -- runs at the authored 10Hz, exactly the cadence every
+	// Phase 4-18 constant (and the humanness KS profile) was tuned and
+	// validated at.  Per-tick decisions, even per-second-normalized, gave the
+	// bot fresher combat information and measured +28..41% frags.  Off-frames
+	// hold the aim and the engagement, and only keep the dodge/range movement
+	// blend running (the "10Hz brain, 40Hz body" split).
+	if (!FRAMESYNC)
+	{
+		enemy = b->enemy;
+		if (!enemy || !enemy->inuse || !enemy->client
+			|| enemy->deadflag || enemy->health <= 0
+			|| enemy->client->resp.spectator)
+			return false;		// next keyframe re-evaluates properly
+
+		VectorSubtract (enemy->s.origin, self->s.origin, dir);
+		range = VectorLength (dir);
+		goto aim_held;
+	}
+
 	enemy = Combat_FindEnemy (b);
 	if (!enemy)
 	{
@@ -344,6 +365,8 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		// equal spread it fights far worse than white noise, which averages
 		// out shot to shot -- measured 38% relative kill cost at 0.577x.
 		// Shrink the spread and correct faster to buy the texture for free.
+		// (constants are per authored 10Hz frame; the FRAMESYNC gate above
+		// keeps that cadence at any server tick rate)
 		float	sd    = 0.26f * (1.0f - skill) * 7.0f;
 		float	theta = 0.35f + 0.30f * skill;
 		float	sigma = sd * (float)sqrt (theta * (2.0f - theta));
@@ -407,9 +430,6 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->aim[PITCH] = ApproachAngle (b->aim[PITCH], ang[PITCH], turnstep);
 	}
 
-	*facing_yaw   = b->aim[YAW];
-	*facing_pitch = b->aim[PITCH];
-
 	firethresh = 3.0f + (1.0f - skill) * 12.0f;
 	if (aimtweak)
 		firethresh *= bot_aimfire->value;
@@ -417,6 +437,10 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	               + fabs (AngleDelta (ang[PITCH], b->aim[PITCH])));
 	if (level.time >= b->reaction_until && aimoff < firethresh)
 		cmd->buttons |= BUTTON_ATTACK;
+
+aim_held:
+	*facing_yaw   = b->aim[YAW];
+	*facing_pitch = b->aim[PITCH];
 
 	// --- blend combat movement into the existing (nav) move intent ---
 	// not while boarding/riding a lift: the lift controller owns movement
@@ -428,6 +452,9 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		&& (b->lift_state == LIFT_BOARD || b->lift_state == LIFT_RIDE))
 		return true;
 
+	// (combat movement stays per-tick: an A/B of keyframing this blend showed
+	// no lethality change and a pickups cost -- the 40Hz "body" keeps its
+	// smooth dodging; only the decision layer above is keyframed)
 	VectorSubtract (enemy->s.origin, self->s.origin, toenemy);
 	toenemy[2] = 0;
 	VectorNormalize (toenemy);
@@ -492,8 +519,9 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		VectorCopy (comb, b->move_dir);
 
 		// humans jump a LOT in Q2 fights (demo corpus: ~15 jumps/min overall
-		// vs the stock bot's ~4); airborne targets are also harder to hit
-		if (self->groundentity && random () < (rhythm ? 0.09f : 0.03f))
+		// vs the stock bot's ~4); airborne targets are also harder to hit.
+		// per-tick probability, tick-rate scaled to keep jumps/min constant
+		if (self->groundentity && random () < (rhythm ? 0.09f : 0.03f) * BOT_TICK_RATIO)
 			b->want_jump = true;
 	}
 

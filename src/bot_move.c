@@ -166,7 +166,7 @@ void Bot_Wander (bot_t *b)
 
 	Bot_SetMoveYaw (b, use_yaw);
 
-	if (ent->groundentity && random() < 0.02)
+	if (ent->groundentity && random() < 0.02f * BOT_TICK_RATIO)
 	{
 		b->want_jump = true;
 		b->did_jump = true;
@@ -195,8 +195,10 @@ prediction (the world is only approximated by Pmove -- no other entities move
 during the rollout) self-corrects within a tick instead of compounding.
 =================
 */
-#define ROLLOUT_TICKS	5
-#define ROLLOUT_MSEC	100		// matches the 10Hz server frame these bots run at
+#define ROLLOUT_TICKS	5		// candidate rows: one per authored 10Hz step
+// each row is simulated for FRAMEDIV engine ticks of FRAMETIME each, so the
+// candidates keep their authored 0.5s horizon and 100ms input shape at any
+// tick rate (exact no-op at 10Hz)
 
 typedef struct
 {
@@ -241,15 +243,21 @@ static void Bot_SimulateCandidate (edict_t *ent, float yaw, const rollout_step_t
 
 	for (i = 0; i < ROLLOUT_TICKS; i++)
 	{
-		memset (&pm.cmd, 0, sizeof(pm.cmd));
-		pm.cmd.msec        = ROLLOUT_MSEC;
-		pm.cmd.forwardmove = steps[i].forward;
-		pm.cmd.sidemove    = steps[i].side;
-		pm.cmd.upmove      = steps[i].up;
-		pm.cmd.angles[YAW]   = (short)(ANGLE2SHORT(yaw) - pm.s.delta_angles[YAW]);
-		pm.cmd.angles[PITCH] = (short)(0 - pm.s.delta_angles[PITCH]);
-		pm.snapinitial = (i == 0);
-		gi.Pmove (&pm);
+		int	j;
+
+		for (j = 0; j < FRAMEDIV; j++)
+		{
+			memset (&pm.cmd, 0, sizeof(pm.cmd));
+			pm.cmd.msec        = (byte)(FRAMETIME * 1000);
+			pm.cmd.forwardmove = steps[i].forward;
+			pm.cmd.sidemove    = steps[i].side;
+			// a jump command only needs the first engine tick of its row
+			pm.cmd.upmove      = (j == 0) ? steps[i].up : (short)((steps[i].up > 0) ? 0 : steps[i].up);
+			pm.cmd.angles[YAW]   = (short)(ANGLE2SHORT(yaw) - pm.s.delta_angles[YAW]);
+			pm.cmd.angles[PITCH] = (short)(0 - pm.s.delta_angles[PITCH]);
+			pm.snapinitial = (i == 0 && j == 0);
+			gi.Pmove (&pm);
+		}
 	}
 
 	for (i = 0; i < 3; i++)
@@ -951,7 +959,9 @@ static qboolean SJ_SimFirstHop (bot_t *b, float heading, int side)
 	pm_passent = ent;
 	VectorCopy (ent->s.origin, start);
 
-	for (t = 0; t < 9; t++)
+	// live-tick-exact simulation: msec and tick count follow the actual rate
+	// (9 authored frames of hop = 9 * FRAMEDIV engine ticks)
+	for (t = 0; t < 9 * FRAMEDIV; t++)
 	{
 		vec3_t	vel;
 		float	yaw;
@@ -969,7 +979,7 @@ static qboolean SJ_SimFirstHop (bot_t *b, float heading, int side)
 		yaw = SJ_FacingYaw (vel, side, heading);
 
 		memset (&pm.cmd, 0, sizeof(pm.cmd));
-		pm.cmd.msec        = 100;
+		pm.cmd.msec        = (byte)(FRAMETIME * 1000);
 		pm.cmd.forwardmove = 400;
 		pm.cmd.sidemove    = (short)(400 * side);
 		pm.cmd.upmove      = (t == 1) ? 0 : 350;	// one release clears JUMP_HELD
@@ -1364,7 +1374,7 @@ qboolean Bot_FollowPath (bot_t *b)
 	if (bot_fidget->value != 0 && Bot_Humanized (b)
 		&& ent->groundentity && !b->enemy && !b->want_jump
 		&& VectorLength (ent->velocity) > 220
-		&& random () < 0.03f)
+		&& random () < 0.03f * BOT_TICK_RATIO)
 	{
 		b->want_jump = true;
 		b->did_jump = true;

@@ -416,7 +416,10 @@ void plat_blocked (edict_t *self, edict_t *other)
 		return;
 	}
 
-	T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
+	// variable FPS: blocked() fires per game frame -- crush damage is
+	// authored at 10Hz (a plat nudge at 40Hz would do 4x the damage)
+	if (FRAMESYNC)
+		T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
 
 	if (self->moveinfo.state == STATE_UP)
 		plat_go_down (self);
@@ -594,12 +597,13 @@ STOP mean it will stop moving instead of pushing entities
 
 void rotating_blocked (edict_t *self, edict_t *other)
 {
-	T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
+	if (FRAMESYNC)	// variable FPS: crush damage authored at 10Hz
+		T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
 }
 
 void rotating_touch (edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf)
 {
-	if (self->avelocity[0] || self->avelocity[1] || self->avelocity[2])
+	if (FRAMESYNC && (self->avelocity[0] || self->avelocity[1] || self->avelocity[2]))
 		T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
 }
 
@@ -1087,7 +1091,9 @@ void door_blocked  (edict_t *self, edict_t *other)
 		return;
 	}
 
-	T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
+	// variable FPS: blocked() fires per game frame -- crush damage authored at 10Hz
+	if (FRAMESYNC)
+		T_Damage (other, self, self, vec3_origin, other->s.origin, vec3_origin, self->dmg, 1, 0, MOD_CRUSH);
 
 	if (self->spawnflags & DOOR_CRUSHER)
 		return;

@@ -12,6 +12,15 @@ Every .c file that includes bot.h must include "g_local.h" first.
 
 #define BOT_MAX_PATH	128
 
+// 40Hz adaptation (Phase R3): per-tick dynamics were tuned at 10Hz ticks.
+// BOT_TICK_RATIO converts per-tick constants to the actual tick rate --
+// rates/caps/probabilities/steps multiply by it; exponential-approach gains
+// ("fraction of remaining delta per tick") go through Bot_TickGain so the
+// per-second convergence stays what it was tuned to be.  Both are exact
+// no-ops at 10Hz.
+#define BOT_TICK_RATIO	((float)(FRAMETIME * 10.0))
+float Bot_TickGain (float gain10);
+
 // base per-item avoidance after a bot abandons it (bot_main.c goal exits and
 // bot_goal.c's escalating failure blacklist both build on this)
 #define BOT_ITEM_COOLDOWN	10.0f

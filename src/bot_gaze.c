@@ -89,7 +89,12 @@ float Bot_SlewAngle (float cur, float target, float gain, float cap)
 
 	if (d > -GAZE_DEADBAND && d < GAZE_DEADBAND)
 		return cur;				// close enough: hold genuinely still
-	d *= gain;
+
+	// 40Hz adaptation: gain and cap arrive in 10Hz-tick units from every
+	// caller (the profiler constants were fitted at 10Hz); convert here so
+	// deg/sec behavior is tick-rate invariant
+	d *= Bot_TickGain (gain);
+	cap *= BOT_TICK_RATIO;
 	if (d > cap)  d = cap;
 	if (d < -cap) d = -cap;
 	return cur + d;
@@ -256,8 +261,9 @@ void Bot_GazeThink (bot_t *b, float *facing_yaw, float *facing_pitch)
 
 		// slow pitch texture: an intermittent OU wander -- humans hold their
 		// pitch still much of the time, then drift it (p25 of human pitch
-		// rate is ~1 deg/s), so don't step the noise every tick
-		if (random () < 0.25f)
+		// rate is ~1 deg/s), so don't step the noise every tick.  Trigger
+		// probability is per-tick: scale it to keep steps/sec constant.
+		if (random () < 0.25f * BOT_TICK_RATIO)
 		{
 			b->gaze_pitch_wander += crandom () * GAZE_WANDER_SIGMA
 				- b->gaze_pitch_wander * GAZE_WANDER_DECAY;

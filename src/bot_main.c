@@ -66,6 +66,22 @@ static float	bot_noise_time[MAX_CLIENTS];
 
 /*
 =================
+Bot_TickGain
+
+40Hz adaptation: convert an exponential-approach gain ("this fraction of the
+remaining delta per 10Hz tick") to the actual tick rate, preserving the
+per-second convergence it was tuned for.  Exact no-op at 10Hz.
+=================
+*/
+float Bot_TickGain (float gain10)
+{
+	if (game.framediv == 1)
+		return gain10;
+	return 1.0f - (float)pow ((double)(1.0f - gain10), (double)BOT_TICK_RATIO);
+}
+
+/*
+=================
 Bot_Init
 =================
 */
