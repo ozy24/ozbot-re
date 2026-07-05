@@ -23,6 +23,8 @@ cvar_t	*bot_aimfire;	//   buys kills at a given nominal skill
 cvar_t	*bot_aimtexture;	// humanization: autocorrelated aim error + reversal
 							// overshoot instead of per-frame white noise
 							// (plans/humanization.md Phase 2)
+cvar_t	*bot_aimflick;		// flick-speed multiplier on the aim turn cap
+							// (acquisition swings; smoothed by bot_aimsmooth)
 cvar_t	*bot_aimsmooth;		// 40Hz view smoothing: the aim DECISION is 10Hz
 							// (FRAMESYNC); glide the sent view toward it every
 							// frame instead of snapping+holding (kills the 10Hz
@@ -354,6 +356,14 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	vectoangles (dir, ang);
 
 	turnstep = 20.0f + skill * 40.0f;
+	// flick speed (bot_aimflick): the stock 20-60 deg per 10Hz tick caps
+	// acquisition at ~600 deg/s -- a bot needs ~3 ticks to spin 180 to a target
+	// behind it, which looks robotically slow.  Humans flick far faster (demo
+	// yaw p90 ~227 deg/tick, up to a 180 turn in one 100ms sample).  Scale the
+	// cap up so big acquisition swings match human flicks; bot_aimsmooth glides
+	// them so faster does NOT mean jerkier.  Fine tracking is gain-limited, not
+	// cap-limited, so this only speeds the big swings.
+	turnstep *= bot_aimflick->value;
 	if (aimtweak)
 		turnstep *= bot_aimturn->value;
 
