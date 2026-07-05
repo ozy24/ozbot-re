@@ -1,8 +1,10 @@
 # CLAUDE.md — ozbot-re
 
-**ozbot-re** is the q2repro (40Hz) port of ozbot. The parent tree's CLAUDE.md
-still describes the shared context (tools/, engine/, memory); everything below
-OVERRIDES the legacy ozbot specifics when working in this repo.
+**ozbot-re** is the q2repro (40Hz) port of ozbot. This is a self-contained git
+repo with its own `tools/` (versioned). The umbrella `../CLAUDE.md` covers only
+the **shared** infra — `../engine/` runtime, the `../demos/` corpus (read-only
+here; ozbot is its single writer), engine sources, and the persistent memory.
+Everything below OVERRIDES the legacy ozbot specifics when working in this repo.
 
 ## What changed vs ozbot
 
