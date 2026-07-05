@@ -48,3 +48,7 @@ recordings/
 screenshots/
 *.mp4
 *.dm2
+
+# Python
+__pycache__/
+*.pyc
