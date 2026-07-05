@@ -32,6 +32,7 @@ cvar_t	*bot_wallslide;
 cvar_t	*bot_claim;
 cvar_t	*bot_decisive;
 cvar_t	*bot_reroute;
+cvar_t	*bot_losfinal;
 cvar_t	*bot_survivetest;
 cvar_t	*bot_pathcost;
 cvar_t	*bot_goalbudget;
@@ -141,8 +142,9 @@ void Bot_Init (void)
 	bot_aimfire      = gi.cvar ("bot_aimfire", "1", 0);		//   fire-threshold multiplier
 	bot_aimtexture   = gi.cvar ("bot_aimtexture", "1", 0);	// humanization: wandering aim error + reversal overshoot
 	bot_reroute      = gi.cvar ("bot_reroute", "1", 0);		// penalize the stalled hop on a pure-nav giveup (reroute next time)
-	bot_survive      = gi.cvar ("bot_survive", "0", 0);
-	bot_survivetest  = gi.cvar ("bot_survivetest", "0", 0);	// id-parity A/B: even bots survive, odd control		// survival instinct: seek health + flee when low
+	bot_losfinal     = gi.cvar ("bot_losfinal", "1", 0);		// final-approach LOS gate (no homing through walls)
+	bot_survive      = gi.cvar ("bot_survive", "0", 0);		// survival instinct: seek health + flee when low (asymmetric-negative)
+	bot_survivetest  = gi.cvar ("bot_survivetest", "0", 0);	// id-parity A/B: even bots survive, odd control
 	bot_gazelife     = gi.cvar ("bot_gazelife", "1", 0);		// glance around between fire windows (humanization)
 	bot_aimflick     = gi.cvar ("bot_aimflick", "1", 0);		// flick-speed cap multiplier (1 = stock 20-60 deg/tick)
 	bot_aimsmooth    = gi.cvar ("bot_aimsmooth", "1", 0);	// 40Hz view glide toward the 10Hz aim (anti-judder)
@@ -908,7 +910,31 @@ static void Bot_Navigate (bot_t *b)
 			{
 				dv[2] = 0;
 				if (VectorLength (dv) < 200)
-					Bot_SteerToPoint (b, b->goal_item->s.origin);
+				{
+					// clear-shot gate (bot_losfinal): a same-level item within
+					// 200u is NOT always reachable in a straight line -- q2dm1's
+					// HyperBlaster sits behind a wall from the CG platform, and
+					// homing 2D at it drove the bot into the wall forever (the
+					// nav path, the ramp around, was ignored).  Trace to the item;
+					// if something solid is between us, DON'T home -- fall through
+					// to the path follower (move_dir already points along it).
+					qboolean clear = true;
+					if (bot_losfinal && bot_losfinal->value != 0)
+					{
+						// trace at knee height between two raised points so a wall
+						// (full-height) blocks it but a floor lip / step near the
+						// item does not (that would spuriously refuse a reachable
+						// grab and cost pickups)
+						vec3_t	from, to;
+						trace_t	tr;
+						VectorCopy (ent->s.origin, from);       from[2] += 18;
+						VectorCopy (b->goal_item->s.origin, to); to[2]   += 18;
+						tr = gi.trace (from, vec3_origin, vec3_origin, to, ent, MASK_SOLID);
+						clear = (tr.fraction >= 0.98f || tr.ent == b->goal_item);
+					}
+					if (clear)
+						Bot_SteerToPoint (b, b->goal_item->s.origin);
+				}
 			}
 		}
 		return;

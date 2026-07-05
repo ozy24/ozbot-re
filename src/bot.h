@@ -344,6 +344,7 @@ extern cvar_t	*bot_aimerr;
 extern cvar_t	*bot_aimfire;
 extern cvar_t	*bot_aimtexture;
 extern cvar_t	*bot_reroute;
+extern cvar_t	*bot_losfinal;
 extern cvar_t	*bot_survivetest;
 extern cvar_t	*bot_survive;
 extern cvar_t	*bot_gazelife;
