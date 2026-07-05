@@ -307,7 +307,7 @@ static float Item_Score (bot_t *b, edict_t *it, float *out_dist)
 			need = (bot->health < 250) ? 1.0f : 0.5f;
 		else if (bot->health >= bot->max_health)
 				need = 0.0f;
-			else if (bot_survive && bot_survive->value != 0)
+			else if (Bot_Survives (b))
 			{
 				// urgency (bot_survive): a hurt bot wants health more the lower
 				// it is, so it breaks off to heal instead of dying mid-fight.

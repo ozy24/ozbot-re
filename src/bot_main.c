@@ -32,6 +32,7 @@ cvar_t	*bot_wallslide;
 cvar_t	*bot_claim;
 cvar_t	*bot_decisive;
 cvar_t	*bot_reroute;
+cvar_t	*bot_survivetest;
 cvar_t	*bot_pathcost;
 cvar_t	*bot_goalbudget;
 cvar_t	*bot_budgetcap;
@@ -140,7 +141,8 @@ void Bot_Init (void)
 	bot_aimfire      = gi.cvar ("bot_aimfire", "1", 0);		//   fire-threshold multiplier
 	bot_aimtexture   = gi.cvar ("bot_aimtexture", "1", 0);	// humanization: wandering aim error + reversal overshoot
 	bot_reroute      = gi.cvar ("bot_reroute", "1", 0);		// penalize the stalled hop on a pure-nav giveup (reroute next time)
-	bot_survive      = gi.cvar ("bot_survive", "0", 0);		// survival instinct: seek health + flee when low
+	bot_survive      = gi.cvar ("bot_survive", "0", 0);
+	bot_survivetest  = gi.cvar ("bot_survivetest", "0", 0);	// id-parity A/B: even bots survive, odd control		// survival instinct: seek health + flee when low
 	bot_gazelife     = gi.cvar ("bot_gazelife", "1", 0);		// glance around between fire windows (humanization)
 	bot_aimflick     = gi.cvar ("bot_aimflick", "1", 0);		// flick-speed cap multiplier (1 = stock 20-60 deg/tick)
 	bot_aimsmooth    = gi.cvar ("bot_aimsmooth", "1", 0);	// 40Hz view glide toward the 10Hz aim (anti-judder)
@@ -263,6 +265,25 @@ static void Bot_ResetNavState (bot_t *b)
 	b->aim_sweep_sign = 0;
 	if (b->ent)
 		VectorCopy (b->ent->s.origin, b->last_pos);
+}
+
+/*
+=================
+Bot_Survives
+
+Whether this bot runs the survival instinct (health-need urgency + low-hp
+caution flee).  bot_survivetest gives an id-parity head-to-head (even ids
+survive, odd are the control) so the effect can be measured in an ASYMMETRIC
+sim -- survivability washes out when every bot has it, but a survive-vs-control
+kill/death ratio shift is real.  Read paired with a bot_survivetest 0 control
+run to net out the harness's baseline odd-bias.
+=================
+*/
+qboolean Bot_Survives (bot_t *b)
+{
+	if (bot_survivetest && bot_survivetest->value != 0)
+		return (b->id & 1) == 0;
+	return bot_survive && bot_survive->value != 0;
 }
 
 /*

@@ -205,6 +205,7 @@ qboolean Bot_IsClient (edict_t *ent);	// true for DLL-driven bots (no net client
 void G_UnicastClient (edict_t *ent, qboolean reliable);	// gi.unicast, skips bots
 // true if some OTHER active bot already has 'it' as its current goal_item
 qboolean Bot_ItemClaimed (edict_t *it, bot_t *self);
+qboolean Bot_Survives (bot_t *b);
 // A* link-type mask for this bot: capabilities toggled off exclude their
 // link types from pathing (bot_navmask; NAV_MASK_ALL passthrough when off)
 int Bot_NavMask (bot_t *b);
@@ -343,6 +344,7 @@ extern cvar_t	*bot_aimerr;
 extern cvar_t	*bot_aimfire;
 extern cvar_t	*bot_aimtexture;
 extern cvar_t	*bot_reroute;
+extern cvar_t	*bot_survivetest;
 extern cvar_t	*bot_survive;
 extern cvar_t	*bot_gazelife;
 extern cvar_t	*bot_aimflick;

@@ -323,7 +323,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		{
 			float mine   = Combat_Strength (self);
 			float theirs = Combat_Strength (enemy);
-			qboolean survive = (bot_survive && bot_survive->value != 0);
+			qboolean survive = Bot_Survives (b);
 			if (b->flee)
 			{
 				// with survive, re-engage once healed to ~60 (hysteresis vs the
