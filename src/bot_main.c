@@ -725,7 +725,7 @@ static void Bot_Navigate (bot_t *b)
 				// on it) or someone else took it
 				vec3_t	dv;
 				float	dd;
-				const char *nm = b->goal_item->item ? b->goal_item->item->pickup_name : "";
+				const char *nm = Bot_ItemName (b->goal_item);
 				VectorSubtract (b->goal_item->s.origin, ent->s.origin, dv);
 				dd = VectorLength (dv);
 				Bot_LogItemEvent (b, (dd < 96) ? "pickup" : "item_lost", nm);
@@ -985,7 +985,7 @@ static void Bot_Navigate (bot_t *b)
 				Bot_StrafeReset (b);	// fresh path: any runway is stale
 				Bot_PlaybackReset (b);
 				if (b->goal_item)
-					Bot_LogItemEvent (b, "goal_item", b->goal_item->item->pickup_name);
+					Bot_LogItemEvent (b, "goal_item", Bot_ItemName (b->goal_item));
 				else
 					Bot_LogEvent (b, "goal");
 			}

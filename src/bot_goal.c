@@ -106,7 +106,7 @@ void Goal_ReachSweep (const char *when)
 
 		code = Nav_QueryPath (spawn->s.origin, it->s.origin, base, &cost, &gate);
 		Nav_MaskNames (gate, gates, sizeof(gates));
-		nm = it->item->pickup_name ? it->item->pickup_name : it->classname;
+		nm = Bot_ItemName (it);
 
 		total++;
 		if (code == NAVQ_OK)

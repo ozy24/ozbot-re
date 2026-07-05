@@ -199,6 +199,33 @@ void Bot_LogFire (edict_t *who)
 
 /*
 =================
+Bot_ItemName
+
+Display/telemetry label for an item entity.  The four item_health_* entities all
+share ONE "Health" gitem (SP_item_health_mega spawns FindItem("Health")), so
+every health pickup logged as "Health" -- Megahealth was indistinguishable from
+ordinary health, hiding mega collection in analysis.  The gitem carries no
+distinguishing name; the EDICT classname does.  Disambiguate the health family by
+edict classname; everything else keeps its gitem pickup_name.  Used by every
+item-naming log path (pickup / item_lost / goal_item / respawn / reach).
+=================
+*/
+const char *Bot_ItemName (edict_t *ent)
+{
+	if (!ent || !ent->item)
+		return "";
+	if (ent->classname)
+	{
+		if (!strcmp (ent->classname, "item_health_mega"))  return "Mega Health";
+		if (!strcmp (ent->classname, "item_health_large")) return "Large Health";
+		if (!strcmp (ent->classname, "item_health_small")) return "Small Health";
+	}
+	return ent->item->pickup_name ? ent->item->pickup_name
+		: (ent->classname ? ent->classname : "");
+}
+
+/*
+=================
 Bot_LogItemEvent
 
 Item respawn scheduling ("respawn_scheduled", with the requested delay) and
@@ -215,7 +242,7 @@ void Bot_LogRespawn (const char *event, edict_t *item_ent, float delay)
 	fprintf (log_fp,
 		"{\"type\":\"event\",\"event\":\"%s\",\"t\":%.2f,\"ent\":%d,\"item\":\"%s\",\"delay\":%.1f}\n",
 		event, level.time, (int)(item_ent - g_edicts),
-		item_ent->item->pickup_name, delay);
+		Bot_ItemName (item_ent), delay);
 }
 
 /*
@@ -442,8 +469,7 @@ void Bot_LogLiftTick (bot_t *b)
 			ent->groundentity ? (ent->groundentity->classname ? ent->groundentity->classname : "?") : "",
 			(ent->groundentity == p) ? 1 : 0,
 			b->mode,
-			(b->goal_item && b->goal_item->item && b->goal_item->item->pickup_name)
-				? b->goal_item->item->pickup_name : "",
+			Bot_ItemName (b->goal_item),
 			b->path_idx, b->path_len,
 			next_node,
 			(next_node >= 0 && next_node < nav.num_nodes) ? nav.nodes[next_node].origin[2] : 0.0f,
