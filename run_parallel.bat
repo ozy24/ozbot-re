@@ -19,5 +19,5 @@ where py >nul 2>&1 && (set "PY=py") || (set "PY=python")
 echo.
 echo [ozbot] Running parallel sims via tools\run_parallel.py %*
 echo.
-%PY% "%~dp0..\tools\run_parallel.py" --engine "%Q2DIR%" %*
+%PY% "%~dp0tools\run_parallel.py" --engine "%Q2DIR%" %*
 endlocal
