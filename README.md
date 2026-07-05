@@ -1,213 +1,167 @@
-# ozbot — a self-learning Quake II deathmatch bot, built entirely by AI
+# ozbot-re — a self-learning, demonstration-augmented Quake II bot on the 40 Hz re-release engine
 
-**ozbot** is a deathmatch bot for Quake II (primarily q2dm1, "The Edge") that lives entirely
-inside the game DLL (`gamex86.dll`). It was designed, written, measured, and tuned **entirely by
-an AI agent** (Anthropic's Claude) working in an autonomous build → simulate → analyze → improve
-loop. No human wrote bot code, placed a waypoint, or drew a route.
+**ozbot-re** is the [q2repro](https://github.com/AndreyNazarov/q2repro) (Quake II re-release / KEX-era,
+**40 Hz**) port of [ozbot](../ozbot). It lives entirely inside the game DLL (`gamex86_64.dll`, x64) —
+no engine changes — and keeps ozbot's core idea: the bot's **code and design are authored entirely by
+an AI agent** (Anthropic's Claude), in an autonomous build → simulate → analyze → improve loop, and its
+navigation is **self-learned by playing**, not hand-drawn.
 
-Two things make it different from classic Quake II bots:
+What makes this port distinct is that it is **hybrid**. For a small number of trick traversals the
+self-learned follower physically cannot reproduce — the q2dm1 Megahealth strafe-jump, the upper-Railgun
+walkway, a chaingun-ledge descent — ozbot-re replays **short human-recorded input clips** ("playbooks")
+stitched into the nav graph as first-class links. So navigation here is *learned-by-playing **and**
+demonstration-augmented*; the AI still writes every line of code, and combat and goal selection remain
+fully self-tuned. That hybrid is the headline capability of the RE rig, and it unlocked the first item
+the 10 Hz bot could never reach.
 
-1. **Nothing is hand-authored.** There is no precomputed navmesh, no shipped waypoint file, no
-   per-map item table, and no scripted routes. The bot **learns its navigation graph by
-   playing**: nodes are dropped where bots actually stand, links are recorded only between nodes
-   a bot actually traversed (so every edge is traversable by construction), failing links are
-   penalized and pruned, and the graph is persisted per map and matures across runs. Items are
-   discovered by scanning live entities, never from hardcoded coordinates — the same DLL works
-   on any map with zero configuration.
-2. **Every behavior change is empirically validated.** There is no unit-test suite; the bot is
-   its own experiment. Each candidate change ships behind a cvar and must win a seeded,
-   reproducible A/B across many parallel headless servers before it becomes a default. Changes
-   that lose are reverted and the negative result is documented. Most changes lose — that
-   history is below, because the failures shaped the design as much as the wins.
+## What's different from ozbot
 
-## How it works
-
-The bot uses the ACEBot integration approach — a bot is an ordinary client-slot edict spawned
-through the real `ClientConnect` → `ClientBegin` path, then driven each frame by synthesizing a
-`usercmd_t` and calling `ClientThink`. No engine changes; the vanilla Quake II v3.19 game code is
-hooked in only four small places. All bot logic is in `src/bot_*.c` + `bot.h` / `bot_nav.h`.
-
-Per-frame pipeline (movement is deliberately **decoupled from aim**, so a bot can run for an item
-while shooting at an enemy elsewhere):
-
-1. **Navigate** (`bot_main.c`, `bot_move.c`, `bot_nav.c`) — learn the graph, run the goal state
-   machine (explore ↔ goal), follow A* paths, and set a world-space movement intent.
-2. **Combat** (`bot_combat.c`) — pick the nearest visible enemy, track toward it with a
-   skill-scaled turn rate, reaction delay, and aim error; select the best owned weapon; fire.
-3. **Apply** — project the movement intent onto the chosen facing to produce the final usercmd.
-
-Goal selection (`bot_goal.c`) scores each discovered item by `value × need / route-cost`, where
-route cost is the **actual A\* path cost** (jump/fall/water links cost more), skips items another
-bot has already claimed, verifies reachability before committing, and gives each goal a time
-budget proportional to its route cost. When wedged, a short-horizon planner (`Bot_RolloutRecover`)
-simulates candidate input sequences through the real movement code (`gi.Pmove`) and commits to
-whichever makes real progress.
-
-## The measurement loop
-
-Throughput comes from two levers: a patched dedicated engine (`q2proded_fast.exe`, built from the
-`q2pro/` source by `build_engine.bat`) whose `fastsim` cvar removes the per-tick sleep so the sim
-runs CPU-bound at **hundreds of × real time**, and parallelism on top. The standard rig is
-**8 headless servers × 90 *game*-seconds × 5 bots** (`run_parallel.bat --fastsim`, a couple of
-wall-seconds end-to-end), each worker on an isolated gamedir with a fixed RNG seed (`bot_seed`),
-merged into one telemetry set. Fastsim is bit-exact: with the same seed it reproduces the
-real-time engine's telemetry byte-for-byte, just faster. Per-tick JSONL telemetry feeds an analyzer that
-reports per-bot movement/goals/pickups/frags, failure clustering, and a coverage/failure heatmap.
-
-- The headline navigation metric is **ITEM completion**: pickups ÷ item-goal attempts.
-- Every A/B holds the seeds fixed and flips exactly one cvar; results are pooled across 5–7
-  seeds because single-seed reads mislead.
-- Combat changes can't be judged by symmetric self-play (total frags just measure activity), so
-  they use an **id-parity head-to-head**: bots split into treatment/control by bot-id parity
-  *within the same match*, and the two populations' kills are compared directly.
-
-## Results over time
-
-ITEM completion on q2dm1, same measurement rig throughout:
-
-| Milestone | ITEM completion | What changed |
+| | ozbot (original) | ozbot-re (this repo) |
 |---|---|---|
-| Item goals first working (Phase 2) | ~20% | value/need/distance scoring over discovered items |
-| Locomotion tuning plateau (Phase 6) | 18–22% | many locomotion fixes tried; most failed A/B |
-| Goal contention fix (`bot_claim`) | ~21% | stop bots piling onto the same item (+12% pickups) |
-| Physics rollout recovery (`bot_rollout`) | ~23% | forward-simulated unstick (+12% pickups) |
-| Route-cost scoring (`bot_pathcost`) | ~29% | score items by A* route cost, not straight-line distance (+52% pickups, 5/5 seeds) |
-| Route-cost time budgets (`bot_goalbudget`) | **~33%** | goal timeout scaled to route cost; ITEM% up in 7/7 seeds |
-| Completability economics (`bot_itemfail` + `bot_budgetcap`) | ~33% (**pickups +14%**) | items bots keep failing get an escalating shared blacklist, and the budget cap is trimmed to what successful runs actually use (pickups p95 ≈ 11s); value-weighted pickups +10%, map-general on q2dm3 |
-| Vertical swimming (`bot_swim`) | **~37%** | first locomotion-layer win: 3D steering in water (swim upmove + 3D waypoint arrival + water-jump exits) unlocked q2dm1's swim-gated Railgun — 0% → 48% completion, pickups +14% and frags +30% in 5/5 seeds, deaths flat, bit-identical on waterless maps |
-| Lift riding (`bot_lift`) | **~42%** | second locomotion win: `func_plat` links + a wait/board/ride controller that makes deliberate stillness legal (stuck detection, replanning, and the goal budget are suspended while a plat hop is in play) unlocked q2dm1's lift-gated items — Grenade Launcher 5% → **41%**, Chaingun 0% → **55%**, pickups +13% and frags +15% over 5 seeds; q2dm5 +34% pickups, q2dm8 +11%, q2dm3 a wash over 8 seeds |
-| Humanization stack (6 cvars, Phase 18) | ~44–45% (**style goal**) | bots *look/move like humans*: measured against 1,299 pro demos, the mean distribution distance across 8 observable features fell **38%** (pitch, gaze, turn dynamics, jump rate, idle texture) for **−4.6% frags / +2.0pt ITEM** over 10 seeds — plus a deliberate ~11% kill deficit vs 360°-vision bots in mixed matches (`bot_fov` ends wallhack vision) |
-| Strafe jumping (`bot_strafejump`, Phase 19) | **~46%** (pickups +6%) | third locomotion win, calibrated from a human input capture: chained bunny hops (forward+side held, per-tick optimal yaw sweep, jump held across landings) on trace-qualified straight/gently-curving runways reach **440–520 ups** vs the 300 run cap — ~1 engage per 7 bot-seconds, 83% clean completions, giveups −11%, frags/hazard deaths flat over 8 seeds. The 10Hz command rate is no barrier (air-accel is tick-rate neutral); the one physics gap vs real clients (q2pro's strafejump-hack landing lockout) is closed DLL-side, so it works on any stock engine |
-| Decisiveness (`bot_decisive`, Phase 20) | **~50%** (**pickups +45%**) | biggest pickup-rate win since route-cost scoring, found from the user *watching* the bots: 24% of goal transitions were 2–3s **standing re-decides** — the bot parked between goals (the 1–3s post-goal wander pause) while hysteresis-free nearest-item steering swung its view A↔B, sometimes toward the very item it had just abandoned. Fix: re-pick ~0.2s after success / ~0.6s after failure (the existing 10s blacklist already prevents re-choosing the failed item), sticky + blacklist-aware explore steering, and uncommitted picks no longer phantom-claim items against other bots. Standing re-decides −90% (26–28% → 1–3% of transitions), goal throughput +27%, ITEM +6pts, frags flat, giveup/item_lost *rates* down — 5/5 seeds |
+| Engine | q2pro, **32-bit / x86** | q2repro (re-release), **64-bit / x64** (`gamex86_64.dll`, PE `0x8664`) |
+| Tick rate | 10 Hz | **40 Hz** (10 Hz *brain*, 40 Hz *body*) |
+| Hermeticity | — | every launch passes `com_rerelease -1` (q2repro auto-detects Steam/GoG/OneDrive) |
+| Hand-authored content | **none** | a few **human-recorded playbooks** for trick moves |
+| Fastsim exe | `q2proded_fast.exe` | `q2reproded.exe` (built from `../q2repro`) |
+| Gamedir | `../engine/ozbot/` | `../engine/ozbotre/` |
 
-Other validated improvements along the way: goal-node reach rate 38% → 59% (Phase 1 tuning);
-combat unfroze — %time-in-combat dropped from a pathological 87–99% (bots stuck staring at each
-other on Blasters) to a healthy 0–50% with diversified weapon usage once movement was decoupled
-from aim; hazard avoidance cut q2dm3 deaths 30 → 4; map generality validated by letting the bot
-learn q2dm3 from scratch. The skill model is confirmed real: skill 0.9 bots get **45% more
-kills** than skill 0.1 bots fighting in the same matches (6-seed id-parity test). **Projectile
-target-leading** (`bot_lead`) moved the leading population's kill ratio from 0.81 to 1.27
-(~57% relative gain, 6/6 seeds, paired id-parity test) — the largest combat improvement so far.
-**Fight-or-flight** (`bot_flee`: retreat while firing when clearly outmatched) added another
-+23% relative kills with no nav cost — retreating breaks losing fights, so bots keep their
-weapons and re-engage on their own terms.
+**10 Hz brain, 40 Hz body.** The vanilla game logic (weapons, animations, damage cadences) and the bot's
+combat *decision* layer run on FRAMESYNC keyframes (every 4th frame = 10 Hz); physics, steering, and
+movement execution run at the full 40 Hz tick. Per-tick bot dynamics are normalized with
+`BOT_TICK_RATIO` / `Bot_TickGain` (see `src/bot.h`) — never leave a raw per-tick constant, it will be 4×
+off at 40 Hz. `sv_fps 40` is the standard; it is read once per `InitGame`, and **without** it (or on an
+engine lacking variable-FPS) everything runs vanilla 10 Hz and is **bit-identical** to the pre-port DLL —
+that byte-for-byte identity was the port's regression gate.
 
-**Humanization** (Phase 18) is the first *style* milestone: a profiler (`tools/humanness.py`)
-compares the bots' observable behavior distributions — view pitch, gaze-vs-travel offset, turn
-dynamics and their autocorrelation, jump rate, strafe rhythm, speed and stillness texture —
-against 1,299 pro q2dm1 demos, frame-rate-matched at 10Hz. The measured tells drove six
-behaviors (`bot_gaze`, `bot_turnrate`, `bot_aimtexture`, `bot_fov`, `bot_hop`, `bot_fidget`),
-each validated separately for humanness gain and strength cost, then as a stack. Two findings
-worth keeping: correlated aim error fights far worse than white noise at equal spread (miss
-*streaks*), so texture must come at ~0.45× the magnitude with rate-limited reversal overshoot;
-and losing 360° vision costs ~24% of kills against omniscient bots until you give the bot ears
-(unsilenced gunfire within 700u acquires through the cone), which halves the deficit. Jumping
-like a human turned out to be strength-*positive* (parity 1.17) — airborne targets are hard for
-lead-aiming opponents.
+**A new metrics epoch — do not compare to 10 Hz history.** 40 Hz baseline (16 seeds × 90 s):
+**~418 pickups / 47% ITEM / 235 frags**, versus the *same build* at 10 Hz: 488 / 53% / 157. The +50% kill
+intensity is emergent and provably **symmetric** — fire rates are unchanged (`tools/verify_timing.py`
+confirms all 8 weapon periods identical at 10 vs 40 Hz); frags-per-fire rises +67% because the smoother
+40 Hz velocity tracks better between the 10 Hz aim samples. The lower ITEM% is death-interrupted attempts,
+not worse navigation (giveups/pathfails flat, standing re-decides ~1%).
 
-Cross-map picture (self-learned nav, standard rig, 3 seeds/map): the ITEM-completion ceiling
-tracks map *verticality*, not item logic — vertical maps q2dm1/q2dm2 sit at ~33%/~26% while
-flatter q2dm5/q2dm8 reach **~62%/~55%**; the Railgun that never completes on q2dm1 completes at
-67% on q2dm8. (`bot_swim` and `bot_lift` have since raised q2dm1 to ~42% by unlocking its
-swim- and lift-gated items.) An aim-formula constant sweep (16-seed id-parity per axis) found
-the hand-tuned skill model near a local optimum — halving reaction or error buys only ~8% kills,
-faster turn rate nothing — so combat gains come from behaviors (leading, fleeing), not precision
-tuning.
+## Playbooks — the demonstration-augmented capability
 
-## What was tried and rejected (and why it matters)
+Some q2dm1 items sit behind maneuvers the learned follower can't execute (a precise strafe-jump onto a
+120u ledge, a one-tile-wide walkway). Playbooks solve exactly those, by replaying a human's recorded
+inputs:
 
-Documented negative results, each from a controlled A/B — these are load-bearing project
-knowledge, not failures to hide:
+1. **Record** — `record_inputs.bat` on the q2repro client logs the human's per-usercmd stream at full
+   40 Hz fidelity (`bot_inputlog`). Bot segments can be captured with `bot_cmdlog 1`.
+2. **Bake** — `py tools/make_playbook.py <log.jsonl> --slot N --start T0 --end T1 --name mh_jump --out
+   ../engine/ozbotre/playbooks/q2dm1.pbk` segments the capture, resamples the usercmd stream to the 25 ms
+   tick grid (OR-ing momentary buttons so brief jump presses survive), and emits per entry an **anchor**
+   (origin/yaw/velocity preconditions + tolerances), the tick-indexed usercmd stream, the expected origin
+   timeline, and the exit point.
+3. **Run** — `bot_playback.c` registers each entry as a `NAV_LINK_PLAYBOOK` link so **A\* routes through
+   a recorded move like any other capability link** (cost = duration). An approach controller drives the
+   bot into the anchor tolerance, then does **time-driven** open-loop replay with a drift monitor against
+   the recorded origin timeline; on divergence it aborts → `Nav_PenalizeLink` → normal repath (aborted
+   replays self-select out). `bot_playbook` is default **on** and inert without a `.pbk`.
 
-| Experiment | Result | Lesson |
-|---|---|---|
-| Import navigation from ~1300 pro demos | bot got **worse** | pro routes assume pro movement (strafe-jumps, momentum) the bot couldn't execute (Phase 19 later added runway strafe-jumping, but the finding stands: imported *routes* still assume trick jumps the follower can't reproduce) |
-| Calibrate weapon priority from pro demo kill-efficiency | dead tie (171 vs 170 frags) | pro data bakes in pro *execution* skill; it doesn't transfer to a bot without that ceiling |
-| More nav-graph maturation (more bot-hours) | ITEM% regressed 23% → 15% | past coverage, extra nodes add routing noise, not capability |
-| Progress watchdog (abandon stalled goals early) | ITEM% crashed to 14% | faster recycling floods attempts when re-picks are equally unreachable |
-| Ledge-jump primitive | flat, helped some seeds, hurt others | the vertical failures were 100–140u platforms, not single ledges |
-| Lift/vertical-arrival fix (4 architecturally distinct attempts) | lost or tied every time, even though pathing verifiably worked | finding routes ≠ completing them in-budget; the constraint was route *economics* |
-| Learned per-link traversal times | wash live; consistent loss when transplanted onto the canonical graph | measured costs only inflate (floor + frame quantization); static distance×type costs were already sufficient |
-| Soft-penalize claimed items instead of hard-skip | pooled loss, `item_lost` rose | contested items are contested for a reason |
-| Flee-and-fetch-health (abandon current goal when fleeing) | won combat but cost ~7 ITEM% points | the survival value is in the retreat movement, not the health fetch; goal churn is expensive |
-| Directed rocket dodging (2 variants, 16-seed A/Bs) | wash / slight loss | constant strafing already captures the dodge value; a directed override just disrupts it |
+The canonical `q2dm1.pbk` carries **6 entries**: `mh_jump`, `rl_walkway`, `cg_descend`, `ya_box_jump`,
+`djump_rockets`, `bhop_rockets`. Two hard-won executor lessons live in the `bot_playback.c` header:
+pure position-following is hopeless (the cursor must be time-driven with bounded slip — a position
+follower pins on the pre-launch tick and never jumps), and rail-matching needs a capped closed-loop yaw
+bias over the open-loop stream.
 
-The through-line: six locomotion-layer fixes failed before the real levers turned out to be
-**goal-selection contention** (bots with no mutual awareness converging on the same item) and
-**route economics** (an item behind a lift genuinely costs more seconds than an easier one, and
-both the scoring and the time budget must reflect that). Diagnosing *which layer* is the
-bottleneck was worth more than any individual mechanism. The locomotion wins that did land
-(`bot_swim`, `bot_lift`) each came from instrumented diagnosis of one named failure — the lift
-fix, for instance, turned out to hinge on a 2D distance check trapping bots *under* the item,
-something no amount of steering work would have touched.
+## Results (port, executed 2026-07-04)
+
+The port ran as a phased campaign, each phase gated:
+
+- **R0 — engine.** q2repro built x64 with `-Dvariable-fps=true`; fastsim patch ported tick-rate-aware
+  (injects one `sv_fps`-sized tick per loop iteration). `com_rerelease -1` required for hermeticity.
+- **R1 — 10 Hz parity.** x64 DLL through the game3 proxy: same-seed md5 **bit-exact**, and an 8-seed
+  parity vs the q2pro rig (268/265 pickups, 55%/55% ITEM, 79/78 frags). `run_parallel --repro` is the
+  rig switch.
+- **R2 — variable FPS.** `GMF_VARIABLE_FPS` + FRAMETIME/FRAMESYNC/ANIMTIME conversion, proven
+  bit-invisible at `sv_fps 10` and timing-identical (fire periods + respawn scheduler) at 10 vs 40 Hz.
+- **R3 — bot at 40 Hz.** Per-tick dynamics normalized; combat decisions FRAMESYNC-keyframed (per-tick
+  decisions are worth +28–41% frags from fresher information). Established the new metrics epoch above.
+  An A/B of *also* keyframing combat movement showed no lethality gain at a pickup cost → rejected; the
+  10 Hz-brain/40 Hz-body split is the shipped shape.
+- **R4 — playbooks.** Full pipeline shipped and validated with bot-recorded segments (57 engages → 26
+  completed replays over 8×180 s; failed entries self-penalize; no stuck bots). `NAV_MAX_LINKS` raised
+  8→12 so playbook links aren't dropped on saturated nodes. Reference: `baselines/validation-q2dm1.pbk`.
+- **R4b — Megahealth jump baked.** From 7 clean human takes: the q2dm1 route is a *pure strafe-jump*
+  (launch pad `(688,1168,792)` → upper ledge → leap onto the mega). Result: **`item_health_mega`
+  0 → 10 across 8×90 s** — the **first previously-impossible item** (control 0; unreachable without the
+  replay), ~85% climb success, headline metrics flat.
+
+**Since the port:** `rl_walkway` unlocks the upper Railgun (0 → 5, `no_path` → `ok`) — the first
+narrow-walkway win. The "stuck above the chaingun" stall was fixed in two parts — a `Bot_LiftThink`
+ascent-gate (lift-timeout −48%) plus a `cg_descend` rescue playbook with a per-entry `dwell` gate
+(stall −24%, giveups −7%). 40 Hz humanization polish landed: `bot_aimsmooth` (40 Hz view-glide toward the
+10 Hz aim, teleports −75%, kills neutral) and `bot_gazelife`. `bot_reroute` shipped (giveup −0.5 pt).
+
+**Asymmetric-harness note.** In symmetric self-play, death is zero-sum, so raw "survive longer" behaviors
+can't show a net win. `bot_survive` (seek health + flee when low) was built and tested for exactly this,
+and proven **counterproductive** (deaths +11.8%) — it is default **off**. `bot_survivetest` is the
+id-parity A/B tool (even bots survive, odd control) kept for future asymmetric measurement.
+
+**Inherited from ozbot.** All of ozbot's validated wins carry over on the same codebase — route-cost
+scoring, swim/lift/strafe-jump locomotion, decisiveness, target-leading, fight-or-flight, and the
+6-behavior humanization stack. See **[ozbot's README](../ozbot/README.md)** for that full history and the
+documented negative results; they are not re-listed here because their *numbers* belong to the 10 Hz epoch.
 
 ## Building and running
 
-The engine is 32-bit, so the DLL **must be built x86** (MSVC via `vcvarsall.bat x86`; VS2022).
+The RE engine is **64-bit** — the DLL **must be built x64** (MSVC via `vcvarsall.bat x64`; VS2022).
+Verify a built DLL's PE machine is `0x8664` if in doubt.
 
 ```bat
-build.bat          :: compile src/*.c -> dist/gamex86.dll (x86)
-deploy.bat         :: copy dist/gamex86.dll -> %Q2DIR%/ozbot/
+build.bat          :: compile src/*.c -> dist/gamex86_64.dll (x64)
+deploy.bat         :: copy dist/gamex86_64.dll -> %Q2DIR%/ozbotre/
 run_server.bat     :: build + deploy + launch a dedicated server with bots
-play.bat           :: launch a listen server you can play IN against the bots
-run_parallel.bat   :: build + deploy + N parallel headless sims + merged analysis
-build_engine.bat   :: build ../q2pro (x86, meson) -> %Q2DIR%/q2proded_fast.exe (fastsim engine)
+play.bat           :: launch a q2repro listen server you can play IN / chase-cam the bots
+record_inputs.bat  :: q2repro listen server with bot_inputlog on + a synced demo (capture YOUR inputs)
+run_parallel.bat   :: build + deploy + N parallel headless sims + merged analysis (pass --repro)
+build_engine.bat   :: build ../q2repro (x64, meson) -> %Q2DIR%/q2reproded.exe + q2repro.exe
 ```
 
-`%Q2DIR%` points at a Quake II install (a q2pro engine dir with `baseq2` paks). The vanilla game
-source headers are expected at `../quake2-source` (id's GPL Quake II v3.19 release); the analysis
-tooling (`analyze.py`, `run_parallel.py`, demo parsers — pure Python stdlib) lives in `../tools`.
+`%Q2DIR%` defaults to `..\engine` (the shared runtime). The build is self-contained — the vanilla
+Quake II v3.19 headers live in `src/` (`../quake2-source` is a reference mirror, not a build input); the
+analysis tooling (pure-Python stdlib) is this repo's own `tools/`. Every launch passes `com_rerelease -1`
+and `+set sv_fps 40` (all scripts and `run_parallel --repro` do this for you).
 
-Typical A/B run:
+Typical A/B run (16 seeds is the RE combat standard; always `--repro`):
 
 ```bat
-run_parallel.bat --fastsim --instances 8 --seconds 90 --bots 5 --seed 200 --cvar bot_pathcost 0
+run_parallel.bat --repro --fastsim --instances 16 --seconds 90 --bots 5 --seed 700 --cvar sv_fps 40
 ```
 
-With `--fastsim`, `--seconds` counts *simulated game seconds* (each server quits itself via
-`bot_quitafter`), so every seed simulates exactly the same game time; without it the servers run
-at real time and `--seconds` is wall-clock.
+With `--fastsim`, `--seconds` counts *simulated game seconds* (each server self-quits via `bot_quitafter`),
+so every seed simulates the same game time regardless of CPU load. Fastsim is bit-exact vs real time.
 
 ### Runtime knobs
 
+RE-specific / changed knobs (defaults shown):
+
 | Cvar | Default | Meaning |
 |---|---|---|
-| `bot_count` | 0 | target bot population (auto-maintained) |
-| `bot_skill` | 0.6 | 0..1, scales aim reaction/turn rate/error |
-| `bot_pathcost` | 1 | score items by A* route cost, not straight-line distance |
-| `bot_goalbudget` | 1 | goal timeout scaled to route cost, not flat 12s |
-| `bot_budgetcap` | 15 | max seconds to fund any one goal route (pickups p95 ≈ 11s) |
-| `bot_itemfail` | 1 | escalating shared blacklist (20/40/80/160s) for items bots keep giving up on |
-| `bot_swim` | 1 | 3D steering in water: vertical swim intent + water-jump ledge exits |
-| `bot_lift` | 1 | lift riding: learned plat columns become `PLAT` links; a wait/board/ride controller waits clear of the shaft, boards at bottom, rides to the top (suspending stuck/replan/budget while it does), and homing at items only engages on the item's own level |
-| `bot_liftlog` | 0 | diagnostic: per-tick telemetry for bots near `func_plat`s + plat state records |
-| `bot_strafejump` | 1 | strafe jumping: on a trace-qualified runway (straight or gently curving stretch of the committed path, clear at body height, safe floor on open sides) chain bunny hops — forward+side saturated, per-tick optimal yaw sweep, jump held across landings — committing only after a `gi.Pmove` pre-sim of the first hop lands clean; clears the landing jump-lockout for parity with real q2pro clients |
-| `bot_sjlog` | 0 | diagnostic: strafe-jump engage/hop/done/abort events (2 = plus qualification-funnel counters) |
-| `bot_claim` | 1 | skip items another bot is already going for |
-| `bot_decisive` | 1 | decisiveness: re-pick the next goal ~0.2s after a pickup (0.6s after a failure) instead of wandering 1–3s; sticky, blacklist-aware between-goal steering (no more standing view-swings between two candidate items); uncommitted goal evaluations don't claim items |
-| `bot_rollout` | 1 | physics-forward rollout recovery when stuck |
-| `bot_lead` | 1 | lead moving targets by projectile flight time (skill-scaled) |
-| `bot_flee` | 1 | retreat (while firing) when clearly outmatched |
-| `bot_gaze` | 1 | humanization: out-of-combat gaze — lead the path around corners, glance at items/openings/shoulders, pitch follows the look point (stock bots stare flat along their velocity) |
-| `bot_turnrate` | 1 | humanization: all facing changes slew with a per-turn speed drawn from the human envelope (kills the 180°-in-one-tick snap); wander headings arc instead of snapping |
-| `bot_aimtexture` | 1 | humanization: aim error wanders (autocorrelated OU process) instead of vibrating at 10Hz, with rate-limited overshoot on target reversals; `bot_skill` still scales it |
-| `bot_fov` | 1 | humanization: enemy acquisition needs a ~120° view cone, a recent pain event (turn-toward-attacker), or audible unsilenced gunfire within 700u — no more eyes in the back of the head |
-| `bot_hop` | 1 | humanization: combat rhythm — jump rate and strafe-leg lengths from the demo distributions, momentum dip on reversals, commit to close fights |
-| `bot_fidget` | 1 | humanization: locomotion texture — micro-step fidget while holding for a respawn, fast turn-away instead of wall dithering, travel hops |
-| `bot_seed` | 0 | >0 = deterministic RNG for reproducible runs |
-| `bot_quitafter` | 0 | >0 = quit the server after N *game* seconds (timed fastsim runs) |
-| `bot_debug` | 0 | draw nav paths / enemy lines via temp-entity beams |
-| `bot_skilltest` | 0 | diagnostic: id-parity skill split (0.9 vs 0.1) within one match |
-| `bot_leadtest` | 0 | diagnostic: id-parity lead split (even ids lead, odd don't) |
-| `bot_fleetest` | 0 | diagnostic: id-parity flee split (even ids flee, odd don't) |
-| `bot_aimtest` | 0 | diagnostic: even ids apply the `bot_aimreact/aimturn/aimerr/aimfire` multipliers (each default 1) for aim-formula sweeps |
-| `bot_humantest` | 0 | diagnostic: id-parity humanization split — even ids run whatever `bot_gaze/turnrate/aimtexture/fov/hop/fidget` enable, odd ids play stock (use an **even** `bot_count`; odd counts unbalance the parities 3:2) |
+| `bot_playbook` | 1 | replay recorded input clips as `NAV_LINK_PLAYBOOK` links (inert without a `.pbk`); aborted replays self-penalize |
+| `bot_cmdlog` | 0 | log **bot** usercmds in the input-log schema (for recording bot segments to bake) |
+| `bot_aimsmooth` | 1 | 40 Hz view-glide toward the 10 Hz aim target (anti-judder; teleports −75%) |
+| `bot_gazelife` | 1 | glance around between fire windows (40 Hz humanization) |
+| `bot_aimflick` | 1 | flick-speed cap multiplier (1 = stock 20–60°/tick) |
+| `bot_reroute` | 1 | penalize the stalled hop on a pure-nav giveup, so the next route avoids it |
+| `bot_survive` | 0 | survival instinct (seek health + flee when low) — **counterproductive, kept off** |
+| `bot_survivetest` | 0 | diagnostic: id-parity survival A/B (even bots survive, odd control) |
+| *engine* `sv_fps` | 40 | tick rate; read once at `InitGame` — **never flip mid-session**; 10 = vanilla, bit-identical to pre-port |
+| *engine* `com_rerelease` | −1 | **mandatory**: keep q2repro hermetic (ignore auto-detected Steam/GoG/OneDrive installs) |
 
-Server console: `sv bot_add N` / `sv bot_remove N` / `sv bot_clear`. The learned graph is saved
-to `<gamedir>/nav/<map>.nav` (autosaved ~30s); telemetry to `<gamedir>/logs/<map>_<ts>.jsonl`.
-To bootstrap a brand-new map, just run bots on it — the graph self-builds.
+The full shared knob set — `bot_count`, `bot_skill`, `bot_pathcost`, `bot_goalbudget`, `bot_budgetcap`,
+`bot_itemfail`, `bot_swim`, `bot_lift`, `bot_strafejump`, `bot_claim`, `bot_decisive`, `bot_rollout`,
+`bot_lead`, `bot_flee`, the `bot_gaze/turnrate/aimtexture/fov/hop/fidget` humanization stack, and the
+`bot_*test` id-parity diagnostics — is identical to ozbot; see **[ozbot's README](../ozbot/README.md)** for
+their descriptions.
+
+Server console: `sv bot_add N` / `sv bot_remove N` / `sv bot_clear`. The learned graph saves to
+`<gamedir>/nav/<map>.nav` (autosaved ~30 s); playbooks live in `<gamedir>/playbooks/<map>.pbk`; telemetry
+to `<gamedir>/logs/<map>_<ts>.jsonl`. To bootstrap a brand-new map, just run bots on it — the graph
+self-builds; playbooks are added per map as you record them.
 
 ## License
 
-Based on the id Software Quake II v3.19 game source, licensed under the GNU General Public
-License v2. The bot code (`src/bot_*`) is released under the same license.
+Based on the id Software Quake II v3.19 game source, licensed under the GNU General Public License v2.
+The bot code (`src/bot_*`) is released under the same license.
