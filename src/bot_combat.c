@@ -23,6 +23,9 @@ cvar_t	*bot_aimfire;	//   buys kills at a given nominal skill
 cvar_t	*bot_aimtexture;	// humanization: autocorrelated aim error + reversal
 							// overshoot instead of per-frame white noise
 							// (plans/humanization.md Phase 2)
+cvar_t	*bot_gazelife;		// humanization: glance around between fire windows
+							// (threat-check / navigation looks) then snap back to
+							// aim -- adds view liveliness at ~no lethality cost
 cvar_t	*bot_aimflick;		// flick-speed multiplier on the aim turn cap
 							// (acquisition swings; smoothed by bot_aimsmooth)
 cvar_t	*bot_aimsmooth;		// 40Hz view smoothing: the aim DECISION is 10Hz
@@ -292,6 +295,8 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->aim_view[PITCH] = self->client->ps.viewangles[PITCH];	// where we look
 		b->aim_err[YAW] = b->aim_err[PITCH] = 0;	// no stale texture error
 		b->aim_sweep_sign = 0;						// from an earlier fight
+		b->cglance_until = 0;						// no glance mid-acquisition;
+		b->cglance_next = level.time + 0.8f;		// settle on the new target first
 		// seed with the target's actual bearing, not our own facing -- the
 		// acquisition offset is not a "sweep" and must not prime the
 		// reversal-overshoot detector
@@ -451,8 +456,59 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		firethresh *= bot_aimfire->value;
 	aimoff = (float)(fabs (AngleDelta (ang[YAW], b->aim[YAW]))
 	               + fabs (AngleDelta (ang[PITCH], b->aim[PITCH])));
-	if (level.time >= b->reaction_until && aimoff < firethresh)
-		cmd->buttons |= BUTTON_ATTACK;
+
+	// combat gaze-life (bot_gazelife): a human doesn't stare down one target --
+	// between shots they flick to check a flank or glance where they're running,
+	// then snap back to fire.  Run a brief, spaced glance: the VIEW leaves the
+	// enemy (aim_look) while b->aim keeps tracking, and FIRE is held during the
+	// glance (you don't shoot where you're not looking) -- so no view is ever
+	// snapped/teleported back mid-glance, and when it ends the view glides home
+	// and shooting resumes.  Adds the human look-away texture (45% of moving
+	// frames vs the bot's 17%) for a small, bounded fire-downtime cost.
+	b->aim_look[YAW]   = b->aim[YAW];		// default: hold the view on the aim
+	b->aim_look[PITCH] = b->aim[PITCH];
+	{
+		qboolean	glancing = false;
+
+		if (bot_gazelife->value != 0 && Bot_Humanized (b) && !b->flee
+			&& level.time >= b->reaction_until)
+		{
+			if (level.time < b->cglance_until)
+				glancing = true;
+			else if (level.time >= b->cglance_next)
+			{
+				// start a brief glance off the aim (a flank/path check), or
+				// toward where we're running.  Kept mild + spaced: an aggressive
+				// version cost ~11% kills for no metric gain (the human
+				// look-away is mostly BACKPEDAL, a movement trait, not a glance).
+				float	spd = VectorLength (self->velocity);
+				float	base, r = random ();
+				if (spd > 120.0f && r < 0.4f)
+					base = b->move_yaw;					// look where we're running
+				else
+				{
+					float off = 45.0f + random () * 95.0f;	// 45-140 deg off aim
+					base = b->aim[YAW] + (random () < 0.5f ? off : -off);
+				}
+				b->cglance_yaw   = base;
+				b->cglance_pitch = crandom () * 7.0f;			// near level
+				b->cglance_until = level.time + 0.14f + random () * 0.16f;
+				b->cglance_next  = b->cglance_until + 1.1f + random () * 1.8f;
+				glancing = true;
+			}
+			if (glancing)
+			{
+				b->aim_look[YAW]   = b->cglance_yaw;
+				b->aim_look[PITCH] = b->cglance_pitch;
+			}
+		}
+
+		// fire is held during a glance (you don't shoot where you aren't
+		// looking); on non-glance frames aim_look == b->aim so the aim_view snap
+		// on the firing frame is exact.
+		if (!glancing && level.time >= b->reaction_until && aimoff < firethresh)
+			cmd->buttons |= BUTTON_ATTACK;
+	}
 
 aim_held:
 	// 40Hz view smoothing (bot_aimsmooth): b->aim is the aim the 10Hz decision
@@ -470,8 +526,11 @@ aim_held:
 		// one (fine tracking, where the trigger pulls) is followed tightly so
 		// the shot still goes where the 10Hz layer aimed.  g -> 1 as the gap
 		// shrinks, so settled aim == b->aim (no accuracy cost).
-		float	dy = AngleDelta (b->aim[YAW],   b->aim_view[YAW]);
-		float	dp = AngleDelta (b->aim[PITCH], b->aim_view[PITCH]);
+		// glide toward aim_look (= b->aim while tracking, or a glance point
+		// during a gaze-life look); fire is suppressed during a glance, so on a
+		// firing frame aim_look is always b->aim and the snap below is exact.
+		float	dy = AngleDelta (b->aim_look[YAW],   b->aim_view[YAW]);
+		float	dp = AngleDelta (b->aim_look[PITCH], b->aim_view[PITCH]);
 		float	gap = (float)(fabs (dy) + fabs (dp));
 		float	g = 1.0f / (1.0f + gap * 0.06f);
 		if (g < 0.30f) g = 0.30f;

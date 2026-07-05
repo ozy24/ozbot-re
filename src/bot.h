@@ -164,7 +164,13 @@ typedef struct
 	float		threat_time;	// ...and when
 	vec3_t		aim;			// current aim angles (10Hz-committed target)
 	vec3_t		aim_view;		// bot_aimsmooth: the actual sent view, gliding
-								// toward aim at 40Hz (kills the 10Hz view judder)
+								// toward aim_look at 40Hz (kills 10Hz view judder)
+	vec3_t		aim_look;		// bot_gazelife: where the view is gliding toward --
+								// b->aim (tracking) or a glance point of interest
+	float		cglance_until;	// combat glance holds until this time (0 = none)
+	float		cglance_next;	// earliest start of the next combat glance
+	float		cglance_yaw;	// world yaw/pitch of the active combat glance
+	float		cglance_pitch;
 	vec3_t		aim_err;		// bot_aimtexture: wandering (OU) aim error
 	float		aim_bearing_prev;	// last tick's target bearing (yaw)
 	float		aim_sweep_sign;	// which way the bearing was sweeping
@@ -336,6 +342,7 @@ extern cvar_t	*bot_aimturn;
 extern cvar_t	*bot_aimerr;
 extern cvar_t	*bot_aimfire;
 extern cvar_t	*bot_aimtexture;
+extern cvar_t	*bot_gazelife;
 extern cvar_t	*bot_aimflick;
 extern cvar_t	*bot_aimsmooth;
 extern cvar_t	*bot_fov;
