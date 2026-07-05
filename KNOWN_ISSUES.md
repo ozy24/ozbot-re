@@ -34,12 +34,17 @@ What remains vertically-gated:
   Caveat: ~65% drift-abort rate (the walkway's 180–250u drops are unforgiving to open-loop
   replay), so it converts ~1-in-4 engages — tuning headroom, but the pickups are already
   free. This is the first *narrow-walkway* playbook and validates the capability.
-- **HyperBlaster (q2dm1)**: ~5–10% completion, still open. Plat-gated (not `no_path`),
-  reachable via lift once nav matures, but rarely completed. Same z912 walkway; the natural
-  next `rl_walkway`-style capture (human approaches recorded in the full-game log at
-  t=388.3 / t=490.5). Needs *narrow-ledge walking precision* — the walkway has 180–250u
-  drops on both sides, and even the human recording the reference fell off it. The
-  `rl_walkway` win shows a recorded walkway-traversal playbook is exactly that follower.
+- **HyperBlaster (q2dm1) is SOLVED** as of 2026-07-05 (~20 pickups/8-seed-sim, was ~8).
+  Two compounding bugs, both fixed: (1) the east ramp's UP-link was missing from the nav
+  (bots only ever came DOWN it — the learner skips climbs), so A* had no real route and had
+  learned through-wall flukes → added `377→293` walk + removed the 4 west fluke links to the
+  HB in `baselines/q2dm1.nav`; (2) `bot_losfinal` (default on, **map-general**) — the
+  final-approach override homed straight at any same-level item within 200u with **no
+  clear-shot check**, driving the bot into the wall; added a knee-height LOS trace so a walled
+  item makes the bot follow the nav path (the ramp) instead. A/B 3 seeds: west-wall pin-stall
+  28s→0s, ITEM neutral. Real route: platform → east ramp up to z1048 (GL level) → drop onto
+  the HB. (User pinpointed the route from a recording; `bot_losfinal` generalizes the fix to
+  any walled same-level item on any map.)
 - **q2dm2 (Tokay's Towers)** is still at its ~26% ceiling; its vertical items have not
   been re-measured since `bot_lift` landed — its plats may need the same treatment
   validated there.
