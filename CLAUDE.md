@@ -62,5 +62,12 @@ Recorded input sequences replayed as nav links (NAV_LINK_PLAYBOOK):
 The executor is `src/bot_playback.c` — read its header before touching it; the
 align/replay design decisions were all measured, not guessed.
 
+**Analyzing a human/bot input log** before you bake: `tools/input_view.py
+<log.jsonl> [slot]` segments *jumps* (strafe-jump/air-accel work);
+`tools/traj_view.py <log.jsonl> [--coarse]` finds *dwell spots* (flags in-place
+jumps the human left as "look here" markers) and segments the trace into
+*excursions* out of the marked spot — the right tool for "bot gets stuck HERE,
+here are the paths through" recordings.
+
 The q2dm1 **Megahealth jump** is the intended first real entry — record it,
 bake it, and A/B `item_health_mega` pickups (they are 0 without it).
