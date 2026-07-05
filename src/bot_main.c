@@ -31,6 +31,7 @@ cvar_t	*bot_stucktime;
 cvar_t	*bot_wallslide;
 cvar_t	*bot_claim;
 cvar_t	*bot_decisive;
+cvar_t	*bot_reroute;
 cvar_t	*bot_pathcost;
 cvar_t	*bot_goalbudget;
 cvar_t	*bot_budgetcap;
@@ -138,6 +139,8 @@ void Bot_Init (void)
 	bot_aimerr       = gi.cvar ("bot_aimerr", "1", 0);		//   aim-error multiplier
 	bot_aimfire      = gi.cvar ("bot_aimfire", "1", 0);		//   fire-threshold multiplier
 	bot_aimtexture   = gi.cvar ("bot_aimtexture", "1", 0);	// humanization: wandering aim error + reversal overshoot
+	bot_reroute      = gi.cvar ("bot_reroute", "1", 0);		// penalize the stalled hop on a pure-nav giveup (reroute next time)
+	bot_survive      = gi.cvar ("bot_survive", "0", 0);		// survival instinct: seek health + flee when low
 	bot_gazelife     = gi.cvar ("bot_gazelife", "1", 0);		// glance around between fire windows (humanization)
 	bot_aimflick     = gi.cvar ("bot_aimflick", "1", 0);		// flick-speed cap multiplier (1 = stock 20-60 deg/tick)
 	bot_aimsmooth    = gi.cvar ("bot_aimsmooth", "1", 0);	// 40Hz view glide toward the 10Hz aim (anti-judder)
@@ -742,6 +745,20 @@ static void Bot_Navigate (bot_t *b)
 			Bot_LogGiveup (b, (float)sqrt(d[0]*d[0] + d[1]*d[1]), d[2],
 				atnode, b->enemy ? 1 : 0,
 				b->goal_item ? Nav_QueryName (navq) : "");
+			// execution-failure reroute (bot_reroute): we stalled mid-route
+			// (not at the goal node) while a route still existed (navq ok) and
+			// were not in a fight -- the "graph claims a route the bot can't
+			// execute" case.  Penalize the hop we could not get past so the NEXT
+			// attempt reroutes around it instead of re-selling the same
+			// unexecutable link.  Gated on !enemy so combat-interrupted giveups
+			// (20% of them) never erode a good link.
+			if (bot_reroute && bot_reroute->value != 0 && !atnode
+				&& navq == NAVQ_OK && !b->enemy
+				&& b->path_idx > 0 && b->path_idx < b->path_len)
+			{
+				Nav_PenalizeLink (b->path[b->path_idx - 1], b->path[b->path_idx]);
+				Bot_LogPenalize (b, b->path[b->path_idx - 1], b->path[b->path_idx]);
+			}
 			if (b->goal_item)
 				Goal_ItemFailed (b->goal_item, navq);
 			Bot_GoExplore (b);

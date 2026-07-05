@@ -342,6 +342,8 @@ extern cvar_t	*bot_aimturn;
 extern cvar_t	*bot_aimerr;
 extern cvar_t	*bot_aimfire;
 extern cvar_t	*bot_aimtexture;
+extern cvar_t	*bot_reroute;
+extern cvar_t	*bot_survive;
 extern cvar_t	*bot_gazelife;
 extern cvar_t	*bot_aimflick;
 extern cvar_t	*bot_aimsmooth;

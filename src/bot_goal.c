@@ -305,8 +305,21 @@ static float Item_Score (bot_t *b, edict_t *it, float *out_dist)
 	{
 		if (has(cn,"mega") || has(nm,"Mega"))
 			need = (bot->health < 250) ? 1.0f : 0.5f;
-		else
-			need = (bot->health < bot->max_health) ? 1.0f : 0.0f;
+		else if (bot->health >= bot->max_health)
+				need = 0.0f;
+			else if (bot_survive && bot_survive->value != 0)
+			{
+				// urgency (bot_survive): a hurt bot wants health more the lower
+				// it is, so it breaks off to heal instead of dying mid-fight.
+				// Deaths ~25% of goal attempts, ~half bots lingering while
+				// already <50hp -- flat need=1.0 never pulled them off goal.
+				// 1.0 near full .. ~3.0 near death.
+				float frac = bot->health / (float)(bot->max_health > 0 ? bot->max_health : 100);
+				if (frac > 1.0f) frac = 1.0f;
+				need = 1.0f + (1.0f - frac) * 2.0f;
+			}
+			else
+				need = 1.0f;
 	}
 
 	if (need <= 0)

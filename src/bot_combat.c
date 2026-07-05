@@ -23,6 +23,8 @@ cvar_t	*bot_aimfire;	//   buys kills at a given nominal skill
 cvar_t	*bot_aimtexture;	// humanization: autocorrelated aim error + reversal
 							// overshoot instead of per-frame white noise
 							// (plans/humanization.md Phase 2)
+cvar_t	*bot_survive;		// survival instinct: health-need urgency + low-hp
+							// caution (break off + heal instead of dying mid-fight)
 cvar_t	*bot_gazelife;		// humanization: glance around between fire windows
 							// (threat-check / navigation looks) then snap back to
 							// aim -- adds view liveliness at ~no lethality cost
@@ -321,14 +323,20 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		{
 			float mine   = Combat_Strength (self);
 			float theirs = Combat_Strength (enemy);
+			qboolean survive = (bot_survive && bot_survive->value != 0);
 			if (b->flee)
 			{
-				if (mine > 100 || mine > theirs * 0.95f)
+				// with survive, re-engage once healed to ~60 (hysteresis vs the
+				// <40 low-hp trigger below) instead of waiting for full recovery
+				if (mine > (survive ? 60.0f : 100.0f) || mine > theirs * 0.95f)
 					b->flee = false;	// recovered (or they got hurt too)
 			}
 			else
 			{
-				if (mine < 75 && mine < theirs * 0.65f)
+				// low-absolute-hp caution (bot_survive): break off and heal even
+				// in an even fight -- the attrition deaths were bots at <40hp
+				// fighting on because they were not "outmatched"
+				if ((mine < 75 && mine < theirs * 0.65f) || (survive && mine < 40.0f))
 					b->flee = true;
 			}
 		}
