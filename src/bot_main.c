@@ -47,6 +47,9 @@ cvar_t	*bot_liftlog;
 cvar_t	*bot_strafejump;
 cvar_t	*bot_sjlog;
 cvar_t	*bot_inputlog;
+cvar_t	*bot_ammoneed;
+cvar_t	*bot_healthneed;
+cvar_t	*bot_wpnneed;
 
 // registry indexed by client slot (index i <-> g_edicts[i+1])
 static bot_t	bots[MAX_CLIENTS];
@@ -115,6 +118,19 @@ void Bot_Init (void)
 	bot_reachlog     = gi.cvar ("bot_reachlog", "1", 0);	// map-load item reachability sweep (oracle diagnostics)
 	bot_goalnode     = gi.cvar ("bot_goalnode", "0", 0);	// resolve item goal nodes to CONNECTED nodes (skip
 															// in-degree-0 orphans that shadow real coverage)
+	// resource-need calibration, mined from the pro demo corpus
+	// (tools/dm2_combat.py need -> demos/derived/combat_need/thresholds.json,
+	// 5859 demos).  A/B'd 16x2 seed-bases; each is bit-exact when set to 0.
+	bot_ammoneed     = gi.cvar ("bot_ammoneed", "1", 0);	// ammo need ramps as fill for the best owned weapon drops
+															// (default ON: pickups +4-7%, ITEM +1pt, combat neutral;
+															// the bot had NO ammo awareness before this)
+	bot_healthneed   = gi.cvar ("bot_healthneed", "0", 0);	// health-urgency goal curve by default (pros top up at ~74hp)
+															// (default OFF: inconclusive across seeds -- one +frags,
+															// one -20 frags/+32 giveups; same asymmetric health-seek
+															// cost that keeps bot_survive off.  Kept as infra.)
+	bot_wpnneed      = gi.cvar ("bot_wpnneed", "1", 0);		// unowned-weapon need weighted by pro kill-rank (promotes CG,
+															// demotes hyperblaster).  Default ON: pickups +10%, ITEM
+															// +2-3pts, frags neutral (biggest single lever)
 	bot_swim         = gi.cvar ("bot_swim", "1", 0);		// 3D steering in water (vertical swim + water-jump exits)
 	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
 															// controller, 3D column arrival, level-aware homing

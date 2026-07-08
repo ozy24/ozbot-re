@@ -231,6 +231,10 @@ extern cvar_t	*bot_lift;
 extern cvar_t	*bot_liftlog;
 extern cvar_t	*bot_inputlog;
 extern cvar_t	*bot_cmdlog;
+// resource-need calibration (demos/derived/combat_need/thresholds.json)
+extern cvar_t	*bot_ammoneed;		// ammo need ramps with low ammo for the best owned weapon
+extern cvar_t	*bot_healthneed;	// health-urgency goal curve by default (not just under bot_survive)
+extern cvar_t	*bot_wpnneed;		// unowned-weapon acquisition need weighted by pro kill-rank
 
 //
 // bot_move.c -- steering (target point / path following -> usercmd_t)
@@ -331,6 +335,10 @@ extern cvar_t	*bot_humantest;
 // blend a strafe/range component into b->move_dir.  Returns true if engaged.
 qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_pitch);
 float Combat_Strength (edict_t *e);	// effective toughness (health + armor)
+// fractional ammo fill (0..1) for the highest-priority owned weapon that
+// consumes `ammo_item`, or -1 if the bot owns no weapon that uses it.  Lets the
+// goal scorer raise ammo need only when the gun that ammo feeds is running low.
+float Combat_AmmoFracForItem (edict_t *ent, gitem_t *ammo_item);
 extern cvar_t	*bot_skill;
 extern cvar_t	*bot_skilltest;
 extern cvar_t	*bot_lead;

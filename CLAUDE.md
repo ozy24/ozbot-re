@@ -49,6 +49,19 @@ same build at 10Hz: 488 / 53% / 157. The higher kill intensity is an emergent,
 verified-symmetric property of the finer simulation (fire rates and weapon
 timing are provably unchanged — `py tools/verify_timing.py <log10> <log40>`).
 
+## Resource-need calibration (demo-mined)
+
+The goal scorer's `bot_ammoneed` (per-ammo-type low-fill urgency, via
+`Combat_AmmoFracForItem` in `bot_combat.c`) and `bot_wpnneed` (unowned-weapon
+value by pro kill-rank, `Weapon_KillRankWeight` in `bot_goal.c`) are
+**default-ON**. Their thresholds are mined from the pro corpus by
+`../ozbot/tools/dm2_combat.py need` → `../demos/derived/combat_need/thresholds.json`
+(5859 demos) and **baked in as constants** — regenerate over in `ozbot` (it owns
+the corpus; this repo consumes read-only), then update the constants here. There
+is no runtime dependency on the JSON. `bot_healthneed` exists but is
+**default-OFF** (health-seeking is asymmetric-negative, same as `bot_survive`).
+See the `ozbot-re-resource-need-win` memory for the A/B results.
+
 ## Playbooks (the new capability)
 
 Recorded input sequences replayed as nav links (NAV_LINK_PLAYBOOK):

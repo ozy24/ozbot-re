@@ -239,6 +239,20 @@ qboolean Goal_IsRecovery (edict_t *it)
 // out Combat Armor and the top weapons).
 #define ITEM_CONTROL_VALUE	50.0f
 
+// resource-need curve constants, calibrated from the pro demo corpus
+// (tools/dm2_combat.py need -> demos/derived/combat_need/thresholds.json).
+// bot_ammoneed: ammo need ramps as the fill for the gun it feeds drops.  Full
+// (frac>=1, at/above the human refill level) -> MIN, which sits BELOW the legacy
+// flat 0.5 so a topped-up bot stops chasing ammo; empty -> MAX.  Base value for
+// ammo is only 12, so even MAX keeps ammo a local top-up, never a cross-map quest.
+#define AMMO_NEED_MIN		0.25f
+#define AMMO_NEED_MAX		1.50f
+#define AMMO_NEED_UNUSED	0.20f	// ammo for a weapon the bot doesn't own
+// bot_healthneed: urgency gain on the health-need curve (pros top up at ~74hp,
+// so a curve already elevating need there matches them); 1.0 near full .. 1+GAIN
+// near death.  Was an inline literal gated behind bot_survive only.
+#define HEALTH_URGENCY_GAIN	2.0f
+
 /*
 =================
 Item_BaseValue
@@ -268,6 +282,27 @@ static float Item_BaseValue (gitem_t *item)
 
 /*
 =================
+Weapon_KillRankWeight
+
+bot_wpnneed: acquisition need for an UNOWNED weapon, weighted by how much pros
+actually kill with it instead of a flat 1.0.  Corrects the base-value tiers that
+lumped the chaingun (a top-3 pro weapon) in with the barely-used hyperblaster.
+From tools/dm2_combat.py need over 5859 demos (weapon_at_kill_pct): rocket 31 /
+rail 28 / chaingun 28 dominate (top-3 = 87%); super shotgun 7; everything else <3%.
+=================
+*/
+static float Weapon_KillRankWeight (gitem_t *item)
+{
+	const char *nm = item->pickup_name ? item->pickup_name : "";
+	if (has(nm,"Railgun") || has(nm,"Rocket") || has(nm,"Chaingun"))
+		return 1.25f;		// the guns pros win with -- race for these first
+	if (has(nm,"Super Shotgun"))
+		return 0.85f;
+	return 0.55f;			// hyperblaster / GL / MG / shotgun / blaster: rarely used
+}
+
+/*
+=================
 Item_Score
 
 value * need / distance-falloff.  Returns 0 for things the bot doesn't want.
@@ -288,7 +323,14 @@ static float Item_Score (bot_t *b, edict_t *it, float *out_dist)
 	*out_dist = dist;
 
 	if (flags & IT_WEAPON)
-		need = (bot->client->pers.inventory[ITEM_INDEX(item)] > 0) ? 0.25f : 1.0f;
+	{
+		if (bot->client->pers.inventory[ITEM_INDEX(item)] > 0)
+			need = 0.25f;						// already own it
+		else if (bot_wpnneed->value != 0)
+			need = Weapon_KillRankWeight (item);	// race for the guns pros win with
+		else
+			need = 1.0f;
+	}
 	else if (flags & IT_ARMOR)
 	{
 		int ai = ArmorIndex (bot);
@@ -300,23 +342,36 @@ static float Item_Score (bot_t *b, edict_t *it, float *out_dist)
 	else if (flags & IT_POWERUP)
 		need = 1.0f;
 	else if (flags & IT_AMMO)
-		need = 0.5f;
+	{
+		if (bot_ammoneed->value != 0)
+		{
+			// need spikes as the fill for the gun this ammo feeds drops
+			float frac = Combat_AmmoFracForItem (bot, item);
+			if (frac < 0.0f)
+				need = AMMO_NEED_UNUSED;		// no owned weapon uses this ammo
+			else
+				need = AMMO_NEED_MIN + (AMMO_NEED_MAX - AMMO_NEED_MIN) * (1.0f - frac);
+		}
+		else
+			need = 0.5f;						// legacy flat (off-state stays bit-exact)
+	}
 	else if (has(cn,"health") || has(nm,"Health") || has(nm,"health"))
 	{
 		if (has(cn,"mega") || has(nm,"Mega"))
 			need = (bot->health < 250) ? 1.0f : 0.5f;
 		else if (bot->health >= bot->max_health)
 				need = 0.0f;
-			else if (Bot_Survives (b))
+			else if (bot_healthneed->value != 0 || Bot_Survives (b))
 			{
-				// urgency (bot_survive): a hurt bot wants health more the lower
-				// it is, so it breaks off to heal instead of dying mid-fight.
-				// Deaths ~25% of goal attempts, ~half bots lingering while
-				// already <50hp -- flat need=1.0 never pulled them off goal.
-				// 1.0 near full .. ~3.0 near death.
+				// urgency: a hurt bot wants health more the lower it is, so it
+				// breaks off to heal instead of dying mid-fight.  Pros top up at
+				// a median of ~74hp (demo corpus), so this curve should already
+				// be pulling by then.  1.0 near full .. 1+GAIN near death.
+				// (bot_healthneed makes just this goal-scoring urgency the default,
+				// WITHOUT bot_survive's flee coupling / asymmetric-negative frags.)
 				float frac = bot->health / (float)(bot->max_health > 0 ? bot->max_health : 100);
 				if (frac > 1.0f) frac = 1.0f;
-				need = 1.0f + (1.0f - frac) * 2.0f;
+				need = 1.0f + (1.0f - frac) * HEALTH_URGENCY_GAIN;
 			}
 			else
 				need = 1.0f;

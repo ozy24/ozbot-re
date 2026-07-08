@@ -196,6 +196,59 @@ static void Combat_SelectWeapon (bot_t *b)
 
 /*
 =================
+Combat_AmmoFracForItem
+
+Fractional ammo fill (0..1) for the highest-PRIORITY owned weapon that consumes
+`ammo_item`, or -1 if the bot owns no weapon that uses it (so the goal scorer
+keeps ammo need low instead of hoarding fuel for guns it lacks).  frac = current
+ammo / T, clamped to 1, where T is the "comfortable" fill for that ammo type --
+the p50 ammo count at which pros actually refilled it (tools/dm2_combat.py need;
+demos/derived/combat_need/thresholds.json, 5859 demos: rockets 8, slugs 16,
+shells 10, grenades 6, cells 50, bullets 103).  Scanning prio[] in order means
+the fill reported is for the best gun this ammo feeds (a near-empty rail's slugs
+outrank a full shotgun's shells).
+=================
+*/
+float Combat_AmmoFracForItem (edict_t *ent, gitem_t *ammo_item)
+{
+	static const char *prio[] = {
+		"railgun", "rocket launcher", "hyperblaster", "chaingun",
+		"super shotgun", "machinegun", "shotgun", "blaster"
+	};
+	static const struct { const char *name; float thresh; } tbl[] = {
+		{ "Rockets", 8.0f }, { "Slugs", 16.0f }, { "Cells", 50.0f },
+		{ "Bullets", 103.0f }, { "Shells", 10.0f }, { "Grenades", 6.0f },
+	};
+	const char *an = ammo_item->pickup_name ? ammo_item->pickup_name : "";
+	float	thresh = 0.0f;
+	int		i;
+
+	for (i = 0; i < (int)(sizeof(tbl) / sizeof(tbl[0])); i++)
+		if (strstr (an, tbl[i].name)) { thresh = tbl[i].thresh; break; }
+	if (thresh <= 0.0f)
+		return -1.0f;			// not an ammo type we have a threshold for
+
+	for (i = 0; i < 8; i++)
+	{
+		gitem_t	*w = FindItem ((char *)prio[i]);
+		float	frac;
+		int		cur;
+
+		if (!w || ent->client->pers.inventory[ITEM_INDEX(w)] <= 0)
+			continue;			// don't own this weapon
+		if (!w->ammo || FindItem (w->ammo) != ammo_item)
+			continue;			// this weapon doesn't consume this ammo
+		cur = ent->client->pers.inventory[ITEM_INDEX(ammo_item)];
+		frac = cur / thresh;
+		if (frac > 1.0f) frac = 1.0f;
+		if (frac < 0.0f) frac = 0.0f;
+		return frac;
+	}
+	return -1.0f;				// no owned weapon consumes this ammo
+}
+
+/*
+=================
 Combat_Strength
 
 Effective toughness for fight-or-flight comparisons: health plus armor at the
