@@ -72,6 +72,12 @@ def setup_worker(engine, src_mod, worker_mod, mapname, dll_name):
     else:
         log(f"warning: {nav} not found -- worker '{worker_mod}' starts cold.")
 
+    # failure-knowledge sidecar (bot_failpersist, P4a): per-item giveup counts
+    # persisted alongside the nav; absent file = feature inert
+    fail = os.path.join(engine, src_mod, "nav", f"{mapname}.fail")
+    if os.path.isfile(fail):
+        shutil.copy2(fail, os.path.join(wdir, "nav", f"{mapname}.fail"))
+
     # playbooks (ozbot-re Phase R4): recorded maneuvers the DLL loads at map
     # start; absent file = feature inert
     pbk = os.path.join(engine, src_mod, "playbooks", f"{mapname}.pbk")

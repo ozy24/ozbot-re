@@ -34,6 +34,175 @@ void Goal_Reset (void)
 
 /*
 =================
+Failure-knowledge persistence (bot_failpersist, P4a)
+
+item_fails is keyed by edict index, which is spawn-order-stable within a map
+but NOT portable across sessions.  The sidecar keys each failing item by
+(classname + rounded origin) -- stable across runs of the same map -- so a
+fresh run can re-apply the escalated blacklist immediately instead of burning
+one full goal budget per hard item to rediscover it.
+
+Save timing: Goal_SaveFails must run BEFORE Goal_Reset on a map change, and the
+engine has already spawned the NEXT map's edicts by then, so we cannot iterate
+live edicts for the OLD map's keys.  Instead we snapshot each item's key at LOAD
+time (Goal_LoadFails, when the current map's edicts are valid) into fail_key_*
+parallel to item_fails, and save from that snapshot.
+=================
+*/
+#define OZFL_MAGIC		(('L'<<24)|('F'<<16)|('Z'<<8)|'O')	// "OZFL"
+#define OZFL_VERSION	1
+
+typedef struct
+{
+	char	classname[32];
+	vec3_t	origin;
+} fail_key_t;
+
+static fail_key_t	fail_key[MAX_EDICTS];	// snapshot captured in Goal_LoadFails
+static qboolean		fail_key_set[MAX_EDICTS];
+
+static void Fail_Path (const char *mapname, char *out, int outsize)
+{
+	Com_sprintf (out, outsize, "%s/nav/%s.fail",
+		Bot_GameDir(), (mapname && mapname[0]) ? mapname : "unknown");
+}
+
+// snapshot the (classname, origin) key of every live item edict, indexed the
+// same way as item_fails (edict index), so Goal_SaveFails has stable keys even
+// after the map's edicts are gone.
+static void Goal_CaptureItemKeys (void)
+{
+	edict_t	*it;
+	int		i;
+
+	memset (fail_key_set, 0, sizeof(fail_key_set));
+	for (i = (int)game.maxclients + 1; i < globals.num_edicts; i++)
+	{
+		it = g_edicts + i;
+		if (!it->inuse || !it->item || i >= MAX_EDICTS)
+			continue;
+		if (it->spawnflags & DROPPED_ITEM)
+			continue;
+		Com_sprintf (fail_key[i].classname, sizeof(fail_key[i].classname),
+			"%s", it->classname ? it->classname : "");
+		VectorCopy (it->s.origin, fail_key[i].origin);
+		fail_key_set[i] = true;
+	}
+}
+
+void Goal_LoadFails (const char *mapname)
+{
+	char	path[MAX_OSPATH];
+	FILE	*f;
+	int		magic = 0, version = 0, count = 0, i, applied = 0;
+
+	if (bot_failpersist->value == 0)
+		return;
+
+	// snapshot keys first: needed for a later save regardless of whether a
+	// sidecar exists yet.
+	Goal_CaptureItemKeys ();
+
+	Fail_Path (mapname, path, sizeof(path));
+	f = fopen (path, "rb");
+	if (!f)
+		return;
+
+	fread (&magic, sizeof(magic), 1, f);
+	fread (&version, sizeof(version), 1, f);
+	fread (&count, sizeof(count), 1, f);
+	if (magic != OZFL_MAGIC || version != OZFL_VERSION || count < 0 || count > MAX_EDICTS)
+	{
+		gi.dprintf ("ozbot: fail file %s incompatible; ignoring\n", path);
+		fclose (f);
+		return;
+	}
+
+	for (i = 0; i < count; i++)
+	{
+		fail_key_t	k;
+		int			fails = 0, j;
+
+		if (fread (k.classname, sizeof(k.classname), 1, f) != 1)
+			break;
+		if (fread (k.origin, sizeof(k.origin), 1, f) != 1)
+			break;
+		if (fread (&fails, sizeof(fails), 1, f) != 1)
+			break;
+		if (fails <= 0)
+			continue;
+		if (fails > 4)
+			fails = 4;
+		k.classname[sizeof(k.classname) - 1] = 0;
+
+		// match against a live item edict by classname + nearby origin
+		for (j = (int)game.maxclients + 1; j < globals.num_edicts && j < MAX_EDICTS; j++)
+		{
+			edict_t	*it = g_edicts + j;
+			vec3_t	d;
+			if (!fail_key_set[j])
+				continue;
+			if (Q_stricmp (fail_key[j].classname, k.classname) != 0)
+				continue;
+			VectorSubtract (fail_key[j].origin, k.origin, d);
+			if (VectorLength (d) > 16.0f)
+				continue;
+			// re-apply the escalated avoidance so bots skip this known-hard item
+			// from t=0 instead of paying a full-budget giveup to rediscover it.
+			item_fails[j] = (byte)fails;
+			Goal_Blacklist (it, BOT_ITEM_COOLDOWN * (float)(1 << fails));
+			applied++;
+			break;
+		}
+	}
+	fclose (f);
+	if (applied)
+		gi.dprintf ("ozbot: failpersist restored %d hard-item blacklist(s) from %s\n",
+			applied, path);
+}
+
+void Goal_SaveFails (const char *mapname)
+{
+	char	path[MAX_OSPATH];
+	FILE	*f;
+	int		magic = OZFL_MAGIC, version = OZFL_VERSION, count = 0, i;
+
+	if (bot_failpersist->value == 0)
+		return;
+
+	// count items worth persisting (any recorded giveups)
+	for (i = 0; i < MAX_EDICTS; i++)
+		if (fail_key_set[i] && item_fails[i] > 0)
+			count++;
+	if (!count)
+		return;
+
+	Fail_Path (mapname, path, sizeof(path));
+	f = fopen (path, "wb");
+	if (!f)
+	{
+		gi.dprintf ("ozbot: could not write fail file %s\n", path);
+		return;
+	}
+	fwrite (&magic, sizeof(magic), 1, f);
+	fwrite (&version, sizeof(version), 1, f);
+	fwrite (&count, sizeof(count), 1, f);
+	for (i = 0; i < MAX_EDICTS; i++)
+	{
+		int fails;
+		if (!fail_key_set[i] || item_fails[i] <= 0)
+			continue;
+		fails = item_fails[i];
+		fwrite (fail_key[i].classname, sizeof(fail_key[i].classname), 1, f);
+		fwrite (fail_key[i].origin, sizeof(fail_key[i].origin), 1, f);
+		fwrite (&fails, sizeof(fails), 1, f);
+	}
+	fclose (f);
+	gi.dprintf ("ozbot: failpersist saved %d hard item(s) to %s\n", count, path);
+}
+
+/*
+=================
 Goal_SeedNavNodes
 
 Seed a connected nav node at every item spot so the goal layer can route to
