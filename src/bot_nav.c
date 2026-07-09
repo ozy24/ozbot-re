@@ -853,6 +853,123 @@ void Nav_MaybeSave (const char *mapname)
 
 /*
 =================
+Nav_HasWalkLink
+
+True if node 'from' holds a WALK link to 'to' -- the bidirectionality test the
+fluke validator uses (legit walkable terrain is learned both ways).
+=================
+*/
+static qboolean Nav_HasWalkLink (int from, int to)
+{
+	nav_node_t	*n;
+	int			i;
+
+	if (from < 0 || from >= nav.num_nodes)
+		return false;
+	n = &nav.nodes[from];
+	for (i = 0; i < n->num_links; i++)
+		if (n->links[i].to == to && n->links[i].type == NAV_LINK_WALK)
+			return true;
+	return false;
+}
+
+/*
+=================
+Nav_ValidateLinks
+
+Load-time graph hygiene (bot_navvalidate): the graph is learned from ANY
+successful traversal, so a lucky fall or a combat shove down a ledge can be
+recorded as a WALK link that A* then sells as a route the bot cannot re-walk.
+The reliable fluke signature is GEOMETRY, not a walkability trace -- a straight
+box-trace from the high node to the low node falls through OPEN AIR (fraction
+1.0) and keeps the fluke, so Nav_CanWalk is the wrong test here.  Instead drop
+a link iff it is a WALK link with a large drop (|dz| > NAV_FLUKE_DZ) that is
+NOT bidirectional: genuine walkable terrain (ramps, stairs, floors) is learned
+in BOTH directions (Nav_LearnStep links WALK moves reversibly), while an
+irreversible steep "walk" only ever happened once, downhill, by accident.
+FALL / JUMP / WATER / PLAT / PLAYBOOK / TELEPORT links are never touched -- they
+encode real one-way capabilities.
+
+Runs from Nav_Init right after Nav_Load, where the CURRENT map's collision is
+loaded -- NOT from Nav_Save (Nav_Shutdown of the OLD map fires after the NEW
+map's world is loaded, so tracing there would hit the wrong collision; the
+geometry test here needs no trace anyway).  Sets nav_dirty so the cleaned graph
+persists on the next autosave.  Reuses Nav_PenalizeLink's compaction + indegree
+bookkeeping verbatim.
+=================
+*/
+#define NAV_FLUKE_DZ	64.0f	// a steeper one-way "walk" is a fall/shove fluke
+
+void Nav_ValidateLinks (void)
+{
+	int	i, dropped = 0;
+
+	for (i = 0; i < nav.num_nodes; i++)
+	{
+		nav_node_t	*n = &nav.nodes[i];
+		int			j = 0;
+
+		while (j < n->num_links)
+		{
+			nav_link_t	*l = &n->links[j];
+			int			to = l->to;
+			int			k;
+			float		dz;
+
+			if (l->type != NAV_LINK_WALK || to < 0 || to >= nav.num_nodes)
+			{
+				j++;
+				continue;
+			}
+			dz = nav.nodes[to].origin[2] - n->origin[2];
+			if (dz < 0)
+				dz = -dz;
+			if (dz <= NAV_FLUKE_DZ || Nav_HasWalkLink (to, i))
+			{
+				j++;
+				continue;	// gentle slope, or a real bidirectional walk -- keep
+			}
+			// never nuke a lift column: a steep one-way walk whose endpoints sit
+			// inside one real func_plat footprint is a plat ride the learner
+			// stored as WALK before Nav_TagPlatLinks retags it (and with bot_lift
+			// off it stays WALK).  Same entity test the retagger uses.
+			{
+				edict_t *p = Bot_FindPlatAt (n->origin);
+				if (p && Bot_FindPlatAt (nav.nodes[to].origin) == p)
+				{
+					j++;
+					continue;
+				}
+			}
+
+			gi.dprintf ("ozbot: navvalidate drop %d->%d (%.0f %.0f %.0f)->(%.0f %.0f %.0f) dz=%.0f\n",
+				i, to, n->origin[0], n->origin[1], n->origin[2],
+				nav.nodes[to].origin[0], nav.nodes[to].origin[1],
+				nav.nodes[to].origin[2], dz);
+
+			// drop link j (Nav_PenalizeLink removal mechanics: compact the array,
+			// keep link_fails aligned, decrement the destination's in-degree)
+			for (k = j + 1; k < n->num_links; k++)
+			{
+				n->links[k - 1] = n->links[k];
+				link_fails[i][k - 1] = link_fails[i][k];
+			}
+			n->num_links--;
+			link_fails[i][n->num_links] = 0;
+			if (nav_indegree[to] > 0)
+				nav_indegree[to]--;
+			dropped++;
+			nav_dirty = true;
+			// leave j where it is: the compacted link now occupies index j
+		}
+	}
+
+	if (dropped)
+		gi.dprintf ("ozbot: navvalidate dropped %d steep one-way walk link(s)\n", dropped);
+}
+
+/*
+=================
 Nav_Init
 =================
 */

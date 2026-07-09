@@ -127,4 +127,12 @@ void Nav_AddLinkType (int from, int to, int type);
 // bot_lift so the capability-off graph stays byte-identical to the baseline.
 void Nav_TagPlatLinks (void);
 
+// bot_navvalidate (P1): load-time hygiene pass -- drop learned fluke WALK links
+// (steep drops the bot can't re-walk, learned from a lucky fall/combat shove).
+// Called from the per-map setup AFTER Nav_TagPlatLinks so real plat columns
+// (retagged to PLAT) are already protected; also skips plat-footprint links
+// directly so a bot_lift-off graph keeps its columns too.  Needs spawned
+// entities (Bot_FindPlatAt), so it runs from Bot_RunFrame, not Nav_Init.
+void Nav_ValidateLinks (void);
+
 #endif // OZBOT_BOT_NAV_H
