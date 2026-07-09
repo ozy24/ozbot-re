@@ -364,6 +364,7 @@ extern cvar_t	*bot_wpntactic;		// weapon-appropriate range + engagement style
 extern cvar_t	*bot_wpntactictest;	// id-parity A/B (even ids get it, odd control)
 extern cvar_t	*bot_wpnlog;		// engagement telemetry (range/weapon/intent)
 extern cvar_t	*bot_aimlog;		// per-shot aim-error telemetry (calibration diagnostic)
+extern cvar_t	*bot_aimprec;		// scale precision-weapon aim error toward human (0=off)
 extern cvar_t	*bot_lead;
 extern cvar_t	*bot_leadtest;
 extern cvar_t	*bot_flee;

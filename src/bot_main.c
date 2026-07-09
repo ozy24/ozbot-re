@@ -203,6 +203,15 @@ void Bot_Init (void)
 	bot_aimlog       = gi.cvar ("bot_aimlog", "0", 0);		// per-SHOT aim-error telemetry (weapon/range/target
 															// lateral speed/yaw+pitch error vs true bearing) --
 															// calibration diagnostic vs demos/derived/combat_aim
+	bot_aimprec      = gi.cvar ("bot_aimprec", "1", 0);		// (default ON) scale railgun/blaster/hyperblaster aim
+															// error toward human fallibility with a range + target-
+															// lateral-speed term.  Strength scalar (0=off, 1=the
+															// calibrated "between" target: railgun fire |yaw err|
+															// p50 1.4->2.7 deg, ~60% of the pro corpus -- visibly
+															// fallible on moving/distant shots, still sharper than
+															// an average pro).  Symmetric frag-neutral (K/D even,
+															// lethality -10%), ITEM flat/+.  Set 0 to recover the
+															// pre-fix uncanny accuracy.
 	bot_slotlog      = gi.cvar ("bot_slotlog", "0", 0);		// diagnostic: client-slot ownership trace (gamemap puppet-bug class)
 
 	// Seed the game's RNG.  The vanilla game never calls srand(), so every

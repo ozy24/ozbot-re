@@ -53,6 +53,7 @@ cvar_t	*bot_wpntactic;		// weapon-aware combat: engagement range + style per wea
 cvar_t	*bot_wpntactictest;	// id-parity A/B for bot_wpntactic (even ids get it)
 cvar_t	*bot_wpnlog;		// per-engagement telemetry (weapon/range/intent)
 cvar_t	*bot_aimlog;		// per-shot aim-error telemetry (calibration diagnostic)
+cvar_t	*bot_aimprec;		// scale precision-weapon aim error toward human (0=off, 1=full)
 cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
 						// and strafe-leg lengths from the demo stats, momentum
 						// dip on reversals, commit to close fights (Phase 4)
@@ -384,6 +385,64 @@ static float Combat_ProjectileSpeed (gitem_t *w)
 	return 0;
 }
 
+// bot_aimprec calibration (at strength 1.0): the aim-error multiplier for a
+// precision weapon is 1 + wprec * (BASE + RANGE*range/1000 + LAT*lat/300), so a
+// railgun (wprec 1) against a still target at 500u gets ~BASE+RANGE/2, and more
+// far/against strafers -- restoring the human range+motion degradation the
+// weapon-agnostic error lacks.  Tuned by sweeping bot_aimprec vs the human curve
+// (demos/derived/combat_aim); see the ozbot-re aim-accuracy memory.
+#define AIMPREC_BASE	1.6f
+#define AIMPREC_RANGE	1.4f
+#define AIMPREC_LAT		2.2f
+
+/*
+=================
+Combat_WeaponPrec  (bot_aimprec)
+
+How much a weapon's aim error should scale toward human fallibility.  Precision
+hitscan / fast-bolt weapons (railgun, blaster, hyperblaster) read as uncanny
+because the aim error is weapon-agnostic and tiny, so a thin beam / fast bolt
+essentially never misses; the demo corpus shows humans miss these FAR more,
+especially at range and against moving targets (demos/derived/combat_aim).
+Spread (shotgun) and splash (rocket/GL) weapons hide the error, so they don't
+read as uncanny -- leave them at 0 (adding error there is a pure lethality
+loss for no feel gain).  Chaingun/machinegun are hitscan but spray-fire, so a
+mild factor only.
+=================
+*/
+static float Combat_WeaponPrec (gitem_t *w)
+{
+	const char *nm = (w && w->pickup_name) ? w->pickup_name : "";
+	if (strstr (nm, "Railgun"))			return 1.00f;
+	if (strstr (nm, "HyperBlaster"))	return 0.70f;	// before "Blaster" (substring)
+	if (strstr (nm, "Blaster"))			return 0.85f;
+	if (strstr (nm, "Chaingun") || strstr (nm, "Machinegun"))	return 0.30f;
+	return 0.0f;
+}
+
+/*
+=================
+Combat_TargetLateral
+
+Horizontal speed of 'enemy' perpendicular to the line of sight (the strafe
+component a shooter has to track).  Matches the bot_aimlog / demo metric.
+=================
+*/
+static float Combat_TargetLateral (edict_t *self, edict_t *enemy)
+{
+	vec3_t	los;
+	float	horiz, along, px, py;
+
+	VectorSubtract (enemy->s.origin, self->s.origin, los);
+	horiz = (float)sqrt (los[0]*los[0] + los[1]*los[1]);
+	if (horiz < 1.0f)
+		return 0.0f;
+	along = (enemy->velocity[0]*los[0] + enemy->velocity[1]*los[1]) / horiz;
+	px = enemy->velocity[0] - along * los[0] / horiz;
+	py = enemy->velocity[1] - along * los[1] / horiz;
+	return (float)sqrt (px*px + py*py);
+}
+
 /*
 =================
 Combat_RocketThreat  (bot_dodge)
@@ -490,7 +549,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	edict_t	*enemy;
 	float	skill = Skill (b);
 	vec3_t	eyes, teyes, dir, ang, toenemy, strafe, comb;
-	float	turnstep, firethresh, reaction, err, range, aimoff, rc;
+	float	turnstep, firethresh, reaction, err, range, aimoff, rc, precm;
 	qboolean aimtweak;
 
 	// FRAMESYNC (40Hz adaptation): the whole combat DECISION layer --
@@ -644,6 +703,24 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 				? self->client->pers.weapon->pickup_name : "Blaster",
 			range, b->eng_intent);
 
+	// bot_aimprec: scale precision-weapon (railgun/blaster) aim error up toward
+	// human fallibility, with a range + target-lateral-speed term (the demo
+	// corpus shows humans miss these far more, and more when far / vs strafers).
+	// Applied to the error magnitude in both aim paths below.  precm==1 when off
+	// or for spread/splash weapons, so the off-state is byte-identical.
+	{
+		float precm_wp;
+		precm = 1.0f;
+		if (bot_aimprec->value != 0
+			&& (precm_wp = Combat_WeaponPrec (self->client->pers.weapon)) > 0.0f)
+		{
+			float lat = Combat_TargetLateral (self, enemy);
+			precm = 1.0f + bot_aimprec->value * precm_wp
+				* (AIMPREC_BASE + AIMPREC_RANGE * range / 1000.0f
+				   + AIMPREC_LAT * lat / 300.0f);
+		}
+	}
+
 	turnstep = 20.0f + skill * 40.0f;
 	// flick speed (bot_aimflick): the stock 20-60 deg per 10Hz tick caps
 	// acquisition at ~600 deg/s -- a bot needs ~3 ticks to spin 180 to a target
@@ -679,6 +756,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 
 		if (aimtweak)
 			sigma *= bot_aimerr->value;
+		sigma *= precm;		// bot_aimprec: precision-weapon error scale-up
 		b->aim_err[YAW]   += -theta * b->aim_err[YAW]
 			+ sigma * (crandom () + crandom () + crandom ());
 		b->aim_err[PITCH] += -theta * b->aim_err[PITCH]
@@ -728,6 +806,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		err = (1.0f - skill) * 7.0f;
 		if (aimtweak)
 			err *= bot_aimerr->value;
+		err *= precm;		// bot_aimprec: precision-weapon error scale-up
 		ang[YAW]   += crandom () * err;
 		ang[PITCH] += crandom () * err;
 
