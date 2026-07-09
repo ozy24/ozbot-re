@@ -168,6 +168,8 @@ void Bot_Init (void)
 	bot_losfinal     = gi.cvar ("bot_losfinal", "1", 0);		// final-approach LOS gate (no homing through walls)
 	bot_survive      = gi.cvar ("bot_survive", "0", 0);		// survival instinct: seek health + flee when low (asymmetric-negative)
 	bot_survivetest  = gi.cvar ("bot_survivetest", "0", 0);	// id-parity A/B: even bots survive, odd control
+	bot_dodge        = gi.cvar ("bot_dodge", "0", 0);		// directed rocket dodge (re-test at 40Hz; default OFF pending A/B)
+	bot_dodgetest    = gi.cvar ("bot_dodgetest", "0", 0);	// id-parity A/B: even ids dodge, odd control
 	bot_gazelife     = gi.cvar ("bot_gazelife", "1", 0);		// glance around between fire windows (humanization)
 	bot_aimflick     = gi.cvar ("bot_aimflick", "1", 0);		// flick-speed cap multiplier (1 = stock 20-60 deg/tick)
 	bot_aimsmooth    = gi.cvar ("bot_aimsmooth", "1", 0);	// 40Hz view glide toward the 10Hz aim (anti-judder)
@@ -319,6 +321,23 @@ qboolean Bot_Survives (bot_t *b)
 	if (bot_survivetest && bot_survivetest->value != 0)
 		return (b->id & 1) == 0;
 	return bot_survive && bot_survive->value != 0;
+}
+
+/*
+=================
+Bot_Dodges
+
+Whether this bot runs the directed rocket dodge.  bot_dodgetest gives the same
+id-parity head-to-head as Bot_Survives (even ids dodge, odd control) so the
+effect is measurable in the symmetric sim: read the survive/control kill+death
+ratio shift paired against a bot_dodgetest 0 control run.
+=================
+*/
+qboolean Bot_Dodges (bot_t *b)
+{
+	if (bot_dodgetest && bot_dodgetest->value != 0)
+		return (b->id & 1) == 0;
+	return bot_dodge && bot_dodge->value != 0;
 }
 
 /*

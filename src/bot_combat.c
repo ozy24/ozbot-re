@@ -25,6 +25,17 @@ cvar_t	*bot_aimtexture;	// humanization: autocorrelated aim error + reversal
 							// (plans/humanization.md Phase 2)
 cvar_t	*bot_survive;		// survival instinct: health-need urgency + low-hp
 							// caution (break off + heal instead of dying mid-fight)
+cvar_t	*bot_dodge;			// directed rocket dodge: sidestep an incoming rocket's
+							// path (perpendicular to its travel).  RE-TESTED at 40Hz
+							// (25ms ticks) after two 10Hz rejections -- and rejected a
+							// THIRD time: 16-seed paired parity, aggressive step kills
+							// -40 kill-differential for -3 deaths; gentle step -25
+							// kills AND +14 deaths.  The existing constant combat
+							// strafe (bot_hop) already captures evasion; a directed
+							// step only disrupts offense and a ~90u step in 0.3s
+							// rarely clears the ~150u splash.  Default OFF (infra kept
+							// as a "don't re-try rocket dodging" marker, like bot_survive).
+cvar_t	*bot_dodgetest;		// id-parity A/B for bot_dodge (even ids dodge, odd control)
 cvar_t	*bot_gazelife;		// humanization: glance around between fire windows
 							// (threat-check / navigation looks) then snap back to
 							// aim -- adds view liveliness at ~no lethality cost
@@ -370,6 +381,96 @@ static float Combat_ProjectileSpeed (gitem_t *w)
 	if (strstr (nm, "Blaster"))		// Blaster and HyperBlaster bolts
 		return 1000;
 	return 0;
+}
+
+/*
+=================
+Combat_RocketThreat  (bot_dodge)
+
+Scan for an incoming enemy rocket whose flight path passes close to this bot;
+if found, set a world-space step-away direction (perpendicular to the rocket's
+horizontal travel, on the side that widens the miss) and a short commit window.
+The 10Hz brain could never time a sidestep (100ms reaction, rejected twice);
+the 40Hz body has 25ms granularity, so this is the re-test.  Returns true if a
+fresh threat set a dodge this tick.
+=================
+*/
+#define DODGE_RANGE			650.0f	// only rockets within this many units matter
+#define DODGE_MISS_DIST		150.0f	// step if the path passes within this of us
+#define DODGE_CLOSING		0.5f	// rocket heading roughly toward us (cos)
+#define DODGE_MAX_TTI		1.0f	// only react inside ~1s to impact
+#define DODGE_HOLD			0.30f	// commit to a chosen step this long
+
+static qboolean Combat_RocketThreat (edict_t *self, bot_t *b)
+{
+	edict_t	*e, *best = NULL;
+	float	best_tti = 99999.0f;
+	int		i;
+	vec3_t	rvel, rel, perp, torus, vn, closest;
+	float	speed, tti, miss, side;
+
+	for (i = (int)game.maxclients + 1; i < globals.num_edicts; i++)
+	{
+		e = g_edicts + i;
+		if (!e->inuse || !e->classname || strcmp (e->classname, "rocket") != 0)
+			continue;
+		if (e->owner == self)		// don't dodge our own rocket
+			continue;
+
+		VectorSubtract (e->s.origin, self->s.origin, rel);	// rocket - self
+		if (VectorLength (rel) > DODGE_RANGE)
+			continue;
+
+		VectorCopy (e->velocity, rvel);
+		speed = VectorLength (rvel);
+		if (speed < 1.0f)
+			continue;
+
+		// closing? rocket velocity direction vs direction from rocket to us
+		VectorScale (rel, -1.0f, torus);
+		VectorNormalize (torus);
+		VectorScale (rvel, 1.0f / speed, vn);
+		if (DotProduct (vn, torus) < DODGE_CLOSING)
+			continue;
+
+		// time to closest approach and the miss distance at that time.
+		// p(t) = rel + rvel*t ; |p| minimized at t = -(rel.rvel)/|rvel|^2
+		tti = -DotProduct (rel, rvel) / (speed * speed);
+		if (tti < 0.0f || tti > DODGE_MAX_TTI)
+			continue;
+		VectorMA (rel, tti, rvel, closest);
+		miss = VectorLength (closest);
+		if (miss > DODGE_MISS_DIST)
+			continue;
+
+		if (tti < best_tti)
+		{
+			best_tti = tti;
+			best = e;
+		}
+	}
+
+	if (!best)
+		return false;
+
+	// horizontal perpendicular to the rocket's travel; step toward the side we
+	// are already on so the miss widens (dead-on picks a stable side by id)
+	VectorCopy (best->velocity, rvel);
+	rvel[2] = 0;
+	if (VectorNormalize (rvel) < 1.0f)
+		return false;
+	perp[0] = -rvel[1];
+	perp[1] =  rvel[0];
+	perp[2] = 0;
+
+	VectorSubtract (self->s.origin, best->s.origin, rel);
+	side = DotProduct (rel, perp);
+	if (side < 0.0f || (side == 0.0f && (b->id & 1)))
+		VectorScale (perp, -1.0f, perp);
+
+	VectorCopy (perp, b->dodge_rkt_dir);
+	b->dodge_rkt_until = level.time + DODGE_HOLD;
+	return true;
 }
 
 /*
@@ -751,7 +852,17 @@ aim_held:
 	// humanization (Phase 4): combat movement rhythm from the demo stats
 	{
 		qboolean	rhythm = (bot_hop->value != 0 && Bot_Humanized (b));
-		float		sw, navw;
+		qboolean	rkt_dodge = false;
+		float		sw, navw, sfw;
+
+		// bot_dodge: an incoming rocket overrides the strafe with a directed
+		// sidestep out of its path (perpendicular to the rocket's travel).
+		// Bot_Dodges folds in both the cvar and the id-parity test harness.
+		if (Bot_Dodges (b))
+		{
+			Combat_RocketThreat (self, b);		// refreshes dir/until on a threat
+			rkt_dodge = (level.time < b->dodge_rkt_until);
+		}
 
 		if (level.time >= b->dodge_until)
 		{
@@ -770,14 +881,25 @@ aim_held:
 			else
 				b->dodge_until = level.time + 0.5f + random () * 0.6f;
 		}
-		strafe[0] = -toenemy[1] * b->dodge_dir;	// perpendicular to enemy dir
-		strafe[1] =  toenemy[0] * b->dodge_dir;
-		strafe[2] = 0;
+		if (rkt_dodge)
+		{
+			// step out of the rocket's line, not perpendicular to the enemy
+			strafe[0] = b->dodge_rkt_dir[0];
+			strafe[1] = b->dodge_rkt_dir[1];
+			strafe[2] = 0;
+		}
+		else
+		{
+			strafe[0] = -toenemy[1] * b->dodge_dir;	// perpendicular to enemy dir
+			strafe[1] =  toenemy[0] * b->dodge_dir;
+			strafe[2] = 0;
+		}
 
 		// momentum: a fresh reversal starts slow (humans can't flip
-		// velocity in one tick; the stock bot does)
+		// velocity in one tick; the stock bot does).  A rocket dodge commits
+		// at full speed -- it's an evasion, not a rhythm jink.
 		sw = 1.0f;
-		if (rhythm && level.time - b->dodge_flip_time < 0.2f)
+		if (!rkt_dodge && rhythm && level.time - b->dodge_flip_time < 0.2f)
 			sw = 0.5f;
 
 		// approach if far, back off if too close; when fleeing, always
@@ -786,8 +908,9 @@ aim_held:
 		if (b->flee)
 		{
 			rc = -0.9f;
-			comb[0] = b->move_dir[0] * 1.0f + strafe[0] * 0.5f * sw + toenemy[0] * rc;
-			comb[1] = b->move_dir[1] * 1.0f + strafe[1] * 0.5f * sw + toenemy[1] * rc;
+			sfw = rkt_dodge ? 0.9f : 0.5f;	// rocket dodge biases the strafe
+			comb[0] = b->move_dir[0] * 1.0f + strafe[0] * sfw * sw + toenemy[0] * rc;
+			comb[1] = b->move_dir[1] * 1.0f + strafe[1] * sfw * sw + toenemy[1] * rc;
 		}
 		else
 		{
@@ -814,9 +937,12 @@ aim_held:
 			// goal mid-duel
 			navw = (rhythm && range < 250) ? 0.45f : 0.7f;
 
-			// nav goal (already in move_dir) + dodge + range adjustment
-			comb[0] = b->move_dir[0] * navw + strafe[0] * 0.7f * sw + toenemy[0] * rc;
-			comb[1] = b->move_dir[1] * navw + strafe[1] * 0.7f * sw + toenemy[1] * rc;
+			// nav goal (already in move_dir) + dodge + range adjustment.
+			// a rocket dodge biases the strafe toward the step-away line
+			// (gentle: a hard commit wrecks offense for little splash gain)
+			sfw = rkt_dodge ? 1.0f : 0.7f;
+			comb[0] = b->move_dir[0] * navw + strafe[0] * sfw * sw + toenemy[0] * rc;
+			comb[1] = b->move_dir[1] * navw + strafe[1] * sfw * sw + toenemy[1] * rc;
 		}
 		comb[2] = 0;
 		if (VectorLength (comb) < 0.1f)
