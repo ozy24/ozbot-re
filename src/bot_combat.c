@@ -52,6 +52,7 @@ cvar_t	*bot_fov;		// humanization: enemy acquisition needs the target in
 cvar_t	*bot_wpntactic;		// weapon-aware combat: engagement range + style per weapon
 cvar_t	*bot_wpntactictest;	// id-parity A/B for bot_wpntactic (even ids get it)
 cvar_t	*bot_wpnlog;		// per-engagement telemetry (weapon/range/intent)
+cvar_t	*bot_aimlog;		// per-shot aim-error telemetry (calibration diagnostic)
 cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
 						// and strafe-leg lengths from the demo stats, momentum
 						// dip on reversals, commit to close fights (Phase 4)
@@ -790,7 +791,43 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		// looking); on non-glance frames aim_look == b->aim so the aim_view snap
 		// on the firing frame is exact.
 		if (!glancing && level.time >= b->reaction_until && aimoff < firethresh)
+		{
 			cmd->buttons |= BUTTON_ATTACK;
+
+			// bot_aimlog: record this shot's aim error vs the enemy's TRUE
+			// bearing (no lead, matching the human demo metric) + target lateral
+			// speed, so the bot's accuracy distribution is comparable to
+			// demos/derived/combat_aim.  Gated -> off-state telemetry unchanged.
+			if (bot_aimlog->value != 0)
+			{
+				vec3_t	tb, teye;
+				float	tby, tbp, horiz, latsp = 0.0f, rng;
+				VectorCopy (enemy->s.origin, teye);
+				teye[2] += enemy->viewheight;
+				VectorSubtract (teye, eyes, tb);
+				horiz = (float)sqrt (tb[0]*tb[0] + tb[1]*tb[1]);
+				rng   = VectorLength (tb);
+				tby = (horiz > 1.0f) ? (float)(atan2 (tb[1], tb[0]) * 57.29578)
+				                     : b->aim[YAW];
+				tbp = (horiz > 1.0f) ? -(float)(atan2 (tb[2], horiz) * 57.29578)
+				                     : b->aim[PITCH];
+				if (horiz > 1.0f)
+				{
+					float hx = tb[0] / horiz, hy = tb[1] / horiz;
+					float along = enemy->velocity[0]*hx + enemy->velocity[1]*hy;
+					float px = enemy->velocity[0] - along*hx;
+					float py = enemy->velocity[1] - along*hy;
+					latsp = (float)sqrt (px*px + py*py);
+				}
+				Bot_LogAimShot (b,
+					(self->client->pers.weapon
+					 && self->client->pers.weapon->pickup_name)
+						? self->client->pers.weapon->pickup_name : "Blaster",
+					rng, latsp,
+					AngleDelta (b->aim[YAW], tby),
+					AngleDelta (b->aim[PITCH], tbp));
+			}
+		}
 	}
 
 aim_held:

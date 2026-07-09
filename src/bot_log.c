@@ -218,6 +218,17 @@ void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent)
 		level.time, b->id, weapon, range, intent);
 }
 
+void Bot_LogAimShot (bot_t *b, const char *weapon, float range, float latspeed,
+	float err_yaw, float err_pitch)
+{
+	if (!log_fp || !bot_aimlog || bot_aimlog->value == 0 || !b)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"aimshot\",\"t\":%.2f,\"bot\":%d,\"weapon\":\"%s\","
+		"\"range\":%.0f,\"lat\":%.0f,\"eyaw\":%.2f,\"epitch\":%.2f}\n",
+		level.time, b->id, weapon, range, latspeed, err_yaw, err_pitch);
+}
+
 /*
 =================
 Bot_ItemName

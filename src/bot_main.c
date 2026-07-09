@@ -200,6 +200,9 @@ void Bot_Init (void)
 	bot_wpntactic    = gi.cvar ("bot_wpntactic", "1", 0);	// rail holds far, SSG/chaingun brawl close, GL hangs back
 	bot_wpntactictest= gi.cvar ("bot_wpntactictest", "0", 0);	// id-parity A/B: even ids get it, odd control
 	bot_wpnlog       = gi.cvar ("bot_wpnlog", "0", 0);		// per-engagement telemetry (weapon/range/intent)
+	bot_aimlog       = gi.cvar ("bot_aimlog", "0", 0);		// per-SHOT aim-error telemetry (weapon/range/target
+															// lateral speed/yaw+pitch error vs true bearing) --
+															// calibration diagnostic vs demos/derived/combat_aim
 	bot_slotlog      = gi.cvar ("bot_slotlog", "0", 0);		// diagnostic: client-slot ownership trace (gamemap puppet-bug class)
 
 	// Seed the game's RNG.  The vanilla game never calls srand(), so every

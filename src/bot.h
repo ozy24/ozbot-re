@@ -363,6 +363,7 @@ extern cvar_t	*bot_skilltest;
 extern cvar_t	*bot_wpntactic;		// weapon-appropriate range + engagement style
 extern cvar_t	*bot_wpntactictest;	// id-parity A/B (even ids get it, odd control)
 extern cvar_t	*bot_wpnlog;		// engagement telemetry (range/weapon/intent)
+extern cvar_t	*bot_aimlog;		// per-shot aim-error telemetry (calibration diagnostic)
 extern cvar_t	*bot_lead;
 extern cvar_t	*bot_leadtest;
 extern cvar_t	*bot_flee;
@@ -430,6 +431,10 @@ void Bot_LogTick (bot_t *b);					// per-tick state record
 void Bot_LogEvent (bot_t *b, const char *event);	// spawn/death/etc.
 void Bot_LogFire (edict_t *who);				// weapon discharge (timing invariants)
 void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// bot_wpnlog
+// bot_aimlog: one record per shot fired -- weapon, range, target lateral speed,
+// and yaw/pitch error of the committed aim vs the enemy's true bearing.
+void Bot_LogAimShot (bot_t *b, const char *weapon, float range, float latspeed,
+	float err_yaw, float err_pitch);
 void Bot_LogRespawn (const char *event, edict_t *item_ent, float delay);	// respawn scheduling/firing
 void Bot_LogInput (edict_t *ent, usercmd_t *ucmd);	// bot_inputlog: human usercmd trace
 void Bot_LogMaybeFlush (void);					// periodic flush
