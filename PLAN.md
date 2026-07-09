@@ -398,6 +398,30 @@ t=0 prevents pickups and shuffles contention. `bot_itemfail 2` already fast-trac
 giveup per attempted-and-failed item, ~5 items) is swamped by the redistribution
 cost. Kept OFF as documented infra; sidecar format + loader/saver retained.
 
+**P5 — precision-weapon aim accuracy CALIBRATED + SHIPPED (`bot_aimprec`, default
+ON).** User report: blaster/railgun are uncannily accurate even at skill 0.5.
+Measured it: the aim error in `Combat_Aim` is **weapon-agnostic** and, under
+humanization, deliberately tiny (~0.9° std at skill 0.5 — shrunk to keep the OU
+texture from losing fights), so thin-beam/fast-bolt weapons never miss.
+Ground-truth from the pro corpus via a new `dm2_combat.py aim` subcommand
+(`demos/derived/combat_aim`, 250-demo sample, 11.8k railgun fires) vs a new
+`bot_aimlog` telemetry: **railgun FIRE |yaw err| bot p50 1.4° / p90 4.0° vs human
+p50 4.5° / p90 21.7°** — the bot's WORST railgun shot beat the human median, with
+no miss tail and (unlike humans) no range/motion degradation (blaster: humans get
+worse far 13.7→17.4°, bot got better 3.4→2.9°). `bot_aimprec` scales the error up
+for precision weapons only (railgun 1.0 / blaster 0.85 / hyperblaster 0.70 /
+chaingun+mg 0.30 / spread+splash 0) with a range + target-lateral term
+(`m = 1 + strength·wprec·(1.6 + 1.4·range/1000 + 2.2·lat/300)`), applied to the OU
+sigma and white-noise err. The cvar is a **strength scalar** (0=off) so the target
+was swept without rebuilds. Shipped at strength 1.0 = the calibrated "between":
+railgun fire p50 1.4→**2.7°** (~60% of pro), p90 →7.0°, blaster fast-target ~5–6°
+vs ~2.4° stationary — visibly fallible on moving/distant shots, still sharper than
+an average pro. Symmetric A/B (16-seed×2, q2dm8/q2dm1): **frags and deaths fall
+together ~10% (K/D even — intended less-lethal precision combat, no bot
+disadvantaged), ITEM% flat-to-+2pt.** `bot_aimprec 0` recovers the pre-fix md5
+`fdf51ec`; shipped-default md5 `66b96b9`. `bot_aimlog` (default 0) + the `aim`
+subcommand are kept as the calibration diagnostics.
+
 **Still deferred:** P2b/P2c aim/lead/flee re-sweeps.
 
 **Campaign md5 note.** The pre-campaign off-state baseline reproduces as
