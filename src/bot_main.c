@@ -60,6 +60,13 @@ static char		bot_logged_map[MAX_QPATH];	// map the current log/nav is for
 // gclient_t deliberately -- no vanilla struct edits)
 static float	bot_noise_time[MAX_CLIENTS];
 
+// bot_slotlog: diagnostic (default off) -- dumps the full client-slot table
+// (inuse/connected/netname + which slots the DLL owns as bots) so client-slot
+// ownership across a `gamemap` is visible in the console.  Written to nail the
+// map-change puppeting bug (a bot grabbing the listen host's slot 0); kept as
+// permanent infra for any future slot-ownership question.
+static cvar_t	*bot_slotlog;
+
 #define BOT_GRAPH_READY		24		// nodes needed before goal-seeking starts
 #define BOT_GOAL_TIMEOUT	12.0f	// abandon a goal not reached within this
 
@@ -176,6 +183,7 @@ void Bot_Init (void)
 	bot_wpntactic    = gi.cvar ("bot_wpntactic", "1", 0);	// rail holds far, SSG/chaingun brawl close, GL hangs back
 	bot_wpntactictest= gi.cvar ("bot_wpntactictest", "0", 0);	// id-parity A/B: even ids get it, odd control
 	bot_wpnlog       = gi.cvar ("bot_wpnlog", "0", 0);		// per-engagement telemetry (weapon/range/intent)
+	bot_slotlog      = gi.cvar ("bot_slotlog", "0", 0);		// diagnostic: client-slot ownership trace (gamemap puppet-bug class)
 
 	// Seed the game's RNG.  The vanilla game never calls srand(), so every
 	// process starts from the same default sequence -- which makes parallel
@@ -443,6 +451,67 @@ static int Bot_CountActive (void)
 
 /*
 =================
+Bot_DumpSlots  (bot_slotlog diagnostic)
+=================
+*/
+static void Bot_DumpSlots (const char *tag)
+{
+	int			i, botidx;
+	edict_t		*ent;
+	gclient_t	*cl;
+
+	if (!bot_slotlog || bot_slotlog->value == 0)
+		return;
+
+	gi.dprintf ("=== SLOTS [%s] map=%s time=%.2f ===\n", tag, level.mapname, level.time);
+	for (i = 0; i < game.maxclients; i++)
+	{
+		ent = g_edicts + 1 + i;
+		cl  = &game.clients[i];
+
+		botidx = -1;
+		if (bots[i].inuse)
+			botidx = bots[i].id;
+
+		if (!cl->pers.connected && !ent->inuse && botidx < 0)
+			continue;	// wholly empty slot, skip the noise
+
+		gi.dprintf ("  [%d] inuse=%d conn=%d name='%s' bots[].inuse=%d id=%d\n",
+			i, ent->inuse ? 1 : 0, cl->pers.connected ? 1 : 0,
+			cl->pers.netname, bots[i].inuse ? 1 : 0, botidx);
+	}
+}
+
+/*
+=================
+Bot_SlotHeldByHuman
+
+A client slot can belong to a real, connected human whose player edict is not
+yet `inuse` -- most importantly the listen-server host across a `gamemap`.  The
+engine does NOT re-run ClientConnect on a level change ("Changing levels will
+NOT cause this to be called again", p_client.c), so the host's real userinfo is
+never re-applied, yet the host stays connected and keeps its client slot.  If
+Bot_Add grabbed that slot in the frames before the host's ClientBegin it would
+overwrite game.clients[i].pers with bot data (netname "OzBot<id>"); because the
+host's userinfo is never re-sent, the netname-release guard in Bot_RunFrame
+could then never detect the collision and the bot think-loop would drive
+(puppet) the human.  Bots always carry an "OzBot" netname, so a *connected*
+slot whose name is NOT ours is a human we must never claim.  Dedicated fastsim
+servers have no connected humans at map start, so this is inert there (the
+same-seed measurement gate is unaffected).
+=================
+*/
+static qboolean Bot_SlotHeldByHuman (int i)
+{
+	gclient_t	*cl = &game.clients[i];
+
+	if (!cl->pers.connected)
+		return false;
+	return strncmp (cl->pers.netname, "OzBot", 5) != 0;
+}
+
+/*
+=================
 Bot_Add
 =================
 */
@@ -462,8 +531,20 @@ static qboolean Bot_Add (void)
 
 	for (i = 0; i < game.maxclients; i++)
 	{
+		// On a listen server the local host permanently owns client slot 0.
+		// Reserve it: a bot must never claim slot 0 even in the frames after a
+		// map load before the host's ClientBegin marks the edict inuse -- that
+		// window is exactly when a bot would overwrite the host's pers and
+		// puppet them across a `gamemap` (confirmed by the bot_slotlog trace).
+		// Dedicated servers have no local host (dedicated 1), so slot 0 is a
+		// normal bot slot there and the fastsim measurement rig is unaffected.
+		if (i == 0 && !dedicated->value)
+			continue;
+
 		ent = g_edicts + 1 + i;
-		if (!ent->inuse && !bots[i].inuse)
+		// Also skip any *other* connected human (a remote player whose edict
+		// has not begun yet -- see Bot_SlotHeldByHuman).
+		if (!ent->inuse && !bots[i].inuse && !Bot_SlotHeldByHuman (i))
 			break;
 	}
 	if (i == game.maxclients)
@@ -1180,6 +1261,7 @@ void Bot_RunFrame (void)
 	// start fresh logging + nav for the new map.
 	if (Q_stricmp (bot_logged_map, level.mapname) != 0)
 	{
+		Bot_DumpSlots ("new-map-entry (pre-clear)");	// what survived the level change
 		if (bot_logged_map[0])
 			Nav_Shutdown (bot_logged_map);
 		Bot_ClearAll ();
@@ -1280,6 +1362,22 @@ void Bot_RunFrame (void)
 	Bot_LogSJDiag ();
 	Nav_MaybeSave (bot_logged_map);
 	Bot_LogMaybeFlush ();
+
+	// bot_slotlog: throttled steady-state slot dump (~2 Hz) so the human's
+	// slot ownership after a gamemap is visible as it settles.  Reset the
+	// throttle when level.time jumps backwards (a map change restarts it).
+	if (bot_slotlog && bot_slotlog->value != 0)
+	{
+		static float last_time = -1.0f, next_slotdump;
+		if (level.time < last_time)
+			next_slotdump = 0.0f;
+		last_time = level.time;
+		if (level.time >= next_slotdump)
+		{
+			next_slotdump = level.time + 0.5f;
+			Bot_DumpSlots ("tick");
+		}
+	}
 }
 
 /*
