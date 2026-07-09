@@ -311,3 +311,47 @@ See `plans/in progress/post-port-improvements.md` P1a.
   captures (post-port-improvements.md P1b).
 - Optional: humanness.py re-profile at 40Hz; multi-map re-baseline; revisit
   bot_lift/HyperBlaster conversion on the new epoch (P2/P3).
+
+---
+
+## 9. Improvement campaign (2026-07-09, branch `campaign-2026-07`)
+
+Staged campaign after the port matured. See the memories
+`ozbot-re-gamemap-puppet-fix`, `ozbot-re-rocket-dodge-negative`,
+`ozbot-re-multimap-generalization`.
+
+**P0 — gamemap bot-puppeting FIXED (correctness).** On a listen server, after
+`gamemap` to a different map the human host was driven by a bot. Cause: on a
+level change the engine does not re-run `ClientConnect` (host userinfo never
+re-applied), and `Bot_Add` grabbed the host's slot 0 in the frames before the
+host's `ClientBegin`, clobbering `game.clients[0].pers` to `"OzBot<id>"` — the
+netname-release guard then never fired. Fix (`bot_main.c`): reserve client slot
+0 on non-dedicated servers (the local host owns it) + `Bot_SlotHeldByHuman`
+skips any other connected human. Dedicated/fastsim unaffected (off-state
+same-seed md5 held). New `bot_slotlog` diagnostic (default 0). Diagnosed with a
+self-driving listen-server + `bot_slotlog` trace (no-guard baseline showed slot
+0 → `OzBot5` post-gamemap).
+
+**P2a — directed rocket dodging RE-TESTED at 40Hz, rejected (3rd time), kept
+OFF.** `bot_dodge`/`bot_dodgetest` + `Combat_RocketThreat` (scan world edicts
+for an incoming enemy rocket, sidestep perpendicular to its path). 16-seed
+paired parity, q2dm1: aggressive step −40 kill-differential for −3 deaths;
+gentle step −25 kills and +14 deaths. `bot_hop`'s constant combat strafe already
+evades; a directed step wrecks offense and a ~90u step in 0.3s rarely clears the
+~150u splash. Kept default OFF as documented infra (like `bot_survive`).
+
+**P3 — multi-map 40Hz bring-up + generalization CONFIRMED.** All 8 DM maps ship
+in `../engine/baseq2/pak1.pak`; seeded 40Hz navs for q2dm2/3/5/8 from the 10Hz
+`../engine/ozbot/nav/` (format-compatible `ONAV` v1) and matured them on single
+dedicated fastsim servers (`run_parallel` copies nav to disposable workers, so
+maturation must be single-server). Measurement (8×90s): **q2dm8 54% ITEM /
+q2dm5 50% / q2dm2 45% — all ≈ or > q2dm1's 47%**, with swim (Railgun on
+q2dm5/8), lift (gated:plat items on q2dm5), and the weapon systems all firing
+across varied loadouts (q2dm8 railgun-heavy, q2dm2 rocket/chaingun). The bot is
+**not overfit to q2dm1**. q2dm3 lags (23%) purely from an immature nav (26
+no-path items) — more maturation, not a bot regression.
+
+**Deferred (documented, not done this pass):** P1 nav save-time validator (fluke
+heuristic is easy to get wrong — a fall-derived "walk" link passes a straight
+walkability trace; needs a clean-baseline A/B); P2b/P2c aim/lead/flee re-sweeps;
+P4 failure-knowledge persistence + mid-attempt reroute.
