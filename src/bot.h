@@ -181,6 +181,14 @@ typedef struct
 	float		dodge_flip_time;	// bot_hop: when the last reversal began
 	qboolean	flee;			// outmatched: retreat and fetch health/armor
 
+	// weapon-aware combat tactics (bot_wpntactic): 10Hz-committed preferred
+	// engagement band + style bias for the held weapon (demo-calibrated),
+	// consumed by the per-tick movement blend so range/style vary by weapon
+	float		eng_lo;			// preferred-range band low edge (world units)
+	float		eng_hi;			// ...high edge
+	float		eng_bias;		// style: >0 press/close, <0 defensive/give-ground
+	int			eng_intent;		// ENG_* engagement intent (bot_wpnlog telemetry)
+
 	// transition tracking for event logging
 	qboolean	was_dead;
 } bot_t;
@@ -341,6 +349,10 @@ float Combat_Strength (edict_t *e);	// effective toughness (health + armor)
 float Combat_AmmoFracForItem (edict_t *ent, gitem_t *ammo_item);
 extern cvar_t	*bot_skill;
 extern cvar_t	*bot_skilltest;
+// weapon-aware combat: per-weapon engagement range/style (demo-calibrated)
+extern cvar_t	*bot_wpntactic;		// weapon-appropriate range + engagement style
+extern cvar_t	*bot_wpntactictest;	// id-parity A/B (even ids get it, odd control)
+extern cvar_t	*bot_wpnlog;		// engagement telemetry (range/weapon/intent)
 extern cvar_t	*bot_lead;
 extern cvar_t	*bot_leadtest;
 extern cvar_t	*bot_flee;
@@ -401,6 +413,7 @@ void Bot_LogEndLevel (void);					// flush + close the current JSONL
 void Bot_LogTick (bot_t *b);					// per-tick state record
 void Bot_LogEvent (bot_t *b, const char *event);	// spawn/death/etc.
 void Bot_LogFire (edict_t *who);				// weapon discharge (timing invariants)
+void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// bot_wpnlog
 void Bot_LogRespawn (const char *event, edict_t *item_ent, float delay);	// respawn scheduling/firing
 void Bot_LogInput (edict_t *ent, usercmd_t *ucmd);	// bot_inputlog: human usercmd trace
 void Bot_LogMaybeFlush (void);					// periodic flush

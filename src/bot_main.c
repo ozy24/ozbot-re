@@ -167,6 +167,15 @@ void Bot_Init (void)
 	bot_fov          = gi.cvar ("bot_fov", "1", 0);			// humanization: ~120 deg vision cone + pain reflex
 	bot_hop          = gi.cvar ("bot_hop", "1", 0);			// humanization: combat jump/strafe rhythm from demo stats
 	bot_fidget       = gi.cvar ("bot_fidget", "1", 0);		// humanization: idle fidget, wall turn-away, travel hops
+	// weapon-aware combat: engagement range/style per weapon, demo-calibrated
+	// (tools/dm2_combat.py tactics -> demos/derived/combat_tactics/weapon_profiles.json).
+	// Default ON: breaks the weapon-blind circling into weapon-appropriate motion
+	// (SSG/chaingun press, railgun holds far, GL hangs back).  pickups +3-5% /
+	// giveups down / ITEM +1-2pt (2 seed-bases x16); lethality neutral (parity,
+	// bias-netted -- combat is zero-sum); off-state bit-exact when 0.
+	bot_wpntactic    = gi.cvar ("bot_wpntactic", "1", 0);	// rail holds far, SSG/chaingun brawl close, GL hangs back
+	bot_wpntactictest= gi.cvar ("bot_wpntactictest", "0", 0);	// id-parity A/B: even ids get it, odd control
+	bot_wpnlog       = gi.cvar ("bot_wpnlog", "0", 0);		// per-engagement telemetry (weapon/range/intent)
 
 	// Seed the game's RNG.  The vanilla game never calls srand(), so every
 	// process starts from the same default sequence -- which makes parallel

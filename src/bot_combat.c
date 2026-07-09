@@ -38,6 +38,9 @@ cvar_t	*bot_fov;		// humanization: enemy acquisition needs the target in
 						// a ~120 deg view cone (or a recent pain event -- the
 						// turn-toward-attacker reflex).  Ends 360-degree
 						// vision; pairs with bot_gaze scanning (Phase 3)
+cvar_t	*bot_wpntactic;		// weapon-aware combat: engagement range + style per weapon
+cvar_t	*bot_wpntactictest;	// id-parity A/B for bot_wpntactic (even ids get it)
+cvar_t	*bot_wpnlog;		// per-engagement telemetry (weapon/range/intent)
 cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
 						// and strafe-leg lengths from the demo stats, momentum
 						// dip on reversals, commit to close fights (Phase 4)
@@ -247,6 +250,87 @@ float Combat_AmmoFracForItem (edict_t *ent, gitem_t *ammo_item)
 	return -1.0f;				// no owned weapon consumes this ammo
 }
 
+// engagement intent (bot_wpnlog telemetry; the movement bias is band-driven)
+#define ENG_HOLD		0	// in the preferred band: strafe, keep range
+#define ENG_PRESS		1	// beyond the band: close in
+#define ENG_REPOSITION	2	// inside the band's near edge: give ground to it
+#define ENG_BREAK		3	// held weapon dry: disengage
+#define ENG_RETREAT		4	// fleeing (outmatched)
+
+static float Clampf (float v, float lo, float hi)
+{
+	return (v < lo) ? lo : (v > hi) ? hi : v;
+}
+
+/*
+=================
+Combat_Tactic
+
+Whether this bot runs weapon-aware combat tactics this frame.  bot_wpntactictest
+gives the id-parity head-to-head (even ids get it, odd are the control);
+otherwise bot_wpntactic.  Gated by Bot_Humanized, like the other combat-feel
+behaviors, so it travels with the humanization profile.
+=================
+*/
+static qboolean Combat_Tactic (bot_t *b)
+{
+	qboolean on = (bot_wpntactictest && bot_wpntactictest->value != 0)
+		? ((b->id & 1) == 0)
+		: (bot_wpntactic && bot_wpntactic->value != 0);
+	return on && Bot_Humanized (b);
+}
+
+/*
+=================
+Combat_WeaponProfile
+
+Preferred engagement band [lo,hi] (world units) and style bias for a weapon,
+calibrated from the pro demo corpus (tools/dm2_combat.py tactics over 5859 demos:
+kill-range p25/p75 for the band; advance-vs-retreat tendency for the bias).
+Railgun holds long (238-606); the rest brawl mid-close; chaingun/super shotgun
+press (bias>0), railgun/grenade launcher give ground (bias<0).
+=================
+*/
+static void Combat_WeaponProfile (gitem_t *w, float *lo, float *hi, float *bias)
+{
+	const char *nm = (w && w->pickup_name) ? w->pickup_name : "";
+	if      (strstr (nm, "Railgun"))         { *lo = 238; *hi = 606; *bias = -0.10f; }
+	else if (strstr (nm, "Super Shotgun"))   { *lo = 139; *hi = 328; *bias =  0.20f; }
+	else if (strstr (nm, "Rocket"))          { *lo = 134; *hi = 335; *bias =  0.10f; }
+	else if (strstr (nm, "Chaingun"))        { *lo = 157; *hi = 362; *bias =  0.25f; }
+	else if (strstr (nm, "Hyper"))           { *lo = 130; *hi = 311; *bias =  0.15f; }
+	// GL lobs from range: its kill-range is close (splash lands near the victim)
+	// but players POSITION back, so anchor a far hold band, not the kill-range.
+	else if (strstr (nm, "Grenade Launcher")){ *lo = 350; *hi = 800; *bias = -0.20f; }
+	else if (strstr (nm, "Machinegun"))      { *lo = 171; *hi = 398; *bias =  0.00f; }
+	else if (strstr (nm, "BFG"))             { *lo = 106; *hi = 297; *bias =  0.15f; }
+	else                                     { *lo = 139; *hi = 339; *bias =  0.00f; } // shotgun/blaster
+}
+
+/*
+=================
+Combat_HeldLowAmmo
+
+True if the weapon in hand is nearly out of ammo (below the demo refill fraction)
+-- the cue to break off instead of dancing in the enemy's face empty.  Ammo-less
+weapons (blaster) are never "low".
+=================
+*/
+static qboolean Combat_HeldLowAmmo (edict_t *ent)
+{
+	gitem_t	*w = ent->client->pers.weapon;
+	gitem_t	*am;
+	float	f;
+
+	if (!w || !w->ammo)
+		return false;
+	am = FindItem (w->ammo);
+	if (!am)
+		return false;
+	f = Combat_AmmoFracForItem (ent, am);
+	return (f >= 0.0f && f < 0.25f);
+}
+
 /*
 =================
 Combat_Strength
@@ -420,6 +504,43 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	VectorSubtract (teyes, eyes, dir);
 	range = VectorLength (dir);
 	vectoangles (dir, ang);
+
+	// weapon-aware engagement intent (10Hz-committed): the per-tick movement
+	// blend below reads eng_lo/eng_hi/eng_bias to hold each weapon at its
+	// demo-preferred range and press / give ground per its style, replacing the
+	// old weapon-blind 200-650 dead-band that made every weapon circle alike.
+	if (Combat_Tactic (b))
+	{
+		float lo, hi, bias;
+		Combat_WeaponProfile (self->client->pers.weapon, &lo, &hi, &bias);
+		if (b->flee)
+			b->eng_intent = ENG_RETREAT;
+		else if (Combat_HeldLowAmmo (self))
+		{
+			bias -= 0.4f;					// out of ammo: disengage
+			b->eng_intent = ENG_BREAK;
+		}
+		else
+			b->eng_intent = (range > hi) ? ENG_PRESS
+			              : (range < lo) ? ENG_REPOSITION : ENG_HOLD;
+		b->eng_lo = lo;
+		b->eng_hi = hi;
+		b->eng_bias = bias;
+	}
+	else
+	{
+		b->eng_lo = b->eng_hi = b->eng_bias = 0.0f;
+		b->eng_intent = ENG_HOLD;
+	}
+
+	// bot_wpnlog: record the engagement range/weapon/intent at 10Hz (gated, so
+	// off-state telemetry is unchanged).  Logged regardless of bot_wpntactic so
+	// the baseline (tactic off) range distribution is measurable for the A/B.
+	if (bot_wpnlog && bot_wpnlog->value != 0)
+		Bot_LogEngage (b,
+			(self->client->pers.weapon && self->client->pers.weapon->pickup_name)
+				? self->client->pers.weapon->pickup_name : "Blaster",
+			range, b->eng_intent);
 
 	turnstep = 20.0f + skill * 40.0f;
 	// flick speed (bot_aimflick): the stock 20-60 deg per 10Hz tick caps
@@ -670,7 +791,24 @@ aim_held:
 		}
 		else
 		{
-			rc = (range < 200) ? -0.8f : (range > 650) ? 0.6f : 0.0f;
+			if (Combat_Tactic (b) && b->eng_hi > 0.0f)
+			{
+				// weapon-calibrated (eng_* committed at 10Hz): back off below the
+				// band's near edge, close above the far edge, strafe in-band; then
+				// add the weapon's style bias (chaingun/SSG keep +rc pressure,
+				// railgun/grenade launcher give ground).  This replaces the old
+				// weapon-blind 200-650 dead-band that made every weapon circle.
+				float lo = b->eng_lo, hi = b->eng_hi;
+				if (range < lo)
+					rc = -0.8f * Clampf ((lo - range) / (lo + 1.0f), 0.0f, 1.0f);
+				else if (range > hi)
+					rc =  0.8f * Clampf ((range - hi) / (hi + 1.0f), 0.0f, 1.0f);
+				else
+					rc = 0.0f;
+				rc = Clampf (rc + b->eng_bias, -0.9f, 0.9f);
+			}
+			else
+				rc = (range < 200) ? -0.8f : (range > 650) ? 0.6f : 0.0f;
 
 			// commit to close fights instead of half-jogging toward the nav
 			// goal mid-duel

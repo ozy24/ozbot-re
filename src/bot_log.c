@@ -199,6 +199,27 @@ void Bot_LogFire (edict_t *who)
 
 /*
 =================
+Bot_LogEngage
+
+bot_wpnlog: one record per 10Hz keyframe the bot is engaged, capturing the held
+weapon, the range to the target, and the engagement intent (ENG_*).  Gated on
+the cvar so the off-state telemetry is byte-identical.  tools/humanness.py
+wpnrange reads these against the demo weapon_profiles.json to check that the
+bot's per-weapon engagement range separates (rail far, SSG close) toward human.
+=================
+*/
+void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent)
+{
+	if (!log_fp || !bot_wpnlog || bot_wpnlog->value == 0 || !b)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"engage\",\"t\":%.2f,\"bot\":%d,\"weapon\":\"%s\","
+		"\"range\":%.0f,\"intent\":%d}\n",
+		level.time, b->id, weapon, range, intent);
+}
+
+/*
+=================
 Bot_ItemName
 
 Display/telemetry label for an item entity.  The four item_health_* entities all
