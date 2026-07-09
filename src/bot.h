@@ -98,6 +98,10 @@ typedef struct
 	float		goal_cost;		// A* g-cost of the committed route (0 = unknown)
 	float		goal_best;		// closest we've come to the goal node this attempt
 	int			pending_link;	// link type to record on next learn step
+	// mid-attempt reroute (bot_reroutemid): watch path_idx for a pure-nav stall
+	int			reroute_last_idx;	// path_idx at the last observed advance
+	float		reroute_idx_time;	// level.time of that advance
+	qboolean	reroute_fired;		// already penalized+repathed once this attempt
 
 	// idle fidget (bot_fidget -- humanization)
 	float		fidget_until;	// next fidget re-roll
@@ -237,6 +241,9 @@ extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_navmask;
 extern cvar_t	*bot_reachlog;
 extern cvar_t	*bot_goalnode;
+extern cvar_t	*bot_navvalidate;	// load-time fluke-link pruner (P1; map-general hygiene)
+extern cvar_t	*bot_failpersist;	// persist per-item completability across map loads (P4a)
+extern cvar_t	*bot_reroutemid;	// penalize a stalled hop mid-attempt, not only at giveup (P4b)
 extern cvar_t	*bot_swim;
 extern cvar_t	*bot_lift;
 extern cvar_t	*bot_liftlog;
@@ -401,6 +408,10 @@ void Goal_ReachSweep (const char *when);	// bot_reachlog: item reachability swee
 void Goal_ItemSucceeded (edict_t *it);	// collected: reset failure tracking
 void Goal_Reset (void);					// clear cooldowns (map change)
 void Goal_SeedNavNodes (void);			// seed nav nodes at item spots
+// bot_failpersist (P4a): persist per-item giveup counts across map loads so a
+// fresh run doesn't re-pay a full-budget giveup per chronically-hard item.
+void Goal_LoadFails (const char *mapname);	// restore item_fails from <map>.fail (keys live edicts)
+void Goal_SaveFails (const char *mapname);	// write item_fails>0 to <map>.fail (uses load-time keys)
 
 //
 // bot_log.c

@@ -351,7 +351,57 @@ across varied loadouts (q2dm8 railgun-heavy, q2dm2 rocket/chaingun). The bot is
 **not overfit to q2dm1**. q2dm3 lags (23%) purely from an immature nav (26
 no-path items) — more maturation, not a bot regression.
 
-**Deferred (documented, not done this pass):** P1 nav save-time validator (fluke
-heuristic is easy to get wrong — a fall-derived "walk" link passes a straight
-walkability trace; needs a clean-baseline A/B); P2b/P2c aim/lead/flee re-sweeps;
-P4 failure-knowledge persistence + mid-attempt reroute.
+**P1 — nav-quality link validator TESTED, kept OFF (`bot_navvalidate`, default
+0).** Load-time pass (in the per-map setup AFTER `Nav_TagPlatLinks`, so real plat
+columns are already PLAT-typed and protected; a `Bot_FindPlatAt` guard protects
+them even with lift off) that drops learned WALK links with `|dz| > 64` that are
+NOT bidirectional — the fluke signature of a lucky fall / combat-shove A* re-sells
+(a straight walkability trace is useless: a fall-derived "walk" link falls through
+open air at fraction 1.0). One-shot on canonical q2dm1: **16 links dropped** (the
+lift columns correctly preserved), all steep one-way transitions (e.g. `106→4`, the
+uphill reverse of the known fall link). **A/B (16-seed × 2–3 bases, q2dm1/2/8):
+mixed → net-negative on the primary map.** q2dm1 ITEM regressed −0.5 to −2pt across
+two seed bases; q2dm8 mild +1pt; q2dm2 wash. Pooled ITEM −0.4pt, giveups +2%. The
+canonical q2dm1 nav is already hand-cleaned (the HB-fix removed its flukes), so the
+validator's drops are mostly borderline-legit one-way step-downs the bots DO use →
+removing them forces detours. Fails the "ITEM must not regress" gate; kept OFF as
+documented infra (house style, like `bot_survive`). Validator + plat-guard +
+per-drop diagnostic retained.
+
+**P4b — mid-attempt reroute SHIPPED (`bot_reroutemid`, default ON).** Extends
+`bot_reroute`: if `path_idx` stops advancing for 3.5 s while `!enemy` and not in a
+lift/playbook maneuver, penalize the stalled hop and repath NOW (once per attempt),
+instead of burning the whole 15 s goal budget before the giveup penalizes it.
+**A/B (16-seed × 3 bases, q2dm1/2/8): giveup rate −4.4 %, pathfail −23 %, ITEM flat
+(noise-level ±2pt/seed), pickups +0.4 %, and no nav erosion** (same-seed saved link
+counts 2708 vs 2708, one-fire-per-attempt keeps `Nav_PenalizeLink` from reaching its
+3-fail removal). `route at giveup: ok=100 %` throughout confirms no good links
+pruned. The win concentrates on maps with unreliable routes (q2dm2: giveups −8 %,
+pathfail −22 %, ITEM +0.7pt) and is neutral on well-matured navs (q2dm1/8). Meets
+the P4b acceptance (giveup rate down, ITEM up-or-flat, counts stable). `bot_reroutemid
+0` recovers the pre-P4b md5 exactly.
+
+**P4a — failure-knowledge persistence TESTED, kept OFF (`bot_failpersist`, default
+0).** Sidecar `nav/<map>.fail` keying per-item giveup counts by (classname + rounded
+origin); loaded in the new-map block, saved on shutdown/map-change from a load-time
+key snapshot (the engine has already spawned the NEXT map's edicts by save time, so
+live edicts can't supply the OLD map's keys). `run_parallel` copies the sidecar to
+workers like a `.pbk`. **A/B (16-seed × 2–3 bases, q2dm1/3, first-30 s giveup count):
+no reliable early-giveup reduction (q2dm1 −3/0/−2, q2dm3 +2/−2 — noise), erratic
+total-giveup increases (q2dm3 +18/+5), ITEM% pure seed-noise (±3pt).** Root cause:
+the knowledge worth persisting barely exists — genuinely-unreachable (`no_path`)
+items are never *attempted* (no route → no giveup → no fails recorded), so nothing
+chronic enters the sidecar; the items that DO accumulate fails are *probabilistically*
+hard (playbook/lift-collectable, succeed sometimes), and pre-blacklisting them from
+t=0 prevents pickups and shuffles contention. `bot_itemfail 2` already fast-tracks
+`no_path` items in-memory within seconds, so the marginal saving (one first-attempt
+giveup per attempted-and-failed item, ~5 items) is swamped by the redistribution
+cost. Kept OFF as documented infra; sidecar format + loader/saver retained.
+
+**Still deferred:** P2b/P2c aim/lead/flee re-sweeps.
+
+**Campaign md5 note.** The pre-campaign off-state baseline reproduces as
+**`07b294f7`** at `--seed 700` (the `c09dfdf7` in earlier notes predates source
+drift). All three features are byte-exact inert when their cvar is 0 (verified: all
+forced off → `07b294f7`). Shipping `bot_reroutemid` default-ON makes the new
+default-config md5 **`fdf51ec`**; `bot_reroutemid 0` recovers `07b294f7`.

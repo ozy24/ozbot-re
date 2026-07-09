@@ -41,6 +41,9 @@ cvar_t	*bot_itemfail;
 cvar_t	*bot_navmask;
 cvar_t	*bot_reachlog;
 cvar_t	*bot_goalnode;
+cvar_t	*bot_navvalidate;
+cvar_t	*bot_failpersist;
+cvar_t	*bot_reroutemid;
 cvar_t	*bot_swim;
 cvar_t	*bot_lift;
 cvar_t	*bot_liftlog;
@@ -69,6 +72,8 @@ static cvar_t	*bot_slotlog;
 
 #define BOT_GRAPH_READY		24		// nodes needed before goal-seeking starts
 #define BOT_GOAL_TIMEOUT	12.0f	// abandon a goal not reached within this
+#define BOT_REROUTEMID_STALL	3.5f	// bot_reroutemid: pure-nav no-advance window
+										// that triggers a mid-attempt hop penalty
 
 // bot_goalbudget: timeout scaled to the committed route's A* cost instead of
 // the flat BOT_GOAL_TIMEOUT -- short hops recycle faster, honest long routes
@@ -125,6 +130,16 @@ void Bot_Init (void)
 	bot_reachlog     = gi.cvar ("bot_reachlog", "1", 0);	// map-load item reachability sweep (oracle diagnostics)
 	bot_goalnode     = gi.cvar ("bot_goalnode", "0", 0);	// resolve item goal nodes to CONNECTED nodes (skip
 															// in-degree-0 orphans that shadow real coverage)
+	bot_navvalidate  = gi.cvar ("bot_navvalidate", "0", 0);	// P1: at load, drop learned fluke WALK links (steep,
+															// one-way -- lucky falls/combat shoves A* re-sells)
+	bot_failpersist  = gi.cvar ("bot_failpersist", "0", 0);	// P4a: persist per-item giveup counts across map loads
+															// (sidecar <map>.fail; keyed by classname + origin)
+	bot_reroutemid   = gi.cvar ("bot_reroutemid", "1", 0);	// P4b (default ON): penalize a stalled hop mid-attempt
+															// (pure-nav, !enemy) instead of only after the full
+															// goal budget.  A/B: giveup rate -4.4%, pathfail -23%,
+															// ITEM flat, no nav erosion; win concentrated on maps
+															// with unreliable routes (q2dm2), neutral on matured
+															// navs (q2dm1/8).  Set 0 to recover pre-P4b behavior.
 	// resource-need calibration, mined from the pro demo corpus
 	// (tools/dm2_combat.py need -> demos/derived/combat_need/thresholds.json,
 	// 5859 demos).  A/B'd 16x2 seed-bases; each is bit-exact when set to 0.
@@ -218,6 +233,7 @@ void Bot_Shutdown (void)
 	if (bot_logged_map[0])
 	{
 		Goal_ReachSweep ("quit");	// the run-matured graph's reachability truth
+		Goal_SaveFails (bot_logged_map);	// P4a: persist hard-item knowledge on the way out
 		Nav_Shutdown (bot_logged_map);
 	}
 	Bot_LogEndLevel ();
@@ -689,6 +705,9 @@ static void Bot_GoExplore (bot_t *b)
 	b->path_idx  = 0;
 	b->replan_time   = level.time + 1.0 + random() * 2.0;
 	b->progress_time = level.time;
+	b->reroute_fired = false;	// fresh leg: mid-attempt reroute may fire again
+	b->reroute_last_idx = 0;
+	b->reroute_idx_time = level.time;
 	b->steer_item    = NULL;	// fresh explore leg: no stale steering target
 	Bot_LiftReset (b);
 	Bot_StrafeReset (b);
@@ -859,6 +878,31 @@ static void Bot_Navigate (bot_t *b)
 				Bot_DecisiveReplan (b, 0.2f);	// success: next objective, now
 				Bot_Wander (b);
 				return;
+			}
+		}
+
+		// mid-attempt reroute (bot_reroutemid): the full goal budget can run 15s
+		// before a giveup penalizes the stalled hop.  If path_idx stops advancing
+		// for a few seconds while we're NOT fighting and NOT inside a lift/playbook
+		// maneuver (those legitimately stand still), the current hop is likely an
+		// "A* sold a route the bot can't execute" edge -- penalize it and repath
+		// NOW, once per attempt, so we don't burn the whole budget re-selling it.
+		if (bot_reroutemid && bot_reroutemid->value != 0 && !b->reroute_fired
+			&& !b->enemy && b->lift_state == LIFT_NONE && b->pb_state == PB_NONE
+			&& b->path_idx > 0 && b->path_idx < b->path_len)
+		{
+			if (b->path_idx != b->reroute_last_idx)
+			{
+				b->reroute_last_idx = b->path_idx;
+				b->reroute_idx_time = level.time;
+			}
+			else if (level.time - b->reroute_idx_time > BOT_REROUTEMID_STALL)
+			{
+				Nav_PenalizeLink (b->path[b->path_idx - 1], b->path[b->path_idx]);
+				Bot_LogPenalize (b, b->path[b->path_idx - 1], b->path[b->path_idx]);
+				b->reroute_fired = true;
+				b->path_len = 0;	// force a fresh A* around the penalized hop
+				b->path_idx = 0;
 			}
 		}
 
@@ -1106,6 +1150,9 @@ static void Bot_Navigate (bot_t *b)
 				b->goal_time     = level.time;
 				b->goal_cost     = Nav_LastPathCost ();
 				b->goal_best     = 99999;
+				b->reroute_fired = false;	// new attempt: allow one mid-reroute
+				b->reroute_last_idx = 0;
+				b->reroute_idx_time = level.time;
 				Bot_LiftReset (b);
 				Bot_StrafeReset (b);	// fresh path: any runway is stale
 				Bot_PlaybackReset (b);
@@ -1283,6 +1330,9 @@ void Bot_RunFrame (void)
 		Bot_DumpSlots ("new-map-entry (pre-clear)");	// what survived the level change
 		if (bot_logged_map[0])
 			Nav_Shutdown (bot_logged_map);
+		if (bot_logged_map[0])
+			Goal_SaveFails (bot_logged_map);	// P4a: persist old map's hard-item knowledge
+												// (before Goal_Reset; uses load-time key snapshot)
 		Bot_ClearAll ();
 		Goal_Reset ();
 		memset (bot_noise_time, 0, sizeof(bot_noise_time));	// level.time restarts;
@@ -1290,7 +1340,10 @@ void Bot_RunFrame (void)
 		Bot_LogBeginLevel (level.mapname);
 		Nav_Init (level.mapname);
 		Goal_SeedNavNodes ();		// ensure item spots are covered + routable
+		Goal_LoadFails (level.mapname);	// P4a: restore hard-item blacklist for this map
 		Nav_TagPlatLinks ();		// bot_lift: retag learned lift columns
+		if (bot_navvalidate->value != 0)	// P1: prune fluke walk links AFTER plat
+			Nav_ValidateLinks ();			// columns are protected (PLAT-typed)
 		Playbook_Load (level.mapname);	// bot_playbook: recorded maneuvers...
 		Playbook_Register ();			// ...surfaced as NAV_LINK_PLAYBOOK links
 		Goal_ReachSweep ("load");	// bot_reachlog: the persisted graph's reachability truth
