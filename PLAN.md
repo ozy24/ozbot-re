@@ -404,9 +404,9 @@ Measured it: the aim error in `Combat_Aim` is **weapon-agnostic** and, under
 humanization, deliberately tiny (~0.9° std at skill 0.5 — shrunk to keep the OU
 texture from losing fights), so thin-beam/fast-bolt weapons never miss.
 Ground-truth from the pro corpus via a new `dm2_combat.py aim` subcommand
-(`demos/derived/combat_aim`, 250-demo sample, 11.8k railgun fires) vs a new
+(`demos/derived/combat_aim`, full corpus: 5.8k demos, 263k railgun fires) vs a new
 `bot_aimlog` telemetry: **railgun FIRE |yaw err| bot p50 1.4° / p90 4.0° vs human
-p50 4.5° / p90 21.7°** — the bot's WORST railgun shot beat the human median, with
+p50 4.8° / p90 24.1°** — the bot's WORST railgun shot beat the human median, with
 no miss tail and (unlike humans) no range/motion degradation (blaster: humans get
 worse far 13.7→17.4°, bot got better 3.4→2.9°). `bot_aimprec` scales the error up
 for precision weapons only (railgun 1.0 / blaster 0.85 / hyperblaster 0.70 /
