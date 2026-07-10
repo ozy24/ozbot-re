@@ -661,6 +661,42 @@ qboolean Bot_LiftThink (bot_t *b)
 		return true;
 	}
 
+	// ---- COMMIT: the plat is actively RISING and we're standing in its
+	// footprint.  Ride it -- do NOT fall through to the WAIT back-out below,
+	// which would step the bot off the plat just as it starts up ("the bot
+	// moves off the lift before it goes up").  This catches the gap the BOARD
+	// (plat==BOTTOM) and RIDE (groundentity==plat) branches miss: the moment
+	// the plat leaves the bottom, a bot not yet registered as standing ON it
+	// (a tick of separation as the plat accelerates, or lost mid-ride) was
+	// being ejected.  Hold the middle so we can't drift off the edge; the
+	// RIDE branch reclaims control (and the top-exit) as soon as groundentity
+	// flips to the plat.  bot_liftcommit gates it (off = pre-fix behavior).
+	if (bot_liftcommit && bot_liftcommit->value != 0
+		&& plat->moveinfo.state == PLAT_STATE_UP
+		&& ent->s.origin[0] > plat->absmin[0] - LIFT_MARGIN
+		&& ent->s.origin[0] < plat->absmax[0] + LIFT_MARGIN
+		&& ent->s.origin[1] > plat->absmin[1] - LIFT_MARGIN
+		&& ent->s.origin[1] < plat->absmax[1] + LIFT_MARGIN)
+	{
+		if (b->lift_state != LIFT_RIDE)
+		{
+			Bot_LogEvent (b, "lift_ride");
+			b->lift_state = LIFT_RIDE;
+			b->lift_deadline = level.time + LIFT_RIDE_TIMEOUT;
+		}
+		VectorSubtract (c, ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) > 24)
+		{
+			b->move_yaw = vectoyaw (d);
+			VectorNormalize (d);
+			VectorScale (d, 0.35f, b->move_dir);
+		}
+		else
+			VectorClear (b->move_dir);
+		return true;
+	}
+
 	// ---- WAIT: the plat is away.  Hold CLEAR of the footprint: standing
 	// inside it blocks the plat's descent (our own touch keeps it up) and
 	// risks a crush when it comes down.

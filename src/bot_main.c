@@ -46,6 +46,7 @@ cvar_t	*bot_failpersist;
 cvar_t	*bot_reroutemid;
 cvar_t	*bot_swim;
 cvar_t	*bot_lift;
+cvar_t	*bot_liftcommit;	// once on a rising plat, commit to the ride (don't step off)
 cvar_t	*bot_liftlog;
 cvar_t	*bot_strafejump;
 cvar_t	*bot_sjlog;
@@ -156,6 +157,10 @@ void Bot_Init (void)
 	bot_swim         = gi.cvar ("bot_swim", "1", 0);		// 3D steering in water (vertical swim + water-jump exits)
 	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
 															// controller, 3D column arrival, level-aware homing
+	// once the bot is standing in a RISING plat's footprint, commit to riding it
+	// to the top (hold center) instead of the WAIT logic backing it out -- fixes
+	// "the bot steps off the lift before it goes up".  Off = pre-fix behavior.
+	bot_liftcommit   = gi.cvar ("bot_liftcommit", "1", 0);	// stay on a rising plat; don't step off mid-ride
 	bot_liftlog      = gi.cvar ("bot_liftlog", "0", 0);		// diagnosis telemetry near func_plats (plans/lift-riding.md)
 	bot_strafejump   = gi.cvar ("bot_strafejump", "1", 0);	// chained strafe-jump travel on clear runways (Phase 19:
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)

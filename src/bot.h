@@ -246,6 +246,7 @@ extern cvar_t	*bot_failpersist;	// persist per-item completability across map lo
 extern cvar_t	*bot_reroutemid;	// penalize a stalled hop mid-attempt, not only at giveup (P4b)
 extern cvar_t	*bot_swim;
 extern cvar_t	*bot_lift;
+extern cvar_t	*bot_liftcommit;	// commit to riding a rising plat (don't step off mid-ride)
 extern cvar_t	*bot_liftlog;
 extern cvar_t	*bot_inputlog;
 extern cvar_t	*bot_cmdlog;
