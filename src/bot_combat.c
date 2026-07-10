@@ -57,6 +57,7 @@ cvar_t	*bot_wpnselecttest;	// id-parity A/B for bot_wpnselect (even ids get it)
 cvar_t	*bot_wpnsellog;		// diagnostic: chosen weapon vs target distance
 cvar_t	*bot_blastertransit;	// blaster-only: keep going to the weapon/armor goal, fire defensively
 cvar_t	*bot_blastertransittest;	// id-parity A/B for bot_blastertransit (even ids get it)
+cvar_t	*bot_watersight;	// the water surface is opaque: no sightline across it
 cvar_t	*bot_aimlog;		// per-shot aim-error telemetry (calibration diagnostic)
 cvar_t	*bot_aimprec;		// scale precision-weapon aim error toward human (0=off, 1=full)
 cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
@@ -115,6 +116,36 @@ static qboolean Combat_InFov (edict_t *self, edict_t *other)
 
 /*
 =================
+Combat_WaterSurfaceBlocks  (bot_watersight)
+
+The water surface is opaque: you cannot see (or shoot) across it.  The engine's
+visible() sightline is a MASK_OPAQUE trace, which passes straight THROUGH liquid
+volumes -- so a bot with its eyes underwater could acquire (and railgun) a target
+standing on the steps, and a bot on the steps could pick off someone submerged.
+Block the sightline whenever the two eye points sit on opposite sides of a liquid
+boundary (one submerged, one not): the line between them must then cross the
+surface.  A bot in the same medium as its target (both underwater, or both in
+air) is unaffected, so the off-state is byte-identical.
+=================
+*/
+static qboolean Combat_WaterSurfaceBlocks (edict_t *self, edict_t *other)
+{
+	vec3_t		e1, e2;
+	qboolean	w1, w2;
+
+	if (!bot_watersight || bot_watersight->value == 0)
+		return false;
+	VectorCopy (self->s.origin, e1);
+	e1[2] += self->viewheight;
+	VectorCopy (other->s.origin, e2);
+	e2[2] += other->viewheight;
+	w1 = (gi.pointcontents (e1) & MASK_WATER) != 0;
+	w2 = (gi.pointcontents (e2) & MASK_WATER) != 0;
+	return w1 != w2;		// eyes on opposite sides of the surface -> no sightline
+}
+
+/*
+=================
 Combat_FindEnemy
 
 Nearest visible, living player/bot (deathmatch: everyone is fair game).
@@ -148,6 +179,8 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 			continue;
 		if (!visible (self, o))
 			continue;
+		if (Combat_WaterSurfaceBlocks (self, o))
+			continue;			// opaque water surface between our eyes and theirs
 		VectorSubtract (o->s.origin, self->s.origin, d);
 		dd = VectorLength (d);
 		// outside the cone, a target is still acquirable if it hurt us

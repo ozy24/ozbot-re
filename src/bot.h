@@ -368,6 +368,7 @@ extern cvar_t	*bot_wpnselecttest;	// id-parity A/B (even ids get it, odd control
 extern cvar_t	*bot_wpnsellog;		// diagnostic: chosen weapon vs target distance
 extern cvar_t	*bot_blastertransit;	// blaster-only: travel to a weapon/armor, fire defensively
 extern cvar_t	*bot_blastertransittest;	// id-parity A/B (even ids get it, odd control)
+extern cvar_t	*bot_watersight;	// opaque water surface blocks the sightline across it
 extern cvar_t	*bot_aimlog;		// per-shot aim-error telemetry (calibration diagnostic)
 extern cvar_t	*bot_aimprec;		// scale precision-weapon aim error toward human (0=off)
 extern cvar_t	*bot_lead;

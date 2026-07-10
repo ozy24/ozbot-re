@@ -226,6 +226,11 @@ void Bot_Init (void)
 	// (Combat_BlasterOnly), so a bot with a real weapon is byte-identical when off.
 	bot_blastertransit= gi.cvar ("bot_blastertransit", "1", 0);	// blaster-only: travel to a weapon, fire defensively
 	bot_blastertransittest= gi.cvar ("bot_blastertransittest", "0", 0);	// id-parity A/B: even ids get it, odd control
+	// The water surface is opaque -- the engine's visible() trace passes through
+	// liquid, letting a submerged bot railgun someone on the steps (and vice
+	// versa).  bot_watersight blocks any sightline whose two eye points straddle
+	// the surface (one underwater, one not).  Same-medium fights are byte-identical.
+	bot_watersight   = gi.cvar ("bot_watersight", "1", 0);	// no seeing/shooting across the opaque water surface
 	bot_aimlog       = gi.cvar ("bot_aimlog", "0", 0);		// per-SHOT aim-error telemetry (weapon/range/target
 															// lateral speed/yaw+pitch error vs true bearing) --
 															// calibration diagnostic vs demos/derived/combat_aim
