@@ -218,6 +218,27 @@ void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent)
 		level.time, b->id, weapon, range, intent);
 }
 
+/*
+=================
+Bot_LogWpnSel
+
+bot_wpnsellog: one record each time range-aware selection (bot_wpnselect) chooses
+a firing weapon, capturing the chosen weapon, the weapon currently held, and the
+distance to the target.  Gated on the cvar so the off-state telemetry is
+byte-identical.  Lets an A/B confirm the lever actually shifts weapon choice by
+range (e.g. railgun -> super shotgun as a foe closes).
+=================
+*/
+void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist)
+{
+	if (!log_fp || !bot_wpnsellog || bot_wpnsellog->value == 0 || !b)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"wpnsel\",\"t\":%.2f,\"bot\":%d,\"chosen\":\"%s\","
+		"\"held\":\"%s\",\"dist\":%.0f}\n",
+		level.time, b->id, chosen, held, dist);
+}
+
 void Bot_LogAimShot (bot_t *b, const char *weapon, float range, float latspeed,
 	float err_yaw, float err_pitch)
 {

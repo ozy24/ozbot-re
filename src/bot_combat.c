@@ -52,6 +52,11 @@ cvar_t	*bot_fov;		// humanization: enemy acquisition needs the target in
 cvar_t	*bot_wpntactic;		// weapon-aware combat: engagement range + style per weapon
 cvar_t	*bot_wpntactictest;	// id-parity A/B for bot_wpntactic (even ids get it)
 cvar_t	*bot_wpnlog;		// per-engagement telemetry (weapon/range/intent)
+cvar_t	*bot_wpnselect;		// range-aware firing-weapon choice (demo kill-range bands)
+cvar_t	*bot_wpnselecttest;	// id-parity A/B for bot_wpnselect (even ids get it)
+cvar_t	*bot_wpnsellog;		// diagnostic: chosen weapon vs target distance
+cvar_t	*bot_blastertransit;	// blaster-only: keep going to the weapon/armor goal, fire defensively
+cvar_t	*bot_blastertransittest;	// id-parity A/B for bot_blastertransit (even ids get it)
 cvar_t	*bot_aimlog;		// per-shot aim-error telemetry (calibration diagnostic)
 cvar_t	*bot_aimprec;		// scale precision-weapon aim error toward human (0=off, 1=full)
 cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
@@ -183,12 +188,43 @@ static qboolean Combat_HasWeaponAmmo (edict_t *ent, gitem_t *w)
 
 /*
 =================
+Combat_BlasterOnly
+
+True when the bot has NOTHING better than the blaster to fight with -- it owns no
+other weapon it currently has ammo for (a fresh spawn, or shot dry).  In that
+state committing to a fight is a bad trade: the right play is to keep travelling
+to the weapon/armor goal and fire the blaster only defensively en route.
+=================
+*/
+static qboolean Combat_BlasterOnly (edict_t *ent)
+{
+	static const char *better[] = {
+		"railgun", "rocket launcher", "hyperblaster", "chaingun",
+		"super shotgun", "machinegun", "shotgun"
+	};
+	int	i;
+
+	for (i = 0; i < 7; i++)
+	{
+		gitem_t	*w = FindItem ((char *)better[i]);
+		if (w && Combat_HasWeaponAmmo (ent, w))
+			return false;		// has a real weapon to fight with
+	}
+	return true;				// only the blaster
+}
+
+/*
+=================
 Combat_SelectWeapon
 
 Switch to the best weapon we own and have ammo for (engine handles the actual
 swap via client->newweapon on the next weapon think).
 =================
 */
+// both defined later in the file (after Combat_SelectWeapon)
+static qboolean Combat_WpnSelectOn (bot_t *b);
+static void Combat_WeaponProfile (gitem_t *w, float *lo, float *hi, float *bias);
+
 static void Combat_SelectWeapon (bot_t *b)
 {
 	static const char *prio[] = {
@@ -197,6 +233,67 @@ static void Combat_SelectWeapon (bot_t *b)
 	};
 	edict_t	*ent = b->ent;
 	int		i;
+
+	// range-aware selection (bot_wpnselect): among the weapons we own + have ammo
+	// for, pick the one whose demo kill-range band [lo,hi] best fits the current
+	// distance to the target (Combat_WeaponProfile -- the same bands bot_wpntactic
+	// positions to).  A weapon in-band scores 0; otherwise its penalty is how far
+	// the target sits outside the band.  prio[] is scanned strong-first with a
+	// strict-less compare, so genuine ties (e.g. several weapons in-band at mid
+	// range) still break toward the stronger weapon -- reproducing the old
+	// rail-first choice everywhere EXCEPT where distance makes it wrong (a foe in
+	// your face drops the railgun for SSG/RL/chaingun).  Off-state falls straight
+	// through to the fixed priority below, byte-identical.
+	if (Combat_WpnSelectOn (b) && b->enemy && b->enemy->inuse)
+	{
+		vec3_t	d;
+		float	dist, bestpen = 1e18f;
+		gitem_t	*best = NULL;
+
+		VectorSubtract (b->enemy->s.origin, ent->s.origin, d);
+		dist = VectorLength (d);
+		for (i = 0; i < 8; i++)
+		{
+			gitem_t	*w = FindItem ((char *)prio[i]);
+			float	lo, hi, bias, pen;
+
+			if (!w || !Combat_HasWeaponAmmo (ent, w))
+				continue;
+			Combat_WeaponProfile (w, &lo, &hi, &bias);
+			pen = (dist < lo) ? (lo - dist) : (dist > hi) ? (dist - hi) : 0.0f;
+			if (pen < bestpen)
+			{
+				bestpen = pen;
+				best = w;
+			}
+		}
+		// hysteresis: re-selecting every 10Hz keyframe makes a target dancing
+		// across a band edge flip the weapon repeatedly, and each raise/lower
+		// animation is dead time the bot can't fire.  Stay on the held weapon
+		// unless a candidate fits the current distance markedly better (by
+		// WPNSEL_HYST units) -- so only a decisive range change (a foe closing
+		// into your face) forces the swap, not boundary jitter.
+		#define WPNSEL_HYST	100.0f
+		if (best)
+		{
+			gitem_t	*held = ent->client->pers.weapon;
+			if (held && held != best && Combat_HasWeaponAmmo (ent, held))
+			{
+				float	lo, hi, bias, hpen;
+				Combat_WeaponProfile (held, &lo, &hi, &bias);
+				hpen = (dist < lo) ? (lo - dist) : (dist > hi) ? (dist - hi) : 0.0f;
+				if (hpen <= bestpen + WPNSEL_HYST)
+					best = held;		// held is still good enough; don't thrash
+			}
+			if (bot_wpnsellog && bot_wpnsellog->value != 0)
+				Bot_LogWpnSel (b, best->pickup_name ? best->pickup_name : "",
+					(ent->client->pers.weapon && ent->client->pers.weapon->pickup_name)
+						? ent->client->pers.weapon->pickup_name : "", dist);
+			if (ent->client->pers.weapon != best && ent->client->newweapon != best)
+				ent->client->newweapon = best;
+			return;
+		}
+	}
 
 	for (i = 0; i < 8; i++)
 	{
@@ -291,6 +388,47 @@ static qboolean Combat_Tactic (bot_t *b)
 		? ((b->id & 1) == 0)
 		: (bot_wpntactic && bot_wpntactic->value != 0);
 	return on && Bot_Humanized (b);
+}
+
+/*
+=================
+Combat_WpnSelectOn
+
+Whether this bot runs range-aware firing-weapon selection this frame
+(bot_wpnselect).  bot_wpnselecttest gives the id-parity head-to-head (even ids
+get it, odd are the control); otherwise bot_wpnselect.  Gated by Bot_Humanized
+so it travels with the humanization profile, exactly like Combat_Tactic.
+=================
+*/
+static qboolean Combat_WpnSelectOn (bot_t *b)
+{
+	qboolean on = (bot_wpnselecttest && bot_wpnselecttest->value != 0)
+		? ((b->id & 1) == 0)
+		: (bot_wpnselect && bot_wpnselect->value != 0);
+	return on && Bot_Humanized (b);
+}
+
+/*
+=================
+Combat_BlasterTransit  (bot_blastertransit)
+
+Whether this bot, RIGHT NOW, should treat a fight as a nuisance to travel through
+rather than commit to -- true only when it has nothing but the blaster to fire.
+The behavior (in the Combat_Aim movement blend): hold full nav weight toward the
+weapon/armor goal and drop the range-closing pull, so the bot keeps heading to a
+real weapon while its aim still tracks and fires the blaster defensively (movement
+is relative to facing, so it back-pedals/strafes to the goal while shooting back).
+bot_blastertransittest gives the id-parity head-to-head; gated by Bot_Humanized
+like the other combat-feel levers.  A bot that already owns a real weapon is
+unaffected (Combat_BlasterOnly false), so the off-state is unchanged.
+=================
+*/
+static qboolean Combat_BlasterTransit (bot_t *b)
+{
+	qboolean on = (bot_blastertransittest && bot_blastertransittest->value != 0)
+		? ((b->id & 1) == 0)
+		: (bot_blastertransit && bot_blastertransit->value != 0);
+	return on && Bot_Humanized (b) && Combat_BlasterOnly (b->ent);
 }
 
 /*
@@ -551,6 +689,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	vec3_t	eyes, teyes, dir, ang, toenemy, strafe, comb;
 	float	turnstep, firethresh, reaction, err, range, aimoff, rc, precm;
 	qboolean aimtweak;
+	qboolean blaster_transit = false;	// blaster-only: travel to a real weapon, fire defensively
 
 	// FRAMESYNC (40Hz adaptation): the whole combat DECISION layer --
 	// acquisition, flee, weapon choice, target sampling, error step, tracking
@@ -1021,12 +1160,29 @@ aim_held:
 		// approach if far, back off if too close; when fleeing, always
 		// disengage (movement is decoupled from aim, so the bot retreats
 		// while firing back)
+		blaster_transit = Combat_BlasterTransit (b);
 		if (b->flee)
 		{
 			rc = -0.9f;
 			sfw = rkt_dodge ? 0.9f : 0.5f;	// rocket dodge biases the strafe
 			comb[0] = b->move_dir[0] * 1.0f + strafe[0] * sfw * sw + toenemy[0] * rc;
 			comb[1] = b->move_dir[1] * 1.0f + strafe[1] * sfw * sw + toenemy[1] * rc;
+		}
+		else if (blaster_transit)
+		{
+			// only the blaster to fight with (fresh spawn / shot dry): do NOT
+			// commit -- keep full nav weight toward the weapon/armor goal and drop
+			// the range-closing pull, so the bot travels to a real weapon while its
+			// aim still tracks and fires the blaster defensively.  Movement is
+			// relative to facing, so it back-pedals/strafes to the goal while
+			// shooting back.  A light strafe keeps it from being a straight-line
+			// sitting duck; a rocket dodge still gets its full step.
+			rc = 0.0f;
+			navw = 1.0f;
+			sfw = rkt_dodge ? 0.9f : 0.35f;
+			b->eng_intent = ENG_BREAK;
+			comb[0] = b->move_dir[0] * navw + strafe[0] * sfw * sw + toenemy[0] * rc;
+			comb[1] = b->move_dir[1] * navw + strafe[1] * sfw * sw + toenemy[1] * rc;
 		}
 		else
 		{

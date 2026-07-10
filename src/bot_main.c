@@ -200,6 +200,32 @@ void Bot_Init (void)
 	bot_wpntactic    = gi.cvar ("bot_wpntactic", "1", 0);	// rail holds far, SSG/chaingun brawl close, GL hangs back
 	bot_wpntactictest= gi.cvar ("bot_wpntactictest", "0", 0);	// id-parity A/B: even ids get it, odd control
 	bot_wpnlog       = gi.cvar ("bot_wpnlog", "0", 0);		// per-engagement telemetry (weapon/range/intent)
+	// bot_wpntactic moves the BODY to each weapon's demo range; the firing weapon
+	// itself is picked by a fixed rail-first priority (Combat_SelectWeapon), so a
+	// bot with a railgun rails a foe in its face.  bot_wpnselect picked instead the
+	// owned+ammo weapon whose demo kill-range band best fit the target distance
+	// (rail far, SSG/RL/chaingun close).  TESTED AND REJECTED (default OFF, kept as
+	// documented infra like bot_dodge/bot_survive): 4 seed-bases x16 id-parity --
+	// aggressive re-selection cost the treatment bots -7.7pt kill share (even kills
+	// 583->422) from weapon-switch downtime + surrendering the railgun's hitscan
+	// edge; a hysteresis variant recovered to frag-neutral only by suppressing the
+	// switching (near-inert).  No lethality win either way: the pro weapon-by-range
+	// map is optimal for HUMANS (who miss with rail up close), not for a bot with
+	// near-perfect hitscan -- the same "combat policy doesn't transfer" wall as the
+	// movement/dodge rejections.  bot_wpnneed (which guns to ACQUIRE) was the win;
+	// which to FIRE is not.  off-state bit-exact.  bot_wpnselecttest = id-parity.
+	bot_wpnselect    = gi.cvar ("bot_wpnselect", "0", 0);	// range-aware firing-weapon choice (demo kill-range bands) -- tested-negative infra
+	bot_wpnselecttest= gi.cvar ("bot_wpnselecttest", "0", 0);	// id-parity A/B: even ids get it, odd control
+	bot_wpnsellog    = gi.cvar ("bot_wpnsellog", "0", 0);	// diagnostic: chosen weapon vs target distance
+	// A blaster-only bot (fresh spawn, or shot dry) should be racing to a real
+	// weapon/armor, not planting to duel with the pea-shooter.  bot_blastertransit
+	// keeps such a bot at full nav weight toward its goal and drops the
+	// range-closing pull, so it travels to a weapon while its aim tracks and fires
+	// the blaster defensively (movement is relative to facing -> it back-pedals to
+	// the goal while shooting).  Only affects bots with NOTHING but the blaster
+	// (Combat_BlasterOnly), so a bot with a real weapon is byte-identical when off.
+	bot_blastertransit= gi.cvar ("bot_blastertransit", "1", 0);	// blaster-only: travel to a weapon, fire defensively
+	bot_blastertransittest= gi.cvar ("bot_blastertransittest", "0", 0);	// id-parity A/B: even ids get it, odd control
 	bot_aimlog       = gi.cvar ("bot_aimlog", "0", 0);		// per-SHOT aim-error telemetry (weapon/range/target
 															// lateral speed/yaw+pitch error vs true bearing) --
 															// calibration diagnostic vs demos/derived/combat_aim
