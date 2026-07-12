@@ -50,25 +50,36 @@ same build at 10Hz: 488 / 53% / 157. The higher kill intensity is an emergent,
 verified-symmetric property of the finer simulation (fire rates and weapon
 timing are provably unchanged — `py tools/verify_timing.py <log10> <log40>`).
 
-**Cross-map stats tracker (`tools/benchmark.py` → `STATS.md`).** Tracks ITEM
-completion / pickups / frags / K/D / nav nodes across all 8 q2dm maps and how
+**Cross-map stats tracker (`tools/benchmark.py` → `STATS.md`).** Tracks item
+collection / pickups / frags / K/D / nav nodes across all 8 q2dm maps and how
 they move as the code changes. It runs the standard repro rig (forces
 `sv_fps 40`) + pinned playbooks (`baselines/playbooks/`) at a fixed seed on every
-map against **two** nav baselines, so two snapshots differ only because the code
-changed:
+map across a **2×2** of nav baseline × rig, so two snapshots differ only because
+the code changed. Nav baseline:
 - **shipped** — the real bot on its hand-seeded navs (`baselines/nav_shipped/`, a
   frozen snapshot of the curated `engine/ozbotre/nav/`; cold-filled for q2dm4/
   q2dm6 which never had a curated nav). Where the tuned bot actually stands.
 - **cold** — the same build self-learning from a scratch-matured graph
   (`baselines/nav/`, `--mature`). Isolates nav-learning quality.
 
+Each baseline is run under two **rigs**:
+- **solo** (1 bot, combat impossible) — the nav-quality **headline**: isolates
+  last-leg item-collection with no combat interruption / respawn-teleport /
+  contention.
+- **deathmatch** (5 bots) — the integration metric (combat + contention, where
+  wins like `bot_claim` show up). Collection reads lower here because combat
+  interrupts routes.
+
+So four columns — **shipped-solo / cold-solo** (nav quality) and **shipped-dm /
+cold-dm** (integration); `STATS.md` leads with the solo pair.
+
 The shipped−cold gap is what the manual nav curation is worth — and it's
-**map-specific**: big on q2dm1 (54% vs 39%) and q2dm7, but on q2dm2/3/5 the
-uniform cold nav matches or beats the hand-seeded one (a signal those live navs
-may be stale vs current-DLL maturation). Each run appends a dated snapshot
+**map-specific**: big on q2dm1 (deathmatch 54% vs 39%) and q2dm7, but on q2dm2/3/5
+the uniform cold nav matches or beats the hand-seeded one (a signal those live navs
+may be stale vs current-DLL maturation). Each run appends a *variant-nested* snapshot
 (commit + `--note`) to `baselines/benchmark_history.jsonl` and regenerates
-`STATS.md` (both ITEM columns + trend). Freezes DLL+navs+playbooks into
-`engine/ozbotre_bench`, so a live `play.bat` can't perturb a run.
+`STATS.md` (solo table/trend on top, deathmatch as the integration section). Freezes
+DLL+navs+playbooks into `engine/ozbotre_bench`, so a live `play.bat` can't perturb a run.
 `py tools/benchmark.py --note "<what changed>"`; `--report-only` re-renders;
 `--pin-shipped` refreshes the shipped baseline from the live curated navs;
 `--mature` regrows the cold baseline (11 bots × 720s, `sv_fps 40`) into
