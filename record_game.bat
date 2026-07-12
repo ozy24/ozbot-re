@@ -18,7 +18,7 @@ REM Video: runs fullscreen (vid_fullscreen 1, your native resolution). For a win
 REM instead, change it to  +set vid_fullscreen 0 +set vid_geometry 1280x720
 REM Override the install location with:  set Q2DIR=C:\path\to\quake2
 setlocal
-if "%Q2DIR%"=="" set "Q2DIR=%~dp0..\engine"
+if "%Q2DIR%"=="" set "Q2DIR=%~dp0engine"
 cd /d "%Q2DIR%"
 
 if not exist "ozbotre\gamex86_64.dll" (

@@ -12,7 +12,7 @@ loop iteration and the loop sleeps between ticks. Two ways past that:
     the sim CPU-bound). With --fastsim, --seconds means *game* seconds: each
     server quits itself via the DLL's bot_quitafter cvar, so every seed
     simulates exactly the same game time no matter how loaded the CPU is.
-    Build the engine with ozbot/build_engine.bat if the exe is missing.
+    Build the engine with build_engine.bat if the exe is missing.
   * without --fastsim: real-time servers, --seconds is wall time, and
     parallelism is the only lever (each instance is ~95% idle).
 
@@ -43,9 +43,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))   # <repo>/tools
-REPO = os.path.dirname(HERE)                         # the bot repo
-ROOT = os.path.dirname(REPO)                         # umbrella root (holds engine/, demos/)
-DEFAULT_ENGINE = os.path.join(ROOT, "engine")
+REPO = os.path.dirname(HERE)                         # the bot repo (holds engine/, demos/)
+DEFAULT_ENGINE = os.path.join(REPO, "engine")
 BOT_ID_STRIDE = 1000   # worker i's bot b -> id i*STRIDE + b (keeps ids distinct)
 
 
@@ -214,7 +213,7 @@ def main(argv):
     elif args.fastsim:
         exe = os.path.join(engine, "q2proded_fast.exe")
         if not os.path.isfile(exe):
-            sys.exit(f"FAIL: {exe} not found -- build it with ozbot/build_engine.bat")
+            sys.exit(f"FAIL: {exe} not found -- build it with build_engine.bat")
     else:
         exe = os.path.join(engine, "q2pro.exe")
         if not os.path.isfile(exe):

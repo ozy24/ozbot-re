@@ -287,7 +287,7 @@ def traj(path, out=None):
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "inspect"
-    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = sys.argv[2] if len(sys.argv) > 2 else \
         os.path.join(_root, "demos", "work", "sample_q2dm1.dm2")
     if cmd == "traj":

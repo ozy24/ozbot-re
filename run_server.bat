@@ -4,7 +4,7 @@ REM Override the install location with:  set Q2DIR=C:\path\to\quake2
 setlocal
 cd /d "%~dp0"
 
-if "%Q2DIR%"=="" set "Q2DIR=%~dp0..\engine"
+if "%Q2DIR%"=="" set "Q2DIR=%~dp0engine"
 
 call build.bat
 if errorlevel 1 exit /b 1

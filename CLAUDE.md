@@ -1,14 +1,15 @@
 # CLAUDE.md — ozbot-re
 
-**ozbot-re** is the q2repro (40Hz) port of ozbot. This is a self-contained git
-repo with its own `tools/` (versioned). The umbrella `../CLAUDE.md` covers only
-the **shared** infra — `../engine/` runtime, the `../demos/` corpus (read-only
-here; ozbot is its single writer), engine sources, and the persistent memory.
-Everything below OVERRIDES the legacy ozbot specifics when working in this repo.
+**ozbot-re** is the q2repro (40Hz) port of ozbot. This is a fully self-contained
+folder: its own `tools/` (versioned), plus the in-repo unversioned (gitignored)
+infra — `engine/` runtime, its own `demos/` corpus copy, the `q2repro/` engine
+source, and `quake2-source/` reference. The 10Hz/x86 original is a separate
+self-contained folder at `../ozbot` (own CLAUDE.md). Everything below OVERRIDES
+the legacy ozbot specifics when working in this repo.
 
 ## What changed vs ozbot
 
-- **Engine:** q2repro (`../q2repro`, local branch `ozbot-re` carrying the
+- **Engine:** q2repro (`q2repro`, local branch `ozbot-re` carrying the
   fastsim patch + variable-fps fixes), built x64 by `build_engine.bat` →
   `engine/q2repro.exe` (client) + `engine/q2reproded.exe` (dedicated, fastsim
   cvar built in). **The 32-bit constraint is dead here**: `build.bat` produces
@@ -55,9 +56,9 @@ The goal scorer's `bot_ammoneed` (per-ammo-type low-fill urgency, via
 `Combat_AmmoFracForItem` in `bot_combat.c`) and `bot_wpnneed` (unowned-weapon
 value by pro kill-rank, `Weapon_KillRankWeight` in `bot_goal.c`) are
 **default-ON**. Their thresholds are mined from the pro corpus by
-`../ozbot/tools/dm2_combat.py need` → `../demos/derived/combat_need/thresholds.json`
-(5859 demos) and **baked in as constants** — regenerate over in `ozbot` (it owns
-the corpus; this repo consumes read-only), then update the constants here. There
+`tools/dm2_combat.py need` → `demos/derived/combat_need/thresholds.json`
+(5859 demos) and **baked in as constants** — regenerate in-repo against this
+folder's own `demos/` copy, then update the constants here. There
 is no runtime dependency on the JSON. `bot_healthneed` exists but is
 **default-OFF** (health-seeking is asymmetric-negative, same as `bot_survive`).
 See the `ozbot-re-resource-need-win` memory for the A/B results.

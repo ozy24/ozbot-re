@@ -22,8 +22,8 @@ the 10 Hz bot could never reach.
 | Tick rate | 10 Hz | **40 Hz** (10 Hz *brain*, 40 Hz *body*) |
 | Hermeticity | — | every launch passes `com_rerelease -1` (q2repro auto-detects Steam/GoG/OneDrive) |
 | Hand-authored content | **none** | a few **human-recorded playbooks** for trick moves |
-| Fastsim exe | `q2proded_fast.exe` | `q2reproded.exe` (built from `../q2repro`) |
-| Gamedir | `../engine/ozbot/` | `../engine/ozbotre/` |
+| Fastsim exe | `q2proded_fast.exe` | `q2reproded.exe` (built from `q2repro`) |
+| Gamedir | `engine/ozbot/` | `engine/ozbotre/` |
 
 **10 Hz brain, 40 Hz body.** The vanilla game logic (weapons, animations, damage cadences) and the bot's
 combat *decision* layer run on FRAMESYNC keyframes (every 4th frame = 10 Hz); physics, steering, and
@@ -49,7 +49,7 @@ inputs:
 1. **Record** — `record_inputs.bat` on the q2repro client logs the human's per-usercmd stream at full
    40 Hz fidelity (`bot_inputlog`). Bot segments can be captured with `bot_cmdlog 1`.
 2. **Bake** — `py tools/make_playbook.py <log.jsonl> --slot N --start T0 --end T1 --name mh_jump --out
-   ../engine/ozbotre/playbooks/q2dm1.pbk` segments the capture, resamples the usercmd stream to the 25 ms
+   engine/ozbotre/playbooks/q2dm1.pbk` segments the capture, resamples the usercmd stream to the 25 ms
    tick grid (OR-ing momentary buttons so brief jump presses survive), and emits per entry an **anchor**
    (origin/yaw/velocity preconditions + tolerances), the tick-indexed usercmd stream, the expected origin
    timeline, and the exit point.
@@ -116,11 +116,11 @@ run_server.bat     :: build + deploy + launch a dedicated server with bots
 play.bat           :: launch a q2repro listen server you can play IN / chase-cam the bots
 record_inputs.bat  :: q2repro listen server with bot_inputlog on + a synced demo (capture YOUR inputs)
 run_parallel.bat   :: build + deploy + N parallel headless sims + merged analysis (pass --repro)
-build_engine.bat   :: build ../q2repro (x64, meson) -> %Q2DIR%/q2reproded.exe + q2repro.exe
+build_engine.bat   :: build q2repro (x64, meson) -> %Q2DIR%/q2reproded.exe + q2repro.exe
 ```
 
-`%Q2DIR%` defaults to `..\engine` (the shared runtime). The build is self-contained — the vanilla
-Quake II v3.19 headers live in `src/` (`../quake2-source` is a reference mirror, not a build input); the
+`%Q2DIR%` defaults to the in-repo `engine` (this folder's own runtime). The build is self-contained — the vanilla
+Quake II v3.19 headers live in `src/` (`quake2-source` is a reference mirror, not a build input); the
 analysis tooling (pure-Python stdlib) is this repo's own `tools/`. Every launch passes `com_rerelease -1`
 and `+set sv_fps 40` (all scripts and `run_parallel --repro` do this for you).
 

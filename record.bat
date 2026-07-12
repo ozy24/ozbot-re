@@ -18,7 +18,7 @@ REM Needs the DLL deployed first (build.bat + deploy.bat) and ffmpeg installed
 REM   (winget install Gyan.FFmpeg).  Override install dir with:  set Q2DIR=...
 setlocal enabledelayedexpansion
 
-if "%Q2DIR%"=="" set "Q2DIR=%~dp0..\engine"
+if "%Q2DIR%"=="" set "Q2DIR=%~dp0engine"
 
 if not exist "%Q2DIR%\ozbotre\gamex86_64.dll" (
   echo [ozbot-re] ozbotre\gamex86_64.dll not found under %Q2DIR%. Run build.bat + deploy.bat first.

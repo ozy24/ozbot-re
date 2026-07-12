@@ -6,7 +6,7 @@ passed, playbook machinery validated end-to-end. Remaining: record the real
 Megahealth-jump capture (human input) and bake it.*
 
 **ozbot-re** is a port of ozbot (self-learning Q2 deathmatch bot, currently on q2pro at
-10Hz) to the **q2repro** engine (`E:\code\projects\ozbot\q2repro`) running at a **40Hz
+10Hz) to the **q2repro** engine (the in-repo `q2repro/` source) running at a **40Hz
 tick rate**, plus a new capability the 10Hz stack could never support: **baked, recorded
 map-specific movements** (playbooks) — e.g. the q2dm1 Megahealth trick jump — captured
 from human play and routed through the bot's nav graph.
@@ -341,8 +341,8 @@ evades; a directed step wrecks offense and a ~90u step in 0.3s rarely clears the
 ~150u splash. Kept default OFF as documented infra (like `bot_survive`).
 
 **P3 — multi-map 40Hz bring-up + generalization CONFIRMED.** All 8 DM maps ship
-in `../engine/baseq2/pak1.pak`; seeded 40Hz navs for q2dm2/3/5/8 from the 10Hz
-`../engine/ozbot/nav/` (format-compatible `ONAV` v1) and matured them on single
+in `engine/baseq2/pak1.pak`; seeded 40Hz navs for q2dm2/3/5/8 from the 10Hz
+`engine/ozbot/nav/` (format-compatible `ONAV` v1) and matured them on single
 dedicated fastsim servers (`run_parallel` copies nav to disposable workers, so
 maturation must be single-server). Measurement (8×90s): **q2dm8 54% ITEM /
 q2dm5 50% / q2dm2 45% — all ≈ or > q2dm1's 47%**, with swim (Railgun on

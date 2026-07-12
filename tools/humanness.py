@@ -35,7 +35,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dm2parse
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMOS_SORTED = os.path.join(ROOT, "demos", "sorted")
 OUT_DIR = os.path.join(ROOT, "demos", "derived", "humanness")
 

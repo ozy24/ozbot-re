@@ -14,7 +14,7 @@ REM or bake a playbook:  py tools\make_playbook.py <log.jsonl>   (Phase R4)
 REM
 REM Override the install location with:  set Q2DIR=C:\path\to\quake2
 setlocal
-if "%Q2DIR%"=="" set "Q2DIR=%~dp0..\engine"
+if "%Q2DIR%"=="" set "Q2DIR=%~dp0engine"
 cd /d "%Q2DIR%"
 
 if not exist "ozbotre\gamex86_64.dll" (

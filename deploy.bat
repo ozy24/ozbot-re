@@ -4,7 +4,7 @@ REM Override the install location with:  set Q2DIR=C:\path\to\quake2
 setlocal
 cd /d "%~dp0"
 
-if "%Q2DIR%"=="" set "Q2DIR=%~dp0..\engine"
+if "%Q2DIR%"=="" set "Q2DIR=%~dp0engine"
 if not exist "%Q2DIR%" (
   echo [ozbot-re] Q2DIR "%Q2DIR%" does not exist. Set Q2DIR to your Quake II install.
   exit /b 1

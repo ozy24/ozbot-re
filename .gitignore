@@ -52,3 +52,9 @@ screenshots/
 # Python
 __pycache__/
 *.pyc
+
+# In-repo runtime, corpus, and engine/reference sources (unversioned here)
+/engine/
+/demos/
+/q2repro/
+/quake2-source/
