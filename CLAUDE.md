@@ -50,6 +50,24 @@ same build at 10Hz: 488 / 53% / 157. The higher kill intensity is an emergent,
 verified-symmetric property of the finer simulation (fire rates and weapon
 timing are provably unchanged — `py tools/verify_timing.py <log10> <log40>`).
 
+**Cross-map stats tracker (`tools/benchmark.py` → `STATS.md`).** Tracks ITEM
+completion / pickups / frags / K/D / nav nodes across all 8 q2dm maps and how
+they move as the code changes. It runs the standard repro rig (forces
+`sv_fps 40`) on every map from a **pinned, normalized** nav baseline
+(`baselines/nav/`) + pinned playbooks (`baselines/playbooks/`) at a fixed seed,
+so two snapshots differ only because the code changed. Each run appends a dated
+snapshot (commit + `--note` + full per-map metrics) to
+`baselines/benchmark_history.jsonl` and regenerates `STATS.md` (current-state
+table + ITEM%/frags trend). It freezes the built DLL + navs + playbooks into
+`engine/ozbotre_bench`, so a live `play.bat` can't perturb a run.
+`py tools/benchmark.py --note "<what changed>"` (all 8 maps); `--report-only`
+re-renders. `--mature` regrows the whole baseline from COLD with one identical
+rig (11 bots × 720s game, `sv_fps 40`) into `baselines/nav/` **only** (the live
+`engine/ozbotre/nav/` graphs are left untouched, unlike the ozbot tool) — rerun
+it when locomotion/nav-learning code changes. Playbooks are present during
+maturation, so the q2dm1 Megahealth (MH-jump playbook) IS rediscovered cold. See
+`STATS.md`.
+
 ## Resource-need calibration (demo-mined)
 
 The goal scorer's `bot_ammoneed` (per-ammo-type low-fill urgency, via
