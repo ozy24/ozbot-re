@@ -9,10 +9,13 @@ navigation is **self-learned by playing**, not hand-drawn.
 What makes this port distinct is that it is **hybrid**. For a small number of trick traversals the
 self-learned follower physically cannot reproduce — the q2dm1 Megahealth strafe-jump, the upper-Railgun
 walkway, a chaingun-ledge descent — ozbot-re replays **short human-recorded input clips** ("playbooks")
-stitched into the nav graph as first-class links. So navigation here is *learned-by-playing **and**
-demonstration-augmented*; the AI still writes every line of code, and combat and goal selection remain
-fully self-tuned. That hybrid is the headline capability of the RE rig, and it unlocked the first item
-the 10 Hz bot could never reach.
+stitched into the nav graph as first-class links. And the *shipped* bot runs on **human-curated nav
+snapshots** — self-learned graphs matured through play and frozen per map (`baselines/nav_shipped/`,
+with targeted human curation) — a layer ozbot deliberately forbids: it stays strictly **cold-only**,
+because shipping a tuned nav would contradict its all-AI identity. So navigation here is
+*learned-by-playing, **curated**, and demonstration-augmented*; the AI still writes every line of code,
+and combat and goal selection remain fully self-tuned. That hybrid is the headline capability of the RE
+rig, and it unlocked the first item the 10 Hz bot could never reach.
 
 ## What's different from ozbot
 
@@ -21,7 +24,8 @@ the 10 Hz bot could never reach.
 | Engine | q2pro, **32-bit / x86** | q2repro (re-release), **64-bit / x64** (`gamex86_64.dll`, PE `0x8664`) |
 | Tick rate | 10 Hz | **40 Hz** (10 Hz *brain*, 40 Hz *body*) |
 | Hermeticity | — | every launch passes `com_rerelease -1` (q2repro auto-detects Steam/GoG/OneDrive) |
-| Hand-authored content | **none** | a few **human-recorded playbooks** for trick moves |
+| Nav baseline | **cold-only** — self-learned, *no* shipped/curated graph (a hard identity requirement) | ships a **human-curated / matured** nav per map (`baselines/nav_shipped/`), benched against a cold graph |
+| Hand-authored content | **none** | human-recorded **playbooks** for a few trick moves |
 | Fastsim exe | `q2proded_fast.exe` | `q2reproded.exe` (built from `q2repro`) |
 | Gamedir | `engine/ozbot/` | `engine/ozbotre/` |
 
