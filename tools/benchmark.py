@@ -23,13 +23,19 @@ because of RNG.  Record what changed with --note.  The rig freezes the built
 DLL + pinned navs/playbooks into engine/ozbotre_bench (an isolated source
 gamedir), so a concurrent play.bat can't perturb a run.
 
-The nav baseline is NORMALIZED: all 8 maps are cold-matured with one identical
-rig (--mature) so no map is advantaged by a longer-lived hand-curated graph.
+Every map is measured against TWO nav baselines each snapshot:
+  * shipped -- the real bot on its hand-seeded navs (baselines/nav_shipped/, a
+    frozen snapshot of the curated engine/ozbotre/nav/; cold-filled for the maps
+    that never had a curated nav).  This is where the tuned bot actually stands.
+  * cold    -- the same build self-learning from a scratch-matured graph
+    (baselines/nav/, --mature).  This isolates nav-learning quality.
+The gap between them is what the manual nav curation is worth.
 
 Stdlib only.  Examples:
     py tools/benchmark.py --note "baseline: campaign-2026-07"
     py tools/benchmark.py --maps q2dm1,q2dm5 --note "bot_foo tweak"
-    py tools/benchmark.py --mature         # regrow the normalized nav baseline (all 8, from cold)
+    py tools/benchmark.py --pin-shipped    # refresh the shipped baseline from the live curated navs
+    py tools/benchmark.py --mature         # regrow the cold baseline (all 8, from scratch)
     py tools/benchmark.py --report-only    # regenerate STATS.md from history, no sim
 """
 
@@ -49,8 +55,14 @@ sys.path.insert(0, HERE)
 import run_parallel as rp                            # reuse the sim harness plumbing
 
 DEFAULT_ENGINE = os.path.join(REPO, "engine")
-PINNED_NAV = os.path.join(REPO, "baselines", "nav")            # frozen nav baseline
+PINNED_NAV = os.path.join(REPO, "baselines", "nav")            # cold-normalized nav baseline
+PINNED_NAV_SHIPPED = os.path.join(REPO, "baselines", "nav_shipped")  # hand-seeded (real) navs
 PINNED_PBK = os.path.join(REPO, "baselines", "playbooks")      # frozen playbooks
+
+# Every map is measured against BOTH baselines so a snapshot shows the real
+# shipped bot AND what it self-learns from a cold graph.  "shipped" first =
+# the headline column.
+VARIANTS = [("shipped", PINNED_NAV_SHIPPED), ("cold", PINNED_NAV)]
 HISTORY = os.path.join(REPO, "baselines", "benchmark_history.jsonl")
 STATS_MD = os.path.join(REPO, "STATS.md")
 BENCH_MOD = "ozbotre_bench"                          # frozen source gamedir
@@ -162,8 +174,8 @@ def _seed_playbooks(mod_dir):
     return n
 
 
-def prepare_bench_mod(engine):
-    """engine/ozbotre_bench = freshly built DLL + pinned navs + pinned playbooks."""
+def prepare_bench_mod(engine, nav_dir):
+    """engine/ozbotre_bench = freshly built DLL + navs from nav_dir + playbooks."""
     bench = os.path.join(engine, BENCH_MOD)
     shutil.rmtree(bench, ignore_errors=True)
     os.makedirs(os.path.join(bench, "nav"), exist_ok=True)
@@ -174,12 +186,29 @@ def prepare_bench_mod(engine):
     shutil.copy2(dll, os.path.join(bench, DLL_NAME))
 
     navs = 0
-    for f in glob.glob(os.path.join(PINNED_NAV, "*.nav")):
+    for f in glob.glob(os.path.join(nav_dir, "*.nav")):
         shutil.copy2(f, os.path.join(bench, "nav", os.path.basename(f)))
         navs += 1
     pbks = _seed_playbooks(bench)
-    log(f"froze DLL + {navs} pinned navs + {pbks} playbooks into engine/{BENCH_MOD}")
+    log(f"froze DLL + {navs} navs ({os.path.basename(nav_dir)}) + {pbks} playbooks into engine/{BENCH_MOD}")
     return bench
+
+
+def pin_shipped(engine):
+    """baselines/nav_shipped = the live hand-seeded engine navs, with cold-baseline
+    fallback for maps that never had a curated nav (q2dm4/q2dm6)."""
+    os.makedirs(PINNED_NAV_SHIPPED, exist_ok=True)
+    live, filled = 0, 0
+    for m in ALL_MAPS:
+        live_nav = os.path.join(engine, CANON_MOD, "nav", f"{m}.nav")
+        cold_nav = os.path.join(PINNED_NAV, f"{m}.nav")
+        dst = os.path.join(PINNED_NAV_SHIPPED, f"{m}.nav")
+        if os.path.isfile(live_nav):
+            shutil.copy2(live_nav, dst); live += 1
+        elif os.path.isfile(cold_nav):
+            shutil.copy2(cold_nav, dst); filled += 1
+    log(f"pinned shipped navs -> baselines/nav_shipped/ ({live} hand-seeded, "
+        f"{filled} cold-filled where no curated nav exists)")
 
 
 def nav_node_count(path):
@@ -301,12 +330,20 @@ def write_stats_md(history):
                  "Run `py tools/benchmark.py --note \"<what changed>\"` to add a snapshot.")
     lines.append("")
     lines.append("Each snapshot runs the standard fastsim **repro** rig (40Hz / `sv_fps 40`, "
-                 "fixed seed, pinned nav baseline in `baselines/nav/` + pinned playbooks), so "
+                 "fixed seed, pinned playbooks) on every map against **two** nav baselines, so "
                  "differences between rows isolate **code** changes. Headline metric is "
-                 "**ITEM completion** (pickups ÷ item-goal attempts). The nav baseline is "
-                 "*normalized*: all 8 maps are cold-matured with one identical rig via "
-                 "`py tools/benchmark.py --mature`, so no map is advantaged by a longer-lived "
-                 "hand-curated graph.")
+                 "**ITEM completion** (pickups ÷ item-goal attempts):")
+    lines.append("")
+    lines.append("- **shipped** — the real bot on its hand-seeded navs (`baselines/nav_shipped/`, "
+                 "a frozen snapshot of the curated `engine/ozbotre/nav/`; cold-filled for q2dm4/q2dm6 "
+                 "which never had a curated nav). This is *where the tuned bot actually stands*.")
+    lines.append("- **cold** — the same build self-learning from a scratch-matured graph "
+                 "(`baselines/nav/`, `--mature`). This isolates *nav-learning* quality, with no "
+                 "hand-curation advantage.")
+    lines.append("")
+    lines.append("The gap between them is what the manual nav curation is worth "
+                 "(≈15 ITEM points on q2dm1). Note 40Hz ITEM% runs structurally below the 10Hz "
+                 "figure — the higher kill intensity interrupts more item runs with death.")
     lines.append("")
 
     if not history:
@@ -324,25 +361,34 @@ def write_stats_md(history):
                  + f" · rig: {rig.get('instances')}×{rig.get('seconds')}s game, "
                  f"{rig.get('bots')} bots, skill {rig.get('skill')}, seed {rig.get('seed')}")
     lines.append("")
-    lines.append("| Map | ITEM % | Pickups | Attempts | Frags | Deaths | K/D | Nav nodes |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("**ITEM shipped** = the real bot on its hand-seeded navs; "
+                 "**ITEM cold** = the same build self-learning from a cold graph. "
+                 "Pickups/Attempts/Frags/Deaths/K/D/Nav are from the *shipped* run.")
+    lines.append("")
+    lines.append("| Map | ITEM shipped | ITEM cold | Pickups | Attempts | Frags | Deaths | K/D | Nav |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     lm = latest.get("maps", {})
     for m in maps:
-        d = lm.get(m)
-        if not d:
-            lines.append(f"| {m} | — | — | — | — | — | — | — |")
+        s = _variant(lm, m, "shipped")
+        c = _variant(lm, m, "cold")
+        base = s or c   # detail metrics from the shipped run (fall back to cold)
+        if not base:
+            lines.append(f"| {m} | — | — | — | — | — | — | — | — |")
             continue
-        lines.append(f"| {m} | {fmt_pct(d.get('item_completion'))} | {d.get('pickups','—')} | "
-                     f"{d.get('item_attempts','—')} | {d.get('frags','—')} | {d.get('deaths','—')} | "
-                     f"{d.get('kd') if d.get('kd') is not None else '—'} | {d.get('nav_nodes','—')} |")
-    lines.append(f"| **mean** | **{fmt_pct(_mean_item(latest))}** | | | | | | |")
+        lines.append(f"| {m} | {fmt_pct(s.get('item_completion') if s else None)} | "
+                     f"{fmt_pct(c.get('item_completion') if c else None)} | "
+                     f"{base.get('pickups','—')} | {base.get('item_attempts','—')} | "
+                     f"{base.get('frags','—')} | {base.get('deaths','—')} | "
+                     f"{base.get('kd') if base.get('kd') is not None else '—'} | {base.get('nav_nodes','—')} |")
+    lines.append(f"| **mean** | **{fmt_pct(_mean_item(latest,'shipped'))}** | "
+                 f"**{fmt_pct(_mean_item(latest,'cold'))}** | | | | | | |")
     lines.append("")
 
-    # per-item breakdown for the latest snapshot
-    lines.append("<details><summary>Per-item pickups (latest)</summary>")
+    # per-item breakdown for the latest snapshot (shipped run)
+    lines.append("<details><summary>Per-item pickups (latest, shipped)</summary>")
     lines.append("")
     for m in maps:
-        d = lm.get(m)
+        d = _variant(lm, m, "shipped")
         if not d or not d.get("pickups_by_item"):
             continue
         items = ", ".join(f"{n}× {it}" for it, n in d["pickups_by_item"].items())
@@ -351,34 +397,45 @@ def write_stats_md(history):
     lines.append("</details>")
     lines.append("")
 
-    # trend: ITEM% per map across every snapshot
-    lines.append("## ITEM completion over time")
-    lines.append("")
     header = "| Date | Note | " + " | ".join(maps) + " | mean |"
-    lines.append(header)
-    lines.append("|---|---|" + "|".join(["---:"] * (len(maps) + 1)) + "|")
-    for rec in history:
-        rm = rec.get("maps", {})
-        cells = []
-        for m in maps:
-            d = rm.get(m)
-            cells.append(fmt_pct(d.get("item_completion")) if d else "—")
-        note = (rec.get("note", "") or "").replace("|", "/")
-        if len(note) > 40:
-            note = note[:37] + "..."
-        lines.append(f"| {rec.get('date','?')[:10]} | {note} | " + " | ".join(cells)
-                     + f" | {fmt_pct(_mean_item(rec))} |")
+    sep = "|---|---|" + "|".join(["---:"] * (len(maps) + 1)) + "|"
+
+    def _item_trend(variant):
+        out = [header, sep]
+        for rec in history:
+            rm = rec.get("maps", {})
+            cells = [fmt_pct(_variant(rm, m, variant).get("item_completion"))
+                     if _variant(rm, m, variant) else "—" for m in maps]
+            note = (rec.get("note", "") or "").replace("|", "/")
+            if len(note) > 40:
+                note = note[:37] + "..."
+            out.append(f"| {rec.get('date','?')[:10]} | {note} | " + " | ".join(cells)
+                       + f" | {fmt_pct(_mean_item(rec, variant))} |")
+        return out
+
+    # trend: ITEM% per map across every snapshot -- shipped is the headline
+    lines.append("## ITEM completion over time (shipped)")
+    lines.append("")
+    lines += _item_trend("shipped")
+    lines.append("")
+    lines.append("<details><summary>ITEM completion over time (cold — from-scratch nav learning)</summary>")
+    lines.append("")
+    lines += _item_trend("cold")
+    lines.append("")
+    lines.append("</details>")
     lines.append("")
 
-    # frags trend (combat activity is symmetric self-play; informational)
-    lines.append("<details><summary>Total frags over time (self-play; activity, not skill)</summary>")
+    # frags trend (shipped run; combat activity is symmetric self-play, informational)
+    lines.append("<details><summary>Total frags over time (shipped; activity, not skill)</summary>")
     lines.append("")
     lines.append(header.replace(" mean ", " total "))
-    lines.append("|---|---|" + "|".join(["---:"] * (len(maps) + 1)) + "|")
+    lines.append(sep)
     for rec in history:
         rm = rec.get("maps", {})
-        cells = [str(rm[m].get("frags", "—")) if rm.get(m) else "—" for m in maps]
-        tot = sum(rm[m].get("frags", 0) for m in maps if rm.get(m))
+        cells = [str(_variant(rm, m, "shipped").get("frags", "—"))
+                 if _variant(rm, m, "shipped") else "—" for m in maps]
+        tot = sum(_variant(rm, m, "shipped").get("frags", 0)
+                  for m in maps if _variant(rm, m, "shipped"))
         note = (rec.get("note", "") or "").replace("|", "/")
         if len(note) > 40:
             note = note[:37] + "..."
@@ -390,9 +447,17 @@ def write_stats_md(history):
     _write(STATS_MD, "\n".join(lines) + "\n")
 
 
-def _mean_item(rec):
-    vals = [d["item_completion"] for d in rec.get("maps", {}).values()
-            if d and d.get("item_completion") is not None]
+def _variant(rec_maps, m, variant):
+    d = rec_maps.get(m)
+    return d.get(variant) if d else None
+
+
+def _mean_item(rec, variant):
+    vals = []
+    for m in rec.get("maps", {}):
+        met = _variant(rec.get("maps", {}), m, variant)
+        if met and met.get("item_completion") is not None:
+            vals.append(met["item_completion"])
     return round(sum(vals) / len(vals), 1) if vals else None
 
 
@@ -417,8 +482,9 @@ def main(argv):
                     help="extra cvar passed to every server (repeatable); sv_fps 40 is always forced")
     ap.add_argument("--engine", default=DEFAULT_ENGINE)
     ap.add_argument("--no-build", action="store_true", help="skip build.bat (use existing dist/gamex86_64.dll)")
-    ap.add_argument("--pin", action="store_true",
-                    help="(re)snapshot engine/ozbotre/nav/*.nav into baselines/nav/ as the frozen baseline, then exit")
+    ap.add_argument("--pin-shipped", action="store_true",
+                    help="(re)snapshot the live engine/ozbotre/nav/*.nav into baselines/nav_shipped/ "
+                         "(cold-filled for maps without a curated nav), then exit")
     ap.add_argument("--mature", action="store_true",
                     help="regenerate the normalized nav baseline: grow each map's graph from COLD "
                          "with one identical rig, write it to baselines/nav/ (live navs untouched), then exit")
@@ -437,13 +503,8 @@ def main(argv):
 
     engine = os.path.abspath(args.engine)
 
-    if args.pin:
-        os.makedirs(PINNED_NAV, exist_ok=True)
-        n = 0
-        for f in glob.glob(os.path.join(engine, CANON_MOD, "nav", "*.nav")):
-            shutil.copy2(f, os.path.join(PINNED_NAV, os.path.basename(f)))
-            n += 1
-        log(f"pinned {n} navs from engine/{CANON_MOD}/nav -> baselines/nav/")
+    if args.pin_shipped:
+        pin_shipped(engine)
         return 0
 
     if not args.no_build:
@@ -474,20 +535,22 @@ def main(argv):
             "Now run `py tools/benchmark.py --note ...`")
         return 0
 
-    prepare_bench_mod(engine)
-
-    results = {}
+    results = {m: {} for m in maps}
     t0 = time.time()
-    for m in maps:
-        log(f"running {m} ({args.instances}x{args.seconds:.0f}s game, seed {args.seed})...")
-        met = run_map(engine, exe, m, args)
-        if met:
-            ic = met.get("item_completion")
-            log(f"  {m}: ITEM {fmt_pct(ic)}  pickups {met['pickups']}  "
-                f"frags {met['frags']}  nav {met['nav_nodes']}")
-        results[m] = met
-
-    shutil.rmtree(os.path.join(engine, BENCH_MOD), ignore_errors=True)
+    for vname, navdir in VARIANTS:
+        if not glob.glob(os.path.join(navdir, "*.nav")):
+            log(f"WARNING: no navs in {navdir} -- skipping '{vname}' variant "
+                + ("(run --pin-shipped first)" if vname == "shipped" else "(run --mature first)"))
+            continue
+        prepare_bench_mod(engine, navdir)
+        for m in maps:
+            log(f"running {m} [{vname}] ({args.instances}x{args.seconds:.0f}s game, seed {args.seed})...")
+            met = run_map(engine, exe, m, args)
+            if met:
+                log(f"  {m} [{vname}]: ITEM {fmt_pct(met.get('item_completion'))}  "
+                    f"pickups {met['pickups']}  frags {met['frags']}  nav {met['nav_nodes']}")
+            results[m][vname] = met
+        shutil.rmtree(os.path.join(engine, BENCH_MOD), ignore_errors=True)
 
     record = {
         "date": time.strftime("%Y-%m-%dT%H:%M:%S"),

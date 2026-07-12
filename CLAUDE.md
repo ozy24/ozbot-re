@@ -53,19 +53,28 @@ timing are provably unchanged — `py tools/verify_timing.py <log10> <log40>`).
 **Cross-map stats tracker (`tools/benchmark.py` → `STATS.md`).** Tracks ITEM
 completion / pickups / frags / K/D / nav nodes across all 8 q2dm maps and how
 they move as the code changes. It runs the standard repro rig (forces
-`sv_fps 40`) on every map from a **pinned, normalized** nav baseline
-(`baselines/nav/`) + pinned playbooks (`baselines/playbooks/`) at a fixed seed,
-so two snapshots differ only because the code changed. Each run appends a dated
-snapshot (commit + `--note` + full per-map metrics) to
-`baselines/benchmark_history.jsonl` and regenerates `STATS.md` (current-state
-table + ITEM%/frags trend). It freezes the built DLL + navs + playbooks into
+`sv_fps 40`) + pinned playbooks (`baselines/playbooks/`) at a fixed seed on every
+map against **two** nav baselines, so two snapshots differ only because the code
+changed:
+- **shipped** — the real bot on its hand-seeded navs (`baselines/nav_shipped/`, a
+  frozen snapshot of the curated `engine/ozbotre/nav/`; cold-filled for q2dm4/
+  q2dm6 which never had a curated nav). Where the tuned bot actually stands.
+- **cold** — the same build self-learning from a scratch-matured graph
+  (`baselines/nav/`, `--mature`). Isolates nav-learning quality.
+
+The shipped−cold gap is what the manual nav curation is worth — and it's
+**map-specific**: big on q2dm1 (54% vs 39%) and q2dm7, but on q2dm2/3/5 the
+uniform cold nav matches or beats the hand-seeded one (a signal those live navs
+may be stale vs current-DLL maturation). Each run appends a dated snapshot
+(commit + `--note`) to `baselines/benchmark_history.jsonl` and regenerates
+`STATS.md` (both ITEM columns + trend). Freezes DLL+navs+playbooks into
 `engine/ozbotre_bench`, so a live `play.bat` can't perturb a run.
-`py tools/benchmark.py --note "<what changed>"` (all 8 maps); `--report-only`
-re-renders. `--mature` regrows the whole baseline from COLD with one identical
-rig (11 bots × 720s game, `sv_fps 40`) into `baselines/nav/` **only** (the live
-`engine/ozbotre/nav/` graphs are left untouched, unlike the ozbot tool) — rerun
-it when locomotion/nav-learning code changes. Playbooks are present during
-maturation, so the q2dm1 Megahealth (MH-jump playbook) IS rediscovered cold. See
+`py tools/benchmark.py --note "<what changed>"`; `--report-only` re-renders;
+`--pin-shipped` refreshes the shipped baseline from the live curated navs;
+`--mature` regrows the cold baseline (11 bots × 720s, `sv_fps 40`) into
+`baselines/nav/` **only** (live `engine/ozbotre/nav/` untouched). Playbooks are
+present during maturation, so q2dm1's MH-jump Megahealth is rediscovered cold.
+Note 40Hz ITEM% sits structurally below 10Hz (death-interrupted attempts). See
 `STATS.md`.
 
 ## Resource-need calibration (demo-mined)
