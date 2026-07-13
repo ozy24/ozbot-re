@@ -45,6 +45,7 @@ cvar_t	*bot_navvalidate;
 cvar_t	*bot_failpersist;
 cvar_t	*bot_reroutemid;
 cvar_t	*bot_swim;
+cvar_t	*bot_hazard;	// environmental-hazard awareness (lava/slime/hurt volumes)
 cvar_t	*bot_lift;
 cvar_t	*bot_liftcommit;	// once on a rising plat, commit to the ride (don't step off)
 cvar_t	*bot_liftlog;
@@ -155,6 +156,32 @@ void Bot_Init (void)
 															// demotes hyperblaster).  Default ON: pickups +10%, ITEM
 															// +2-3pts, frags neutral (biggest single lever)
 	bot_swim         = gi.cvar ("bot_swim", "1", 0);		// 3D steering in water (vertical swim + water-jump exits)
+	// Environmental-hazard awareness.  The stack was hazard-blind end to end
+	// and the lava maps punished it: q2dm3/q2dm6 ran ~700 environmental
+	// suicides per 16x90s DM (deaths 712 vs frags 19), and even SOLO bots died
+	// 114-131x.  Mechanism (diagnosed from death telemetry + code): lava sets
+	// waterlevel like water, so maturation wrote pool-interior nodes into the
+	// graphs (23% of q2dm6's) as routable "water"; A* priced the crossings
+	// cheap; route-following trusts learned links ("known-traversable") so the
+	// explore-only StepIsSafe probe never fired; and dying triggers NONE of
+	// the alive-only link penalties, so the death routes never eroded -- flat
+	// death rate for the whole run, plus a DM bait loop (weapons dropped by
+	// lava victims sink into the pool and become goals).  Five layers, one
+	// gate: (1) learner refuses nodes/links while in lava; (2) steering
+	// probes the floor ahead in ALL modes and stands down before a burn (the
+	// stall then feeds the normal reroutemid/stuck penalties); (3) an
+	// environmental death (lava/slime/hurt-brush/drown/fall) penalizes the hop
+	// being traversed, both directions, and itemfails the goal -- death
+	// finally erodes the graph; (4) at load, nodes inside lava or active
+	// trigger_hurt volumes get NAV_FLAG_HAZARD and A* refuses to route INTO
+	// them (legacy poisoned graphs heal without regrowing); (5) items lying IN
+	// lava are never goals (kills the bait loop).  SLIME is different: a
+	// survivable wade (10-30 hp/s vs lava's 30-90) and q2dm7's channels are
+	// legitimate crossings (a blanket exclusion cost q2dm7 solo 74%->42%),
+	// so slime nodes stay learnable/routable but NAV_FLAG_SLIME prices them
+	// 4x and roam avoids them; slime deaths still penalize via (3).
+	// Off-state byte-exact.
+	bot_hazard       = gi.cvar ("bot_hazard", "1", 0);		// don't walk into lava; unlearn what does
 	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
 															// controller, 3D column arrival, level-aware homing
 	// once the bot is standing in a RISING plat's footprint, commit to riding it
@@ -486,6 +513,33 @@ void Bot_NotePain (edict_t *self, edict_t *attacker)
 
 /*
 =================
+Bot_NoteDeath
+
+Hooked from player_die (p_client.c): stash the killing MOD_* while it is
+still fresh.  The bot layer notices death by polling deadflag at the top of
+the NEXT G_RunFrame, by which time the global meansOfDeath may have been
+overwritten by later damage in the same frame -- so capture it at die time.
+Feeds the bot_hazard environmental-death nav feedback; no-op for non-bots.
+=================
+*/
+void Bot_NoteDeath (edict_t *self, int mod)
+{
+	int		i;
+	bot_t	*b;
+
+	if (!self || !self->client)
+		return;
+	i = self - g_edicts - 1;
+	if (i < 0 || i >= game.maxclients)
+		return;
+	b = &bots[i];
+	if (!b->inuse || b->ent != self)
+		return;
+	b->death_mod = mod & ~MOD_FRIENDLY_FIRE;
+}
+
+/*
+=================
 Bot_NoteNoise / Bot_NoiseTime
 
 Hooked from PlayerNoise (p_weapon.c) before its deathmatch early-out: any
@@ -804,6 +858,18 @@ static int Bot_PickGoal (int start)
 		idx = nav.num_nodes - 1;
 	if (idx == start)
 		idx = (idx + 1) % nav.num_nodes;
+	// bot_hazard: never roam INTO a lava/hurt/slime node (q2dm6 solo was 95%
+	// roam arrivals -- and dozens of roam targets sat inside the pools; a
+	// slime bath for no goal is pure health tax).  Deterministic stride
+	// re-probe: no extra random() draws, so the RNG stream stays aligned
+	// with the off state by construction.
+	if (bot_hazard->value != 0)
+	{
+		int	guard;
+		for (guard = 0; guard < 16
+			&& (nav.nodes[idx].flags & (NAV_FLAG_HAZARD | NAV_FLAG_SLIME)); guard++)
+			idx = (idx + 1) % nav.num_nodes;
+	}
 	return idx;
 }
 
@@ -1394,6 +1460,9 @@ void Bot_RunFrame (void)
 			Nav_ValidateLinks ();			// columns are protected (PLAT-typed)
 		Playbook_Load (level.mapname);	// bot_playbook: recorded maneuvers...
 		Playbook_Register ();			// ...surfaced as NAV_LINK_PLAYBOOK links
+		Nav_FlagHazardNodes ();		// bot_hazard: mark lava/slime/hurt-volume nodes
+									// (BEFORE the reach sweep, so its verdicts see
+									// the hazard exclusion the bots will route under)
 		Goal_ReachSweep ("load");	// bot_reachlog: the persisted graph's reachability truth
 		Bot_LogLiftBegin ();		// bot_liftlog: cache plats for diagnosis telemetry
 		Com_sprintf (bot_logged_map, sizeof(bot_logged_map), "%s", level.mapname);
@@ -1439,6 +1508,37 @@ void Bot_RunFrame (void)
 		if (ent->deadflag && !b->was_dead)
 		{
 			b->was_dead = true;
+			// bot_hazard death feedback: an environmental death is the
+			// strongest "this hop is not traversable" signal there is -- and
+			// the only one the alive-only penalty paths (reroutemid/giveup/
+			// stuck) can never see, because lava kills in ~1.5s while the
+			// cheapest of them needs a 3.5s stall.  Penalize the hop being
+			// traversed like reroutemid does, but twice (a death outweighs a
+			// stall) and both directions (walk links are bidirectional; the
+			// pit kills both ways), and itemfail the goal so the whole
+			// population cools on it.  Combat kills (MOD_ROCKET etc.) never
+			// reach here -- the MOD filter keeps good links unharmed.  State
+			// is still intact: Bot_ResetNavState only runs at respawn.
+			if (bot_hazard->value != 0
+				&& (b->death_mod == MOD_LAVA || b->death_mod == MOD_SLIME
+					|| b->death_mod == MOD_WATER || b->death_mod == MOD_FALLING
+					|| b->death_mod == MOD_TRIGGER_HURT)
+				&& b->path_idx > 0 && b->path_idx < b->path_len)
+			{
+				int	from = b->path[b->path_idx - 1];
+				int	to   = b->path[b->path_idx];
+				Nav_PenalizeLink (from, to);
+				Nav_PenalizeLink (from, to);
+				Nav_PenalizeLink (to, from);
+				Nav_PenalizeLink (to, from);
+				Bot_LogPenalize (b, from, to);
+				// blacklist the goal item unless a fight plausibly shoved us
+				// in (mirrors the !enemy gate on giveup-time itemfails)
+				if (b->goal_item && !b->enemy)
+					Goal_ItemFailed (b->goal_item, NAVQ_OK);
+				Bot_LogEvent (b, "hazdeath");
+			}
+			b->death_mod = 0;
 			Bot_LogEvent (b, "death");
 		}
 		else if (!ent->deadflag && b->was_dead)

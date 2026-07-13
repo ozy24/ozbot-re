@@ -1487,6 +1487,51 @@ static qboolean Bot_StepIsSafe (bot_t *b)
 
 /*
 =================
+Bot_StepIntoHazard
+
+bot_hazard: contents-only forward probe for the modes Bot_StepIsSafe
+deliberately skips (route-following, combat).  True if the ground the bot is
+about to move onto is a LAVA surface (slime is a survivable, A*-priced wade
+-- vetoing it broke q2dm7's legitimate channel crossings).  Differences from
+StepIsSafe are load-bearing:
+  - missing floor is NOT a veto (fraction 1.0 with no liquid = a long legit
+    drop; learned FALL links must stay executable on-route), so the down
+    trace uses MASK_SOLID|MASK_WATER and reads the liquid type straight off
+    trace.contents ("contents on other side of surface hit");
+  - the probe distance scales with ground speed: a bot at 300+ups slides
+    ~50u after zeroing input, so a fixed 28u probe would veto too late.
+=================
+*/
+static qboolean Bot_StepIntoHazard (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	vec3_t	ahead, start, end;
+	trace_t	tr;
+	float	probe;
+
+	if (VectorLength (b->move_dir) < 0.1f)
+		return false;
+
+	probe = 28.0f + 0.15f * (float)sqrt (ent->velocity[0]*ent->velocity[0]
+		+ ent->velocity[1]*ent->velocity[1]);
+	if (probe > 96.0f)
+		probe = 96.0f;
+
+	VectorMA (ent->s.origin, probe, b->move_dir, ahead);
+	VectorCopy (ahead, start);
+	start[2] += 16;
+	VectorCopy (ahead, end);
+	end[2] -= 512;		// deep enough to see the pool under a rim drop-off
+						// (q2dm6 rim->pool falls run ~200u)
+
+	tr = gi.trace (start, vec3_origin, vec3_origin, end, ent, MASK_SOLID | MASK_WATER);
+	if (tr.fraction == 1.0f)
+		return false;	// bottomless within range: the void is not our call
+	return (tr.contents & CONTENTS_LAVA) != 0;
+}
+
+/*
+=================
 Bot_Fidget
 
 Humanization (bot_fidget): idle texture while deliberately holding a spot
@@ -1655,6 +1700,29 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 	// allowed to take known drops)
 	if (b->mode == BOT_MODE_EXPLORE && !b->enemy && b->ent->groundentity
 		&& !Bot_StepIsSafe (b))
+	{
+		cmd->forwardmove = 0;
+		cmd->sidemove = 0;
+		b->next_wander_time = level.time;	// turn away next frame
+		return;
+	}
+
+	// bot_hazard: the "learned paths are known-traversable" premise above is
+	// false on hazard maps -- graphs poisoned before the learner-refusal
+	// carry rim->pool routes, and combat strafing is hazard-blind -- so in
+	// every mode the explore probe skips, refuse to step onto a LAVA
+	// surface (contents-only: legit long FALL links stay executable; slime
+	// is a survivable wade A* already prices).  The stand-down feeds the
+	// normal machinery: on-route the frozen path_idx trips reroutemid's
+	// 3.5s stall -> penalize + repath around the pit; in combat the strafe
+	// rhythm re-rolls direction at the next keyframe.  Skipped while
+	// already burning (escape needs movement) and while airborne (no
+	// meaningful course change anyway).
+	if (bot_hazard->value != 0
+		&& !(b->mode == BOT_MODE_EXPLORE && !b->enemy)	// complement of the
+		&& b->ent->groundentity							// probe above
+		&& !(b->ent->watertype & CONTENTS_LAVA)
+		&& Bot_StepIntoHazard (b))
 	{
 		cmd->forwardmove = 0;
 		cmd->sidemove = 0;

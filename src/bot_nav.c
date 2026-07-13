@@ -34,6 +34,48 @@ static short	nav_indegree[NAV_MAX_NODES];
 static const vec3_t pl_mins = {-16, -16, -24};
 static const vec3_t pl_maxs = { 16,  16,  32};
 
+// bot_hazard: active trigger_hurt volumes cached per map (pointcontents can
+// never see SOLID_TRIGGER entities, so hurt brushes need their own test).
+// Filled by Nav_FlagHazardNodes in the per-map setup.
+#define NAV_MAX_HURT_VOLUMES	32
+static vec3_t	hurt_mins[NAV_MAX_HURT_VOLUMES];
+static vec3_t	hurt_maxs[NAV_MAX_HURT_VOLUMES];
+static int		num_hurt_volumes;
+
+/*
+=================
+Nav_PointHazardFlags
+
+Hazard classification for a node position (the bot's origin, so ~24u above
+the floor): NAV_FLAG_HAZARD for lava or a cached trigger_hurt volume (A*
+forbids), NAV_FLAG_SLIME for slime (A* prices 4x), 0 for safe.  Probes the
+point itself and 20u below it -- a node learned while standing on a knee-deep
+liquid floor has its origin in open air but its feet in the burn.
+=================
+*/
+static byte Nav_PointHazardFlags (vec3_t origin)
+{
+	vec3_t	p;
+	int		i, c;
+
+	c = gi.pointcontents (origin);
+	VectorCopy (origin, p);
+	p[2] -= 20;
+	c |= gi.pointcontents (p);
+	if (c & CONTENTS_LAVA)
+		return NAV_FLAG_HAZARD;
+	for (i = 0; i < num_hurt_volumes; i++)
+	{
+		if (origin[0] >= hurt_mins[i][0] - 8 && origin[0] <= hurt_maxs[i][0] + 8
+			&& origin[1] >= hurt_mins[i][1] - 8 && origin[1] <= hurt_maxs[i][1] + 8
+			&& origin[2] >= hurt_mins[i][2] - 8 && origin[2] <= hurt_maxs[i][2] + 32)
+			return NAV_FLAG_HAZARD;
+	}
+	if (c & CONTENTS_SLIME)
+		return NAV_FLAG_SLIME;
+	return 0;
+}
+
 static float Nav_Dist (vec3_t a, vec3_t b)
 {
 	vec3_t	d;
@@ -197,8 +239,24 @@ int Nav_LearnStep (edict_t *ent, int prev_node, int link_type)
 	if (!ent->groundentity && ent->waterlevel < 2)
 		return prev_node;	// airborne; wait until we land
 
+	// bot_hazard: never learn nodes/links while in LAVA.  The engine sets
+	// waterlevel for ANY liquid, so a bot surviving a burn for a few frames
+	// used to write the pool into the graph as routable "water" -- the
+	// q2dm3/q2dm6 mass-suicide mechanism (q2dm3's shipped graph: 78 "water"
+	// nodes = 64 lava + 14 slime + 0 actual water).  Return -1, not
+	// prev_node: keeping the chain alive would stitch a rim->rim WALK link
+	// across the pit the moment the bot claws out the far side.  SLIME stays
+	// learnable (flagged, priced 4x by A*) -- q2dm7's channels are
+	// legitimate, survivable crossings the graph must keep.
+	if (bot_hazard->value != 0 && ent->waterlevel >= 1
+		&& (ent->watertype & CONTENTS_LAVA))
+		return -1;
+
 	if (ent->waterlevel >= 2)
 		flags |= NAV_FLAG_WATER;
+	if (bot_hazard->value != 0 && ent->waterlevel >= 1
+		&& (ent->watertype & CONTENTS_SLIME))
+		flags |= NAV_FLAG_SLIME;
 
 	cur = Nav_AddNode (ent->s.origin, flags);
 	if (cur < 0)
@@ -584,9 +642,21 @@ int Nav_FindPathMasked (int start, int goal, int mask, int *out, int max)
 			// bot must not be routed through deep water
 			if (!(mask & NAV_MASK (NAV_LINK_WATER)) && (nav.nodes[nb].flags & NAV_FLAG_WATER))
 				continue;
+			// bot_hazard: never route INTO a lava/hurt node (same
+			// destination-node pattern as the water mask).  Such nodes exist
+			// only in graphs learned before the learner-refusal; flagged at
+			// load by Nav_FlagHazardNodes.  Links OUT of a hazard node stay
+			// expandable, so a bot knocked into a pool can still route out.
+			if (bot_hazard->value != 0 && (nav.nodes[nb].flags & NAV_FLAG_HAZARD))
+				continue;
 			if (closed[nb])
 				continue;
 			tentative = gscore[cur] + n->links[i].cost;
+			// bot_hazard: slime is a survivable wade, not a wall -- price a
+			// hop INTO a slime node 4x so A* detours when a dry route exists
+			// and pays the toll when none does (q2dm7's channel crossings)
+			if (bot_hazard->value != 0 && (nav.nodes[nb].flags & NAV_FLAG_SLIME))
+				tentative += n->links[i].cost * 3.0f;
 			if (tentative < gscore[nb])
 			{
 				came[nb] = cur;
@@ -966,6 +1036,65 @@ void Nav_ValidateLinks (void)
 
 	if (dropped)
 		gi.dprintf ("ozbot: navvalidate dropped %d steep one-way walk link(s)\n", dropped);
+}
+
+/*
+=================
+Nav_FlagHazardNodes
+
+bot_hazard load-time sweep: cache the map's active trigger_hurt volumes, then
+stamp NAV_FLAG_HAZARD (lava/hurt volume: A* forbids) or NAV_FLAG_SLIME
+(survivable wade: A* prices 4x) on every node, clearing stale flags so a
+graph re-judged after a rules change heals.
+Runs from the per-map setup (needs spawned entities), AFTER Goal_SeedNavNodes
+so seeded item nodes get judged too, BEFORE Goal_ReachSweep so the oracle's
+load verdicts reflect the exclusion the bots will actually route under.
+
+Flags, not removals: the graph data survives intact (turning the cvar off
+restores every route bit-exactly), and A*'s destination-node test does the
+work -- the same mechanism the WATER capability mask already uses.
+=================
+*/
+void Nav_FlagHazardNodes (void)
+{
+	int		i, flagged = 0, cleared = 0;
+	edict_t	*e;
+
+	num_hurt_volumes = 0;
+	if (bot_hazard->value == 0)
+		return;
+
+	// active hurt volumes only: a START_OFF trigger_hurt spawns SOLID_NOT and
+	// most kill-pits are always-on.  dmg <= 0 would be a healing brush.
+	for (e = NULL; (e = G_Find (e, FOFS(classname), "trigger_hurt")) != NULL; )
+	{
+		if (e->solid != SOLID_TRIGGER || e->dmg <= 0)
+			continue;
+		if (num_hurt_volumes >= NAV_MAX_HURT_VOLUMES)
+			break;
+		VectorCopy (e->absmin, hurt_mins[num_hurt_volumes]);
+		VectorCopy (e->absmax, hurt_maxs[num_hurt_volumes]);
+		num_hurt_volumes++;
+	}
+
+	for (i = 0; i < nav.num_nodes; i++)
+	{
+		byte	is = Nav_PointHazardFlags (nav.nodes[i].origin);
+		byte	was = nav.nodes[i].flags & (NAV_FLAG_HAZARD | NAV_FLAG_SLIME);
+
+		if (is == was)
+			continue;
+		nav.nodes[i].flags = (nav.nodes[i].flags & ~(NAV_FLAG_HAZARD | NAV_FLAG_SLIME)) | is;
+		if (is)
+			flagged++;
+		else
+			cleared++;
+		nav_dirty = true;
+	}
+
+	if (flagged || cleared || num_hurt_volumes)
+		gi.dprintf ("ozbot: hazard sweep: %d node(s) flagged, %d cleared, %d hurt volume(s)\n",
+			flagged, cleared, num_hurt_volumes);
 }
 
 /*

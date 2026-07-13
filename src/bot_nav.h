@@ -60,6 +60,17 @@ NOTE: include "g_local.h" and "bot.h" before this header.
 
 // node flags
 #define NAV_FLAG_WATER		1
+#define NAV_FLAG_HAZARD		2	// node sits in LAVA or an active trigger_hurt volume
+								// (bot_hazard): A* refuses to route INTO it.  Stamped
+								// by the load-time sweep (Nav_FlagHazardNodes) so
+								// graphs poisoned before the learner-refusal existed
+								// heal without regrowing.
+#define NAV_FLAG_SLIME		4	// node sits in SLIME (bot_hazard): routable but priced
+								// 4x -- slime is a survivable wade (10-30 hp/s vs lava
+								// 30-90) and q2dm7's channels are legitimate crossings
+								// (excluding them cost solo collection 74%->42%), so
+								// A* detours around slime when a dry route exists and
+								// pays the toll when none does.
 
 typedef struct
 {
@@ -134,5 +145,11 @@ void Nav_TagPlatLinks (void);
 // directly so a bot_lift-off graph keeps its columns too.  Needs spawned
 // entities (Bot_FindPlatAt), so it runs from Bot_RunFrame, not Nav_Init.
 void Nav_ValidateLinks (void);
+
+// bot_hazard: stamp NAV_FLAG_HAZARD on nodes inside lava/slime brushes or
+// active trigger_hurt volumes (and clear stale flags), and cache the hurt
+// volumes for the learner's refusal test.  Needs spawned entities (G_Find
+// over trigger_hurt), so it runs from the per-map setup in Bot_RunFrame.
+void Nav_FlagHazardNodes (void);
 
 #endif // OZBOT_BOT_NAV_H

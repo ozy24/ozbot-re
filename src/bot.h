@@ -197,6 +197,9 @@ typedef struct
 
 	// transition tracking for event logging
 	qboolean	was_dead;
+	int			death_mod;		// MOD_* of the pending death (stashed by
+								// Bot_NoteDeath from player_die, consumed by the
+								// bot_hazard environmental-death nav feedback)
 } bot_t;
 
 //
@@ -245,6 +248,9 @@ extern cvar_t	*bot_navvalidate;	// load-time fluke-link pruner (P1; map-general 
 extern cvar_t	*bot_failpersist;	// persist per-item completability across map loads (P4a)
 extern cvar_t	*bot_reroutemid;	// penalize a stalled hop mid-attempt, not only at giveup (P4b)
 extern cvar_t	*bot_swim;
+extern cvar_t	*bot_hazard;	// environmental-hazard awareness (learner refusal, steering
+								// probe, death-driven link penalty, load-time node flagging
+								// + A* exclusion, in-lava goal filter)
 extern cvar_t	*bot_lift;
 extern cvar_t	*bot_liftcommit;	// commit to riding a rising plat (don't step off mid-ride)
 extern cvar_t	*bot_liftlog;
@@ -397,6 +403,9 @@ extern cvar_t	*bot_hop;
 // bot_fov pain reflex: a bot that takes damage learns where from (hooked from
 // player_pain in p_client.c, which vanilla leaves empty)
 void Bot_NotePain (edict_t *self, edict_t *attacker);
+// bot_hazard death feedback: player_die stashes the killing MOD_* while it is
+// still fresh (the global goes stale before the bot's deadflag poll next frame)
+void Bot_NoteDeath (edict_t *self, int mod);
 // bot_fov hearing: weapon-noise bookkeeping (hooked from PlayerNoise)
 void Bot_NoteNoise (edict_t *who);
 float Bot_NoiseTime (edict_t *who);

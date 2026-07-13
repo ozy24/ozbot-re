@@ -605,6 +605,27 @@ Returns true if a worthwhile goal was found.
 #define GOAL_MAX_CAND	256
 #define GOAL_MAX_TRIES	8	// reachability A* checks per decision (bounded cost)
 
+/*
+=================
+Goal_ItemInHazard
+
+bot_hazard: true if the item is lying IN lava -- a lava victim's weapon drop
+sunk to the pool floor.  Both hazard maps ran a self-amplifying bait loop on
+these: bot_wpnneed prices an unowned RL at the top of the pro kill-rank, so
+the submerged drop became a prime goal, the collector burned to death beside
+it and dropped ITS weapon in too (q2dm3: 0 of 802 trench excursions ever
+retrieved one).  Legit floor items rest on solid ground, so their origins
+never test as liquid.  Slime-submerged items stay eligible: the wade is
+survivable and A* prices it.
+=================
+*/
+static qboolean Goal_ItemInHazard (edict_t *it)
+{
+	if (bot_hazard->value == 0)
+		return false;
+	return (gi.pointcontents (it->s.origin) & CONTENTS_LAVA) != 0;
+}
+
 qboolean Goal_Select (bot_t *b)
 {
 	edict_t	*cand[GOAL_MAX_CAND];
@@ -634,6 +655,8 @@ qboolean Goal_Select (bot_t *b)
 			continue;
 		if (bot_claim->value != 0 && Bot_ItemClaimed (it, b))
 			continue;	// another bot is already headed there
+		if (Goal_ItemInHazard (it))
+			continue;	// bot_hazard: sunken weapon drops are bait, not goals
 
 		avail = Goal_ItemAvailable (it);
 		if (!avail)
@@ -782,6 +805,8 @@ edict_t *Goal_NearestItem (bot_t *b, float maxdist)
 			continue;
 		if (decisive && Goal_OnCooldown (it))
 			continue;			// never steer at what we just abandoned
+		if (Goal_ItemInHazard (it))
+			continue;			// bot_hazard: don't steer exploration at bait either
 		if (Item_Score (b, it, &dist) <= 0)
 			continue;
 		if (dist < bestd)

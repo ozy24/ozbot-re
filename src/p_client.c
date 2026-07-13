@@ -531,6 +531,10 @@ void player_die (edict_t *self, edict_t *inflictor, edict_t *attacker, int damag
 		LookAtKiller (self, inflictor, attacker);
 		self->client->ps.pmove.pm_type = PM_DEAD;
 		ClientObituary (self, inflictor, attacker);
+		// ozbot: stash the killing MOD while it's fresh -- the bot layer's
+		// deadflag poll runs next frame, after the global may have been
+		// overwritten (bot_hazard death feedback; no-op for non-bot slots)
+		Bot_NoteDeath (self, meansOfDeath);
 		TossClientWeapon (self);
 		if (deathmatch->value && !Bot_IsClient (self))
 			Cmd_Help_f (self);		// show scores

@@ -422,6 +422,52 @@ disadvantaged), ITEM% flat-to-+2pt.** `bot_aimprec 0` recovers the pre-fix md5
 `fdf51ec`; shipped-default md5 `66b96b9`. `bot_aimlog` (default 0) + the `aim`
 subcommand are kept as the calibration diagnostics.
 
+**P6 — environmental-hazard awareness SHIPPED (`bot_hazard`, default ON).** The
+stack was hazard-blind end to end and the lava maps punished it: q2dm3 ran 712
+deaths vs 19 frags per 16x90s DM (q2dm6: 719 vs 17), and even SOLO bots — combat
+impossible — died 131/114x, all environmental. Diagnosed from death telemetry +
+code (5-agent sweep): the engine sets `waterlevel` for ANY liquid, so maturation
+wrote pool-interior nodes into the persistent graphs as routable "water" (q2dm3:
+78 "water" nodes = 64 lava + 14 slime + 0 actual water; q2dm6: 73/324 nodes
+inside lava, 96% of solo deaths had one as nearest node); A* priced the crossings
+cheap (pure distance x type); route-following skips the explore-only
+`Bot_StepIsSafe` probe ("learned paths are known-traversable"); and a burning bot
+dies ~1.5s after trench entry — faster than every alive-only penalty path
+(reroutemid 3.5s stall / giveup budget / stuck), so the death routes NEVER eroded
+(flat death rate all run). DM added a bait loop: weapons dropped by lava victims
+sink into the pool and `bot_wpnneed` prices an unowned RL top-of-kill-rank
+(q2dm3: 0 of 802 trench excursions ever retrieved one). Five layers, one cvar:
+(1) the learner refuses nodes/links while in LAVA, returning -1 to sever the
+chain (else exiting the far side stitches a rim->rim WALK link over the pit);
+(2) an all-modes steering probe — contents-only so legit long FALL links stay
+executable, speed-scaled distance (28u + 0.15/ups, bots slide ~50u from 300ups),
+deep `MASK_SOLID|MASK_WATER` down-trace reading the liquid off `trace.contents`
+— stands down before a burn, and the resulting stall feeds the normal
+reroutemid/stuck machinery; (3) an environmental death (MOD lava/slime/water/
+falling/trigger_hurt, stashed at die time by the new `Bot_NoteDeath` hook in
+`player_die`) penalizes the hop being traversed 2x in BOTH directions +
+itemfails the goal when `!enemy` — death finally erodes the graph; (4) a
+load-time sweep (`Nav_FlagHazardNodes`, after playbook registration, before the
+reach sweep) stamps `NAV_FLAG_HAZARD` on nodes in lava or active trigger_hurt
+volumes and A* refuses to route INTO them (out-links stay expandable so a
+knocked-in bot routes out) — legacy poisoned graphs heal at load without
+regrowing; (5) items lying IN lava are never goals or steer targets (kills the
+bait loop). **SLIME is priced, not forbidden** (`NAV_FLAG_SLIME`, 4x A* toll,
+still learnable, no steer veto, roam avoids it): q2dm7's channels are legitimate
+survivable crossings (10-30 hp/s vs lava's 30-90) — the v1 blanket exclusion
+cost q2dm7 solo 74%->42%, the pricing version took it to 90% (ABOVE the
+no-hazard baseline; pointless slime baths get detoured, necessary crossings paid
+for). **A/B (16 seeds x 2 bases, paired):** q2dm3 dm deaths 712->424/381, frags
+19->113/96, ITEM 21->36/39%; q2dm6 dm deaths 719->420/390, frags 17->61/42,
+ITEM 27->37/40%; q2dm4 dm deaths -35%, frags +85%, ITEM 67->77/70%; q2dm3 solo
+deaths 131->15/16; q2dm1/q2dm8 metric-identical (q2dm1 pickups/frags/deaths
+578/220/234 exactly). Off-state byte-exact: `bot_hazard 0` recovers `f4f402b7`
+(q2dm1 dm) and `ecbe9caf` (q2dm3 dm); shipped-default q2dm1 md5 `e7645f66`
+(identical aggregates; stream differs only via fall-death penalties). Bonus:
+cold maturation under the fix grows BETTER graphs (bots survive to explore) —
+q2dm7 93->240 nodes, q2dm3 clean at 234, q2dm2/4/5/6 all improved -> adopted
+per-map into the live navs (see the nav-refresh commit).
+
 **Still deferred:** P2b/P2c aim/lead/flee re-sweeps.
 
 **Campaign md5 note.** The pre-campaign off-state baseline reproduces as
