@@ -251,6 +251,7 @@ extern cvar_t	*bot_swim;
 extern cvar_t	*bot_hazard;	// environmental-hazard awareness (learner refusal, steering
 								// probe, death-driven link penalty, load-time node flagging
 								// + A* exclusion, in-lava goal filter)
+extern cvar_t	*bot_hazlog;	// per-death MOD + path/airborne classification diagnostic
 extern cvar_t	*bot_lift;
 extern cvar_t	*bot_liftcommit;	// commit to riding a rising plat (don't step off mid-ride)
 extern cvar_t	*bot_liftlog;
@@ -446,6 +447,7 @@ void Bot_LogBeginLevel (const char *mapname);	// open a fresh JSONL for this map
 void Bot_LogEndLevel (void);					// flush + close the current JSONL
 void Bot_LogTick (bot_t *b);					// per-tick state record
 void Bot_LogEvent (bot_t *b, const char *event);	// spawn/death/etc.
+void Bot_LogHazDeath (bot_t *b, int mod, qboolean penalized);	// bot_hazlog: per-death classification
 void Bot_LogFire (edict_t *who);				// weapon discharge (timing invariants)
 void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// bot_wpnlog
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog

@@ -178,6 +178,42 @@ void Bot_LogEvent (bot_t *b, const char *event)
 
 /*
 =================
+Bot_LogHazDeath
+
+bot_hazlog: one record per death classifying it for the environmental-death
+audit -- the MOD, whether the bot was airborne / in liquid, its velocity
+(a fast downward vz = fell/knocked in), path state, and whether the
+bot_hazard death penalty could fire (a route existed to erode).  Lets an
+analysis split the residual hazard deaths into ground-walk-in (should be
+caught by the steer probe), airborne fall/knockback (currently missed), and
+already-in-liquid.  Gated on the cvar so off-state telemetry is byte-exact.
+=================
+*/
+void Bot_LogHazDeath (bot_t *b, int mod, qboolean penalized)
+{
+	edict_t	*ent;
+
+	if (!log_fp || !bot_hazlog || bot_hazlog->value == 0 || !b || !b->ent)
+		return;
+
+	ent = b->ent;
+	fprintf (log_fp,
+		"{\"type\":\"event\",\"event\":\"hazclass\",\"t\":%.2f,\"bot\":%d,"
+		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,\"vz\":%.1f,"
+		"\"mod\":%d,\"onground\":%s,\"waterlevel\":%d,\"watertype\":%d,"
+		"\"mode\":%d,\"enemy\":%d,\"path_idx\":%d,\"path_len\":%d,"
+		"\"penalized\":%s}\n",
+		level.time, b->id,
+		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2], ent->velocity[2],
+		mod, ent->groundentity ? "true" : "false",
+		ent->waterlevel, ent->watertype,
+		b->mode, b->enemy ? (int)(b->enemy - g_edicts) : -1,
+		b->path_idx, b->path_len,
+		penalized ? "true" : "false");
+}
+
+/*
+=================
 Bot_LogFire
 
 One record per weapon discharge (hooked from PlayerNoise PNOISE_WEAPON, which

@@ -46,6 +46,7 @@ cvar_t	*bot_failpersist;
 cvar_t	*bot_reroutemid;
 cvar_t	*bot_swim;
 cvar_t	*bot_hazard;	// environmental-hazard awareness (lava/slime/hurt volumes)
+cvar_t	*bot_hazlog;	// per-death diagnostic: MOD + path/airborne state (default 0)
 cvar_t	*bot_lift;
 cvar_t	*bot_liftcommit;	// once on a rising plat, commit to the ride (don't step off)
 cvar_t	*bot_liftlog;
@@ -182,6 +183,7 @@ void Bot_Init (void)
 	// 4x and roam avoids them; slime deaths still penalize via (3).
 	// Off-state byte-exact.
 	bot_hazard       = gi.cvar ("bot_hazard", "1", 0);		// don't walk into lava; unlearn what does
+	bot_hazlog       = gi.cvar ("bot_hazlog", "0", 0);		// per-death MOD + path/airborne classification diagnostic
 	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
 															// controller, 3D column arrival, level-aware homing
 	// once the bot is standing in a RISING plat's footprint, commit to riding it
@@ -1537,6 +1539,19 @@ void Bot_RunFrame (void)
 				if (b->goal_item && !b->enemy)
 					Goal_ItemFailed (b->goal_item, NAVQ_OK);
 				Bot_LogEvent (b, "hazdeath");
+			}
+			// bot_hazlog: classify EVERY death (MOD, airborne, path state,
+			// whether a route existed to penalize) so the residual
+			// environmental deaths the penalty misses -- airborne/knocked-in,
+			// or path already run off the end -- can be sized and targeted.
+			if (bot_hazlog->value != 0)
+			{
+				qboolean penalized = (bot_hazard->value != 0
+					&& (b->death_mod == MOD_LAVA || b->death_mod == MOD_SLIME
+						|| b->death_mod == MOD_WATER || b->death_mod == MOD_FALLING
+						|| b->death_mod == MOD_TRIGGER_HURT)
+					&& b->path_idx > 0 && b->path_idx < b->path_len);
+				Bot_LogHazDeath (b, b->death_mod, penalized);
 			}
 			b->death_mod = 0;
 			Bot_LogEvent (b, "death");

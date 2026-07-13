@@ -468,6 +468,33 @@ cold maturation under the fix grows BETTER graphs (bots survive to explore) —
 q2dm7 93->240 nodes, q2dm3 clean at 234, q2dm2/4/5/6 all improved -> adopted
 per-map into the live navs (see the nav-refresh commit).
 
+**P6b — hazard brake (momentum-aware edge stop) SHIPPED (inside `bot_hazard`).**
+A per-death audit (new `bot_hazlog` diagnostic, default 0: MOD + airborne/path
+state per death) of the residual hazard deaths after P6 found `ground_walkin`
+~0 (the steer probe works) but 60-70% of remaining lava deaths were bots that
+went AIRBORNE off a ledge -- and of those, the dominant class was
+walked-off-ledge with NO enemy (q2dm6: 93/222): the v1 veto zeroes INPUT but
+not MOMENTUM, so a bot arriving at 150-255ups (launch-speed p50) coasted off
+the edge after the veto fired, with a flat death rate all run (movement
+problem; the link penalty can't erode it away).  Fix: on a lava-ahead probe
+hit, BRAKE -- drive reverse along -move_dir to bleed the slide and back off,
+and suppress any jump (`upmove = 0`).  Two measured design corrections:
+(1) blind full-reverse along -velocity was catastrophic on q2dm6 ("The Lava
+Tomb", lava on multiple sides): it drove bots backward into the pool BEHIND
+them, solo deaths 13->78 -- v2 reverses only if the retreat direction itself
+probes safe, else zeroes input and lets friction bleed the slide; (2) the
+probe distance is speed-scaled (28u + 0.15/ups, cap 128).  A/B vs P6 (16
+seeds x 2 bases): q2dm3 solo deaths 14->6 / ITEM 53->63%, q2dm3 dm ITEM
++2-3pt with deaths -18/-47 and frags +22 at s700; q2dm4 dm deaths 155->124,
+pickups +31; q2dm6 solo deaths 13->9 / 27->15, dm a wash (ITEM -1pt, within
+noise); q2dm1/5/7/8 numerically IDENTICAL (no lava -> no behavior change).
+The q2dm6 residual is now combat-coupled (mid-fight jumps 49, knockback 27,
+ledge-with-enemy 45 per the audit) -- deliberately not chased: directed
+combat-movement changes have been rejected 3x (bot_dodge).  Off-state
+byte-exact on the refreshed navs (`bot_hazard 0` -> `a8dfd0c1` q2dm1 /
+`ae27e417` q2dm3 dm s700, both matching the pre-change build).  `bot_hazlog`
+kept as the death-audit diagnostic.
+
 **Still deferred:** P2b/P2c aim/lead/flee re-sweeps.
 
 **Campaign md5 note.** The pre-campaign off-state baseline reproduces as

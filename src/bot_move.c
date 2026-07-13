@@ -1487,37 +1487,36 @@ static qboolean Bot_StepIsSafe (bot_t *b)
 
 /*
 =================
-Bot_StepIntoHazard
+Bot_HazardInDir
 
-bot_hazard: contents-only forward probe for the modes Bot_StepIsSafe
-deliberately skips (route-following, combat).  True if the ground the bot is
-about to move onto is a LAVA surface (slime is a survivable, A*-priced wade
--- vetoing it broke q2dm7's legitimate channel crossings).  Differences from
-StepIsSafe are load-bearing:
+bot_hazard: contents-only forward probe in an arbitrary horizontal direction.
+True if the ground `dist` units ahead along `dir` is a LAVA surface (slime is
+a survivable, A*-priced wade -- vetoing it broke q2dm7's legitimate channel
+crossings).  Differences from Bot_StepIsSafe are load-bearing:
   - missing floor is NOT a veto (fraction 1.0 with no liquid = a long legit
     drop; learned FALL links must stay executable on-route), so the down
     trace uses MASK_SOLID|MASK_WATER and reads the liquid type straight off
     trace.contents ("contents on other side of surface hit");
-  - the probe distance scales with ground speed: a bot at 300+ups slides
-    ~50u after zeroing input, so a fixed 28u probe would veto too late.
+  - the probe distance scales with speed by the caller: a bot at 300+ups
+    slides ~50u after zeroing input, so a fixed 28u probe would veto too late.
 =================
 */
-static qboolean Bot_StepIntoHazard (bot_t *b)
+static qboolean Bot_HazardInDir (edict_t *ent, const vec3_t dir, float dist)
 {
-	edict_t	*ent = b->ent;
-	vec3_t	ahead, start, end;
+	vec3_t	d, ahead, start, end;
 	trace_t	tr;
-	float	probe;
+	float	len;
 
-	if (VectorLength (b->move_dir) < 0.1f)
+	d[0] = dir[0];
+	d[1] = dir[1];
+	d[2] = 0;
+	len = (float)sqrt (d[0]*d[0] + d[1]*d[1]);
+	if (len < 0.1f)
 		return false;
+	d[0] /= len;
+	d[1] /= len;
 
-	probe = 28.0f + 0.15f * (float)sqrt (ent->velocity[0]*ent->velocity[0]
-		+ ent->velocity[1]*ent->velocity[1]);
-	if (probe > 96.0f)
-		probe = 96.0f;
-
-	VectorMA (ent->s.origin, probe, b->move_dir, ahead);
+	VectorMA (ent->s.origin, dist, d, ahead);
 	VectorCopy (ahead, start);
 	start[2] += 16;
 	VectorCopy (ahead, end);
@@ -1528,6 +1527,24 @@ static qboolean Bot_StepIntoHazard (bot_t *b)
 	if (tr.fraction == 1.0f)
 		return false;	// bottomless within range: the void is not our call
 	return (tr.contents & CONTENTS_LAVA) != 0;
+}
+
+/*
+=================
+Bot_HazardProbe
+
+Speed-scaled forward probe distance: a bot at 300+ups slides ~50u after its
+input is cut, so the veto point must lead the bot far enough to brake before
+the edge.
+=================
+*/
+static float Bot_HazardProbe (edict_t *ent, float extra)
+{
+	float	probe = 28.0f + 0.15f * (float)sqrt (ent->velocity[0]*ent->velocity[0]
+		+ ent->velocity[1]*ent->velocity[1]) + extra;
+	if (probe > 128.0f)
+		probe = 128.0f;
+	return probe;
 }
 
 /*
@@ -1696,33 +1713,63 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 		return;
 	}
 
-	// avoid wandering into void/lava (explore only; combat & learned paths are
-	// allowed to take known drops)
-	if (b->mode == BOT_MODE_EXPLORE && !b->enemy && b->ent->groundentity
-		&& !Bot_StepIsSafe (b))
+	// bot_hazard: in EVERY mode, refuse to go airborne over LAVA (contents-
+	// only: legit long FALL links stay executable; slime is a survivable
+	// wade A* already prices).  Zeroing input (the v1 behavior) stops
+	// ACCELERATION but not MOMENTUM -- the residual-death audit found ~65% of
+	// the remaining lava deaths were bots that coasted off a ledge after the
+	// intent was already cut (walked-off-ledge, launch speed p50 ~150-255ups).
+	// So instead of zeroing, BRAKE: drive reverse away from the lava the probe
+	// saw to bleed the slide, and suppress any jump.  Probe on the intended
+	// move direction with a speed-scaled lead.  The stall then feeds the
+	// normal machinery (reroutemid penalizes the frozen hop; combat re-rolls
+	// the strafe).  Placed before the explore void-check (which still handles
+	// a bottomless drop the lava probe ignores).  Skipped while already
+	// burning (escape needs movement) and airborne (no ground to brake on).
+	if (bot_hazard->value != 0 && b->ent->groundentity
+		&& !(b->ent->watertype & CONTENTS_LAVA)
+		&& Bot_HazardInDir (b->ent, b->move_dir, Bot_HazardProbe (b->ent, 0.0f)))
 	{
-		cmd->forwardmove = 0;
-		cmd->sidemove = 0;
+		vec3_t	back;
+
+		// back away directly opposite the direction that saw lava -- but only
+		// if that retreat is itself onto solid ground.  A blind reverse is
+		// what wrecked the first cut on q2dm6 ("The Lava Tomb"): with lava on
+		// more than one side, driving full-reverse launched bots backward
+		// into the pool BEHIND them (solo deaths 13->78).  When the retreat
+		// is unsafe too, just zero input and let friction bleed the slide off
+		// (the bot is boxed by lava; the stall trips reroutemid to repath).
+		back[0] = -b->move_dir[0];
+		back[1] = -b->move_dir[1];
+		back[2] = 0;
+
+		if (VectorLength (back) > 0.1f
+			&& !Bot_HazardInDir (b->ent, back, Bot_HazardProbe (b->ent, 16.0f)))
+		{
+			a[YAW] = facing_yaw;
+			AngleVectors (a, f, r, u);
+			f[2] = 0;
+			r[2] = 0;
+			VectorNormalize (f);
+			VectorNormalize (r);
+			cmd->forwardmove = (short)(DotProduct (back, f) * speed);
+			cmd->sidemove    = (short)(DotProduct (back, r) * speed);
+		}
+		else
+		{
+			cmd->forwardmove = 0;
+			cmd->sidemove = 0;
+		}
+		cmd->upmove = 0;					// never launch a jump into it
 		b->next_wander_time = level.time;	// turn away next frame
 		return;
 	}
 
-	// bot_hazard: the "learned paths are known-traversable" premise above is
-	// false on hazard maps -- graphs poisoned before the learner-refusal
-	// carry rim->pool routes, and combat strafing is hazard-blind -- so in
-	// every mode the explore probe skips, refuse to step onto a LAVA
-	// surface (contents-only: legit long FALL links stay executable; slime
-	// is a survivable wade A* already prices).  The stand-down feeds the
-	// normal machinery: on-route the frozen path_idx trips reroutemid's
-	// 3.5s stall -> penalize + repath around the pit; in combat the strafe
-	// rhythm re-rolls direction at the next keyframe.  Skipped while
-	// already burning (escape needs movement) and while airborne (no
-	// meaningful course change anyway).
-	if (bot_hazard->value != 0
-		&& !(b->mode == BOT_MODE_EXPLORE && !b->enemy)	// complement of the
-		&& b->ent->groundentity							// probe above
-		&& !(b->ent->watertype & CONTENTS_LAVA)
-		&& Bot_StepIntoHazard (b))
+	// avoid wandering into the void (explore only; combat & learned paths are
+	// allowed to take known drops).  Lava in any mode is handled by the brake
+	// above; this remains for the bottomless-drop case the lava probe ignores.
+	if (b->mode == BOT_MODE_EXPLORE && !b->enemy && b->ent->groundentity
+		&& !Bot_StepIsSafe (b))
 	{
 		cmd->forwardmove = 0;
 		cmd->sidemove = 0;
