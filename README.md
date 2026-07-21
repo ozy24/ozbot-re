@@ -104,6 +104,18 @@ ascent-gate (lift-timeout −48%) plus a `cg_descend` rescue playbook with a per
 (stall −24%, giveups −7%). 40 Hz humanization polish landed: `bot_aimsmooth` (40 Hz view-glide toward the
 10 Hz aim, teleports −75%, kills neutral) and `bot_gazelife`. `bot_reroute` shipped (giveup −0.5 pt).
 
+**q2dm3 nav curation (2026-07-15).** Human input captures under `engine/ozbotre/logs/q2dm3/` diagnosed a
+vertically fragmented graph (floor only reached z≤42; **PLAT=0** vs ~65 on q2dm1/2). Surgical ONAV edits
+via `tools/nav_edit.py` — not playbooks — added a `func_plat` column and ladder1/ladder5 climb-mouth
+`JUMP` hops so A\* routes *into* the ladder before the vertical hop (`bot_ladder` / `bot_lift` execute).
+The win is upper-item reachability, not headline ITEM%: shipped-solo now picks up **Railgun** (16× in the
+16×90s bench; cold-solo still 0) and Combat Armor appears in dm, while Megahealth’s ladder2→ledge path
+and `rj1` stay deferred as pure nav (climb stalls / no rocket-jump). A `mh_ladder` playbook from
+`logs/q2dm3/dm3-mh.jsonl` is shipped in `playbooks/q2dm3.pbk` — MH is graph-reachable and bots
+**engage**, but open-loop replay still drift-aborts on the strafe-into-ladder segment (needs a
+cleaner take or looser executor). Shipped pin
+`baselines/nav_shipped/q2dm3.nav` now diverges from cold — see [`STATS.md`](STATS.md).
+
 **Asymmetric-harness note.** In symmetric self-play, death is zero-sum, so raw "survive longer" behaviors
 can't show a net win. `bot_survive` (seek health + flee when low) was built and tested for exactly this,
 and proven **counterproductive** (deaths +11.8%) — it is default **off**. `bot_survivetest` is the
@@ -127,6 +139,7 @@ play.bat           :: launch a q2repro listen server you can play IN / chase-cam
 record_inputs.bat  :: q2repro listen server with bot_inputlog on + a synced demo (capture YOUR inputs)
 run_parallel.bat   :: build + deploy + N parallel headless sims + merged analysis (pass --repro)
 build_engine.bat   :: build q2repro (x64, meson) -> %Q2DIR%/q2reproded.exe + q2repro.exe
+build_gen_nav.bat  :: PyInstaller-freeze tools/gen_nav.py -> dist/gen_nav.exe (no-Python nav generator)
 ```
 
 `%Q2DIR%` defaults to the in-repo `engine` (this folder's own runtime). The build is self-contained — the vanilla
@@ -151,6 +164,8 @@ RE-specific / changed knobs (defaults shown):
 |---|---|---|
 | `bot_playbook` | 1 | replay recorded input clips as `NAV_LINK_PLAYBOOK` links (inert without a `.pbk`); aborted replays self-penalize |
 | `bot_cmdlog` | 0 | log **bot** usercmds in the input-log schema (for recording bot segments to bake) |
+| `bot_navlearn` | 1 | runtime nav learning + autosave; 0 = play a fixed graph (a `NAVHDR_FROZEN` nav is frozen regardless) |
+| `bot_teleport` | 1 | seed one-way `NAV_LINK_TELEPORT` links (`misc_teleporter` → `_dest`) at map load; regenerated each load, never saved |
 | `bot_aimsmooth` | 1 | 40 Hz view-glide toward the 10 Hz aim target (anti-judder; teleports −75%) |
 | `bot_gazelife` | 1 | glance around between fire windows (40 Hz humanization) |
 | `bot_aimflick` | 1 | flick-speed cap multiplier (1 = stock 20–60°/tick) |
@@ -167,10 +182,37 @@ The full shared knob set — `bot_count`, `bot_skill`, `bot_pathcost`, `bot_goal
 their descriptions.
 
 Server console: `sv bot_add N` / `sv bot_remove N` / `sv bot_clear`. The learned graph saves to
-`<gamedir>/nav/<map>.nav` (autosaved ~30 s); playbooks live in `<gamedir>/playbooks/<map>.pbk`; telemetry
-to `<gamedir>/logs/<map>_<ts>.jsonl`. To bootstrap a brand-new map, just run bots on it — the graph
-self-builds; playbooks are added per map as you record them.
+`<gamedir>/nav/<map>.nav` (autosaved ~30 s) in the **ONAV v2** format — a `uint32` header flags word
+after the node count (v1 files still load, treated as learnable); a graph with the `NAVHDR_FROZEN` bit is
+played as-is and never re-saved. Playbooks live in `<gamedir>/playbooks/<map>.pbk`; telemetry to
+`<gamedir>/logs/<map>_<ts>.jsonl`. To bootstrap a brand-new map, just run bots on it — the graph
+self-builds (`bot_navlearn 1`, always-on); playbooks are added per map as you record them. For
+**surgical** nav curation (add/remove links or seed climb mouths without bulk maturation), use
+`py tools/nav_edit.py` against an `ONAV` file — same workflow that produced the q2dm3 shipped pin
+(diagnose with `traj_view` / `input_view` on a human capture, then edit).
 
+### Generating / shipping navs
+
+Runtime nav learning is **always-on** (`bot_navlearn 1`) and autosaves, so a brand-new map self-builds its
+graph on first server run. To *ship* a right-sized nav for your rotation, bake it frozen:
+
+1. **Bake** — `gen_nav.exe q2dm3 --out engine/ozbotre/nav/q2dm3.nav --report q2dm3.json`. The standalone
+   generator (no Python needed — build once with `build_gen_nav.bat`, which PyInstaller-freezes
+   `tools/gen_nav.py`; needs `py -m pip install pyinstaller`) **matures-to-peak**: it grows the graph in
+   cold checkpoints of increasing duration, probes solo item-collection (COLLECT%) at each with the graph
+   frozen, and emits the PEAK graph stamped `NAVHDR_FROZEN` — the map-specific node-count sweet spot, not
+   max coverage. It auto-detects the engine + DLL.
+2. **Review the report** — the JSON lists the peak (nodes, COLLECT%), the full checkpoint curve, and a
+   **gated-item list**: reach-oracle items still `no_path`/gated — your to-do list for playbooks or
+   surgical `nav_edit.py` links.
+3. **Augment (optional)** — record playbooks or add `nav_edit.py` links for the gated items; drop the
+   `.pbk` at `engine/ozbotre/playbooks/<map>.pbk`.
+4. **Ship** — bundle the loose `nav/<map>.nav` (frozen, so a live server never over-grows it past its
+   sweet spot) + optional `playbooks/<map>.pbk` next to the DLL. Navs are raw files (tens of KB/map), not
+   pak/VFS. Unbaked maps simply self-build + autosave on first run.
+
+Freeze/unfreeze any nav by hand with `py tools/nav_edit.py freeze <file.nav>` (`--unfreeze`); `dump` shows
+`[FROZEN]`.
 ## License
 
 Based on the id Software Quake II v3.19 game source, licensed under the GNU General Public License v2.

@@ -9,10 +9,10 @@ Each snapshot runs the fastsim **repro** rig (40Hz / `sv_fps 40`, fixed seed, pi
 
 So the four columns are **shipped-solo / cold-solo** (nav quality) and **shipped-dm / cold-dm** (integration). Note 40Hz deathmatch ITEM% runs structurally below the 10Hz figure — higher kill intensity interrupts more runs.
 
-## Current state — 2026-07-13T18:50:20
+## Current state — 2026-07-15T21:37:19
 
-**P6b hazard brake: momentum-aware edge stop (kills coast-off-ledge lava deaths)**  
-commit `80f9d3c` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
+**q2dm3 mh_ladder playbook: mouth-standstill climb from recapture (no air-accel); SeedNode coincident reuse skip CanWalk**  
+commit `c3b07b2`  ⚠️ working tree dirty · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
 
 ### Solo nav-collection (nav quality — 1 bot, no combat)
 
@@ -20,13 +20,13 @@ commit `80f9d3c` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 |---|---:|---:|---:|---:|---:|
 | q2dm1 | 77% | 64% | 146 | 189 | 510 |
 | q2dm2 | 81% | 81% | 55 | 68 | 381 |
-| q2dm3 | 63% | 63% | 72 | 115 | 237 |
+| q2dm3 | 53% | 60% | 74 | 139 | 260 |
 | q2dm4 | 79% | 88% | 92 | 116 | 453 |
 | q2dm5 | 75% | 75% | 89 | 118 | 472 |
 | q2dm6 | 52% | 52% | 55 | 106 | 255 |
 | q2dm7 | 90% | 46% | 190 | 211 | 264 |
 | q2dm8 | 75% | 68% | 185 | 247 | 564 |
-| **mean** | **74%** | **67%** | | | |
+| **mean** | **73%** | **67%** | | | |
 
 ### Deathmatch (integration — 5 bots, combat + contention)
 
@@ -34,7 +34,7 @@ commit `80f9d3c` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | q2dm1 | 58% | 50% | 620 | 1063 | 170 | 187 | 0.91 | 512 |
 | q2dm2 | 56% | 56% | 469 | 843 | 192 | 212 | 0.91 | 385 |
-| q2dm3 | 50% | 50% | 425 | 856 | 120 | 316 | 0.38 | 241 |
+| q2dm3 | 51% | 48% | 426 | 832 | 65 | 229 | 0.28 | 264 |
 | q2dm4 | 76% | 75% | 575 | 754 | 45 | 124 | 0.36 | 463 |
 | q2dm5 | 70% | 70% | 595 | 853 | 103 | 118 | 0.87 | 479 |
 | q2dm6 | 43% | 43% | 332 | 765 | 54 | 364 | 0.15 | 262 |
@@ -46,7 +46,7 @@ commit `80f9d3c` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 
 - **q2dm1**: 134× Armor Shard, 84× Grenades, 59× Shotgun, 46× Rocket Launcher, 32× Machinegun, 31× Chaingun, 28× Jacket Armor, 24× Railgun, 24× Slugs, 20× Grenade Launcher, 18× Large Health, 18× Super Shotgun, 18× Combat Armor, 17× Mega Health, 15× Bullets, 15× Health, 12× HyperBlaster, 8× Ammo Pack, 7× Shells, 6× Rockets, 4× Small Health
 - **q2dm2**: 113× Grenades, 113× Health, 34× Shotgun, 31× Machinegun, 30× Chaingun, 29× Rocket Launcher, 28× Grenade Launcher, 23× Quad Damage, 19× Shells, 18× Super Shotgun, 16× Bullets, 10× Rockets, 3× Mega Health, 2× Cells
-- **q2dm3**: 98× Health, 67× Armor Shard, 55× Shells, 42× Jacket Armor, 34× Machinegun, 29× Grenades, 24× Shotgun, 21× Rocket Launcher, 18× Bullets, 17× HyperBlaster, 16× Grenade Launcher, 2× Cells, 2× 
+- **q2dm3**: 115× Health, 42× Armor Shard, 39× Jacket Armor, 33× Shells, 31× Grenades, 31× Shotgun, 28× Machinegun, 20× HyperBlaster, 19× Railgun, 18× Rocket Launcher, 18× Grenade Launcher, 8× Combat Armor, 8× Bullets, 5× Slugs, 5× Cells, 5× Rockets, 1× 
 - **q2dm4**: 81× Grenades, 77× Health, 64× Small Health, 56× Armor Shard, 47× Shotgun, 46× Combat Armor, 36× Machinegun, 30× Chaingun, 25× Rocket Launcher, 23× Large Health, 22× BFG10K, 19× Bullets, 16× Super Shotgun, 13× Rockets, 7× Grenade Launcher, 6× Cells, 4× Body Armor, 3× Mega Health
 - **q2dm5**: 99× Armor Shard, 84× Grenades, 69× Health, 49× Jacket Armor, 42× Chaingun, 38× Machinegun, 37× Rocket Launcher, 32× Large Health, 31× Super Shotgun, 29× Small Health, 22× Shotgun, 20× Railgun, 15× Quad Damage, 13× Grenade Launcher, 4× Shells, 4× Bullets, 3× Mega Health, 2× Combat Armor, 1× Adrenaline, 1× Ammo Pack
 - **q2dm6**: 141× Armor Shard, 43× Shotgun, 31× Small Health, 28× Jacket Armor, 20× Machinegun, 18× Health, 14× Shells, 10× Body Armor, 9× Grenade Launcher, 7× Bullets, 6× Super Shotgun, 2× Cells, 1× Quad Damage, 1× Large Health, 1× Railgun
@@ -63,6 +63,8 @@ commit `80f9d3c` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 | 2026-07-12 | dual metric: solo nav-collection + de... | 60% | 62% | 31% | 77% | 47% | 40% | 94% | 75% | 61% |
 | 2026-07-13 | bot_hazard (P6) + nav refresh (fresh ... | 77% | 81% | 53% | 76% | 75% | 52% | 90% | 75% | 72% |
 | 2026-07-13 | P6b hazard brake: momentum-aware edge... | 77% | 81% | 63% | 79% | 75% | 52% | 90% | 75% | 74% |
+| 2026-07-15 | q2dm3 nav surgery: plat column + ladd... | 77% | 81% | 54% | 79% | 75% | 52% | 90% | 75% | 73% |
+| 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 77% | 81% | 53% | 79% | 75% | 52% | 90% | 75% | 73% |
 
 <details><summary>Solo nav-collection over time (cold — from-scratch nav learning)</summary>
 
@@ -72,6 +74,8 @@ commit `80f9d3c` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 | 2026-07-12 | dual metric: solo nav-collection + de... | 44% | 75% | 29% | 77% | 74% | 40% | 27% | 81% | 56% |
 | 2026-07-13 | bot_hazard (P6) + nav refresh (fresh ... | 64% | 81% | 53% | 87% | 75% | 52% | 46% | 68% | 66% |
 | 2026-07-13 | P6b hazard brake: momentum-aware edge... | 64% | 81% | 63% | 88% | 75% | 52% | 46% | 68% | 67% |
+| 2026-07-15 | q2dm3 nav surgery: plat column + ladd... | 64% | 81% | 56% | 88% | 75% | 52% | 46% | 68% | 66% |
+| 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 64% | 81% | 60% | 88% | 75% | 52% | 46% | 68% | 67% |
 
 </details>
 
@@ -84,6 +88,8 @@ _shipped-dm:_
 | 2026-07-12 | dual metric: solo nav-collection + de... | 54% | 50% | 21% | 67% | 53% | 27% | 68% | 54% | 49% |
 | 2026-07-13 | bot_hazard (P6) + nav refresh (fresh ... | 58% | 56% | 48% | 77% | 70% | 44% | 63% | 54% | 59% |
 | 2026-07-13 | P6b hazard brake: momentum-aware edge... | 58% | 56% | 50% | 76% | 70% | 43% | 63% | 54% | 59% |
+| 2026-07-15 | q2dm3 nav surgery: plat column + ladd... | 58% | 56% | 50% | 76% | 70% | 43% | 63% | 54% | 59% |
+| 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 58% | 56% | 51% | 76% | 70% | 43% | 63% | 54% | 59% |
 
 _cold-dm:_
 | Date | Note | q2dm1 | q2dm2 | q2dm3 | q2dm4 | q2dm5 | q2dm6 | q2dm7 | q2dm8 | mean |
@@ -92,6 +98,8 @@ _cold-dm:_
 | 2026-07-12 | dual metric: solo nav-collection + de... | 39% | 54% | 31% | 67% | 56% | 27% | 40% | 51% | 46% |
 | 2026-07-13 | bot_hazard (P6) + nav refresh (fresh ... | 50% | 56% | 48% | 69% | 70% | 44% | 37% | 49% | 53% |
 | 2026-07-13 | P6b hazard brake: momentum-aware edge... | 50% | 56% | 50% | 75% | 70% | 43% | 37% | 49% | 54% |
+| 2026-07-15 | q2dm3 nav surgery: plat column + ladd... | 50% | 56% | 49% | 75% | 70% | 43% | 37% | 49% | 54% |
+| 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 50% | 56% | 48% | 75% | 70% | 43% | 37% | 49% | 54% |
 
 </details>
 
@@ -103,6 +111,8 @@ _cold-dm:_
 | 2026-07-12 | dual metric: solo nav-collection + de... | 220 | 176 | 19 | 27 | 143 | 17 | 46 | 243 | 891 |
 | 2026-07-13 | bot_hazard (P6) + nav refresh (fresh ... | 170 | 192 | 98 | 50 | 103 | 59 | 110 | 242 | 1024 |
 | 2026-07-13 | P6b hazard brake: momentum-aware edge... | 170 | 192 | 120 | 45 | 103 | 54 | 110 | 242 | 1036 |
+| 2026-07-15 | q2dm3 nav surgery: plat column + ladd... | 170 | 192 | 66 | 45 | 103 | 54 | 110 | 242 | 982 |
+| 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 170 | 192 | 65 | 45 | 103 | 54 | 110 | 242 | 981 |
 
 </details>
 

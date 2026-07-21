@@ -88,6 +88,71 @@ present during maturation, so q2dm1's MH-jump Megahealth is rediscovered cold.
 Note 40Hz ITEM% sits structurally below 10Hz (death-interrupted attempts). See
 `STATS.md`.
 
+## Nav shipping & generation
+
+**Shipping strategy.** Runtime nav learning is always-on and autosaves, so the
+plan is: ship pre-baked **FROZEN** navs for the map rotation you care about and
+let the always-on learner auto-fill the long tail (unbaked maps self-build +
+autosave on first server run). Navs are loose files under
+`<gamedir>/nav/<map>.nav` (raw fopen, not the pak/VFS), so shipping = bundle
+those files (+ optional `<gamedir>/playbooks/<map>.pbk`) next to the DLL — sizes
+are tiny (tens of KB/map). The good node count is **map-specific** — NOT bounded
+by a global cap or a map-size formula — and freezing a baked nav stops a
+long-running live server from over-growing it past its tuned sweet spot.
+
+**Three features:**
+- **`bot_navlearn`** (default 1) — set 0 to disable all learning + autosave (play
+  a fixed graph). The ONAV nav-file format is now **v2**: a `uint32` header flags
+  word follows the node count; v1 files still load (treated as learnable). A graph
+  with the `NAVHDR_FROZEN` header bit is played as-is — never grown, never re-saved
+  — regardless of `bot_navlearn`. `py tools/nav_edit.py freeze <file.nav>`
+  (`--unfreeze`) sets it; `dump` shows `[FROZEN]`.
+- **`bot_teleport`** (default 1) — at map load seeds one-way `NAV_LINK_TELEPORT`
+  links from each teleporter pad to its destination: both the point-entity
+  `misc_teleporter`→`misc_teleporter_dest` (id/base form) and the **brush
+  `trigger_teleport`** most custom DM maps use (source = the brush volume's floor
+  center). The teleport fires automatically on touch (no ride controller) — this
+  is purely the routing edge the learner can't capture, since the pad jumps the
+  bot >200u and the learn-guard rejects it. Regenerated each load, never saved
+  (like TRAIN/PLAYBOOK). NOTE: this base previously had **no `trigger_teleport`
+  spawn function**, so those teleporters were inert (broken for everyone) —
+  `SP_trigger_teleport` (g_misc.c, reusing `teleporter_touch`) now makes them work.
+  Verified net-POSITIVE on absolute pickups (a fixed graph collected 78 vs 56
+  items with routing on), though COLLECT% often *drops* because more of the map
+  becomes reachable (harder attempts). Stock q2dm1-8 have no teleporters.
+- **`bot_jumppad`** (default 1) — at map load seeds one-way `NAV_LINK_PUSH` links
+  from each `trigger_push` jump pad to its BALLISTIC landing spot. Unlike a
+  teleporter the pad has no destination entity, so `Nav_SeedPushLinks`
+  (`bot_nav.c`) predicts the landing: launch velocity = the exact touch physics
+  (`movedir * speed * 10`), integrated as a parabola under `sv_gravity` with
+  per-step player-box traces until it lands on a walkable floor; source + landing
+  snap to nav nodes. Regenerated each load, never saved (like TELEPORT). The push
+  fires automatically on touch (no ride controller) — this is purely the routing
+  edge the >200u learn-guard rejects. Adding link type 8 required widening
+  `NAV_MASK_ALL` 0xff→**0x1ff** (else A* silently drops every push link). Stock
+  q2dm1-8 have no jump pads (0 links, byte-identical); test maps: `custom_maps/
+  mm-aerow` (4 pads + 4 brush teleporters), mm-reclam, mm-recycler. NOTE: seeding
+  + regression are validated, but the behavioral pad-traversal pickup A/B is still
+  pending (needs a curated nav on a pad-gated-item map).
+- **`gen_nav.exe`** — standalone (no-Python) map-agnostic nav generator, built
+  from `tools/gen_nav.py` by `build_gen_nav.bat` → `dist/gen_nav.exe` (needs
+  `py -m pip install pyinstaller`). End users/admins drive the mod's
+  `q2reproded.exe` from it without a Python install. It **matures-to-peak**: grows
+  the graph in cold-maturation checkpoints of increasing duration, probes solo
+  collection at each with the graph frozen, and emits the checkpoint with the most
+  **absolute pickups** stamped FROZEN — baking in the node-count sweet spot per map
+  (past it, routing noise lowers throughput). Fitness is pickups, **NOT** COLLECT%
+  (pickups/attempts): COLLECT% rewards LOW coverage — a sparse graph reaching 3 easy
+  items at 100% beats a rich one reaching 20 at 85%. Validated on 10 custom `mm-*`
+  maps (mean ~84% COLLECT, all frozen). Auto-detects the engine + DLL (from `dist/`
+  or the gamedir). Writes a JSON report with the peak (pickups, nodes, COLLECT%),
+  the checkpoint curve, and
+  a **gated-item list** (reach-oracle items still `no_path`/gated — the human's
+  to-do list for playbooks or surgical `nav_edit.py` links). CLI:
+  `gen_nav.exe <map> [--out P] [--report J] [--maps a,b,c] [--engine DIR]
+  [--dll P] [--interval S] [--max-seconds S] [--patience N] [--probe-instances N]
+  [--seed N]`. Exit codes: 0 ok, 2 engine/DLL missing, 3 no nodes learned.
+
 ## Resource-need calibration (demo-mined)
 
 The goal scorer's `bot_ammoneed` (per-ammo-type low-fill urgency, via
@@ -101,11 +166,27 @@ is no runtime dependency on the JSON. `bot_healthneed` exists but is
 **default-OFF** (health-seeking is asymmetric-negative, same as `bot_survive`).
 See the `ozbot-re-resource-need-win` memory for the A/B results.
 
+`bot_commit` (default **0.8**, ON) is the goal scorer's travel-cost commitment
+discount: a re-rank pass in `Goal_Select` (`bot_goal.c`) after the `bot_pathcost`
+A*-cost pick, charging each reachable candidate the **marginal detour past the
+cheapest reachable option** (`cost += bot_commit * max(0, pcost - mincost)`), so a
+far/hard item only wins when nothing cheaper is nearby (bot idle) or it is itself
+near-cheapest. Attacks "reachable != completable" — it steers **selection only**
+(`b->goal_cost` still funds a committed route at raw A* cost). It's a
+*contention* lever (like `bot_claim`): ~flat on shipped-solo (rarely 2+ candidates
+to arbitrate), **+7-12% pickups on cold-solo / shipped-dm / cold-dm**. `bot_commit
+0` = pre-lever pick, byte-identical. Keeper telemetry: the `goal_commit` event.
+See the `ozbot-re-commit-win` memory.
+
 ## Playbooks (the new capability)
 
 Recorded input sequences replayed as nav links (NAV_LINK_PLAYBOOK):
-1. **Record**: `record_inputs.bat` (human, bot_inputlog) or
-   `--cvar bot_cmdlog 1` (bots) on a 40Hz server.
+1. **Record**: `record_inputs.bat` launches a 40Hz listen server; in-game,
+   `capture start <name>` / `capture stop` (server command, `src/g_cmds.c`)
+   carves a granular, user-named take — `ozbotre/logs/<name>.jsonl` + a synced
+   `ozbotre/demos/<name>.dm2` — overwriting on name collision, so you can
+   record the same maneuver clean multiple times in one session without
+   relaunching. Bots use `--cvar bot_cmdlog 1` on a 40Hz server instead.
 2. **Bake**: `py tools/make_playbook.py <log.jsonl> --slot N --start T0 --end T1
    --name mh_jump --out engine/ozbotre/playbooks/q2dm1.pbk` (`--list` to scan,
    `--auto [--auto-n N]` for validation segments).
