@@ -15,6 +15,11 @@ cvar_t	*bot_lead;		// lead moving targets by projectile flight time
 cvar_t	*bot_leadtest;	// head-to-head lead A/B: even bot ids lead, odd don't
 cvar_t	*bot_flee;		// retreat + fetch health/armor when clearly outmatched
 cvar_t	*bot_fleetest;	// head-to-head flee A/B: even bot ids flee, odd don't
+cvar_t	*bot_outnumbered;	// break off + retreat when 2+ enemies are actively
+							// engaging (crossfire).  The 1v1 flee compares only vs
+							// the nearest target; outnumbered deaths were 2.8x
+							// over-represented in the death telemetry
+cvar_t	*bot_outnumberedtest;	// id-parity A/B: even bot ids use it, odd control
 cvar_t	*bot_aimtest;	// head-to-head aim-formula A/B: even bot ids apply the
 cvar_t	*bot_aimreact;	//   bot_aim* multipliers below, odd use the stock
 cvar_t	*bot_aimturn;	//   formula -- for sweeping which aim constant
@@ -198,6 +203,61 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 		}
 	}
 	return best;
+}
+
+// bot_outnumbered: count enemies that can currently bring weapons to bear on us
+// -- alive, visible, within combat range, and either facing us (yaw cone) or
+// having damaged us in the last moment.  2+ = a crossfire the 1v1 fight/flight
+// logic is blind to (it only ever weighs us against the single nearest target).
+// Only retreat from a crossfire we're actually LOSING (strength < HP gate) -- a
+// healthy/armored bot can win a 2v1, and retreating from every visible pair just
+// throws away offense (measured: a raw 2+-threat trigger tanked kill-share up to
+// 19.5pt for a <1.5pt death saving; the deaths were HURT bots in crossfire).
+#define BOT_THREAT_RANGE	900.0f
+#define BOT_OUTNUMBERED_MIN	2
+#define BOT_OUTNUMBERED_HP	70.0f	// health + 0.5*armor below which a crossfire is a losing trade
+
+static int Combat_CountThreats (bot_t *b)
+{
+	edict_t	*self = b->ent;
+	int		i, n = 0;
+
+	for (i = 1; i <= (int)maxclients->value; i++)
+	{
+		edict_t	*o = g_edicts + i;
+		vec3_t	d, ang, fwd;
+		float	dd;
+
+		if (o == self || !o->inuse || !o->client)
+			continue;
+		if (o->deadflag || o->health <= 0 || o->client->resp.spectator)
+			continue;
+		VectorSubtract (self->s.origin, o->s.origin, d);
+		d[2] = 0;
+		dd = VectorLength (d);
+		if (dd > BOT_THREAT_RANGE)
+			continue;
+		if (!visible (self, o))
+			continue;
+		// recently hurt us -> a threat even if it has since turned away
+		if (b->threat_ent == o && level.time - b->threat_time < 1.5f)
+		{
+			n++;
+			continue;
+		}
+		if (dd < 1.0f)			// on top of us: certainly a threat
+		{
+			n++;
+			continue;
+		}
+		// facing us within ~70deg (can aim at us) -> a threat
+		VectorScale (d, 1.0f / dd, d);
+		ang[0] = 0; ang[1] = o->s.angles[YAW]; ang[2] = 0;
+		AngleVectors (ang, fwd, NULL, NULL);
+		if (DotProduct (fwd, d) > 0.34f)
+			n++;
+	}
+	return n;
 }
 
 /*
@@ -787,7 +847,20 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		qboolean can_flee = (bot_fleetest->value != 0)
 			? ((b->id & 1) == 0)
 			: (bot_flee->value != 0);
-		if (!can_flee)
+		qboolean can_outn = (bot_outnumberedtest->value != 0)
+			? ((b->id & 1) == 0)
+			: (bot_outnumbered->value != 0);
+		// crossfire we're LOSING: 2+ enemies bearing on us AND we lack the
+		// health/armor to win the trade -> break off (a skilled player retreats
+		// from a losing crossfire, but holds a winnable one).  Strength gate is
+		// checked first so the enemy scan is skipped when we're healthy.
+		qboolean outnumbered = can_outn
+			&& Combat_Strength (self) < BOT_OUTNUMBERED_HP
+			&& Combat_CountThreats (b) >= BOT_OUTNUMBERED_MIN;
+
+		if (outnumbered)
+			b->flee = true;
+		else if (!can_flee)
 			b->flee = false;
 		else
 		{

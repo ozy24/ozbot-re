@@ -16,6 +16,9 @@ value * need / distance; the best becomes the bot's goal.
 // distance falloff shared by naive (straight-line) and path-cost scoring
 #define GOAL_DIST_FALLOFF	512.0f
 
+// sentinel for "no reachable candidate costed yet" (bot_commit mincost seed)
+#define GOAL_COST_INF		1e18f
+
 // per-item cooldown so bots that fail/abandon an item don't immediately
 // re-fixate on it (and so multiple bots spread across items)
 static float	item_cooldown[MAX_EDICTS];
@@ -451,6 +454,70 @@ static float Item_BaseValue (gitem_t *item)
 
 /*
 =================
+Goal_UpdateTrainCosts
+
+bot_train: dynamically price each NAV_LINK_TRAIN by whether the platform it
+reaches is worth the ride RIGHT NOW.  A train ride is an expensive round trip,
+and the gated items respawn on a timer, so a static cost has bots riding out to
+an empty platform again and again.  Instead: if the destination end has a
+control-value item nearby and NONE of them are currently up, spike the cost so
+A* routes around the train; once one respawns, drop it back so bots go collect.
+Return links (whose destination is the plain boarding ledge, no control item)
+stay cheap, so a bot on the platform can always ride back.
+=================
+*/
+void Goal_UpdateTrainCosts (void)
+{
+	int	n, j, i;
+
+	if (!bot_train || bot_train->value == 0)
+		return;
+
+	for (n = 0; n < nav.num_nodes; n++)
+	{
+		nav_node_t	*node = &nav.nodes[n];
+		for (j = 0; j < node->num_links; j++)
+		{
+			nav_link_t	*l = &node->links[j];
+			vec3_t		dest, d;
+			float		dist;
+			qboolean	has_control = false, any_up = false;
+
+			if (l->type != NAV_LINK_TRAIN || l->to < 0 || l->to >= nav.num_nodes)
+				continue;
+			VectorCopy (nav.nodes[l->to].origin, dest);
+
+			for (i = (int)game.maxclients + 1; i < globals.num_edicts; i++)
+			{
+				edict_t	*it = g_edicts + i;
+				vec3_t	id;
+				if (!it->inuse || !it->item)
+					continue;
+				VectorSubtract (it->s.origin, dest, id);
+				if (id[0]*id[0] + id[1]*id[1] > 160.0f*160.0f || id[2] > 96 || id[2] < -96)
+					continue;
+				if (Item_BaseValue (it->item) < ITEM_CONTROL_VALUE)
+					continue;
+				has_control = true;
+				if (Goal_ItemAvailable (it))
+				{
+					any_up = true;
+					break;
+				}
+			}
+
+			VectorSubtract (nav.nodes[l->to].origin, node->origin, d);
+			dist = VectorLength (d);
+			if (has_control && !any_up)
+				l->cost = dist + 8000.0f;	// platform empty: don't ride out here
+			else
+				l->cost = dist + 400.0f;	// item up (or a plain transit end): go
+		}
+	}
+}
+
+/*
+=================
 Weapon_KillRankWeight
 
 bot_wpnneed: acquisition need for an UNOWNED weapon, weighted by how much pros
@@ -706,6 +773,11 @@ qboolean Goal_Select (bot_t *b)
 	{
 		int		pickcand = -1;
 		float	pickscore = 0;
+		float	pcost[GOAL_MAX_CAND];	// A* g-cost per reachable candidate (bot_commit)
+		byte	reach[GOAL_MAX_CAND];	// 1 = candidate was pathed to this frame
+		float	mincost = GOAL_COST_INF;	// cheapest reachable route seen (idle detector)
+
+		memset (reach, 0, sizeof (reach));
 
 		for (tries = 0; tries < GOAL_MAX_TRIES; tries++)
 		{
@@ -750,16 +822,63 @@ qboolean Goal_Select (bot_t *b)
 				return true;
 			}
 
+			// cache the real route cost for the bot_commit re-rank, and track
+			// the cheapest reachable option (the "idle" reference).  The inline
+			// pick below is the pre-lever behaviour, kept byte-identical for the
+			// bot_commit==0 / md5 gate.
+			pcost[best] = Nav_LastPathCost ();
+			reach[best] = 1;
+			if (pcost[best] < mincost)
+				mincost = pcost[best];
+
 			// recover value*need from the naive score, re-divide by path cost
 			{
 				float	s = score[best] * (1.0f + sldist[best] / GOAL_DIST_FALLOFF)
-							/ (1.0f + Nav_LastPathCost () / GOAL_DIST_FALLOFF);
+							/ (1.0f + pcost[best] / GOAL_DIST_FALLOFF);
 				if (s > pickscore)
 				{
 					pickscore = s;
 					pickcand = best;
 				}
 			}
+		}
+
+		// bot_commit: re-rank the reachable set, charging the marginal detour
+		// past the cheapest reachable option.  A cheap-nearby item pays ~0; a far
+		// item pays k*(cost-mincost), so it only wins when nothing cheaper is
+		// around (bot idle -> mincost large -> margin shrinks for all) or it is
+		// itself close to the cheapest.  Attacks reachable != completable: the
+		// bot stops burning its whole budget on teleporter/playbook detours when
+		// easy pickups are at hand.  Steers *selection* only -- b->goal_cost (the
+		// runtime budget) still uses the raw A* cost, so a committed route stays
+		// fully funded.
+		if (bot_commit->value != 0 && mincost < GOAL_COST_INF)
+		{
+			int	naivepick = pickcand;	// pre-lever choice, for the engagement telemetry
+
+			pickcand = -1;
+			pickscore = 0;
+			for (i = 0; i < ncand; i++)
+			{
+				float	cost, s;
+				if (!reach[i])
+					continue;
+				cost = pcost[i];
+				if (cost > mincost)
+					cost += bot_commit->value * (cost - mincost);
+				s = score[i] * (1.0f + sldist[i] / GOAL_DIST_FALLOFF)
+							 / (1.0f + cost / GOAL_DIST_FALLOFF);
+				if (s > pickscore)
+				{
+					pickscore = s;
+					pickcand = i;
+				}
+			}
+			// goal_commit event: the discount steered the bot off the item the
+			// naive path-cost pick would have chased (an over-investment averted).
+			// Count these in analyze to see how often/where the lever engages.
+			if (pickcand >= 0 && pickcand != naivepick)
+				Bot_LogEvent (b, "goal_commit");
 		}
 
 		if (pickcand >= 0)
