@@ -68,6 +68,7 @@ PINNED_PBK = os.path.join(REPO, "baselines", "playbooks")      # frozen playbook
 # Solo variants lead = the headline columns.  Combat is off purely by bot_count 1.
 DM_BOTS = 5
 SOLO_BOTS = 1
+PARITY_BOTS = 6   # skill-parity axis: even ids (0,2,4) high skill vs odd (1,3,5) low; 3v3 balanced
 V_SHIPPED_SOLO, V_COLD_SOLO = "shipped-solo", "cold-solo"
 V_SHIPPED_DM,   V_COLD_DM   = "shipped-dm",   "cold-dm"
 SOLO_VARIANTS = [V_SHIPPED_SOLO, V_COLD_SOLO]
@@ -114,13 +115,23 @@ def compute_metrics(path):
             ev[e["bot"]][e.get("event", "?")] += 1
 
     tot_pick = tot_frag = tot_death = 0
+    kills_even = kills_odd = deaths_even = deaths_odd = 0
     for bot, rows in by_bot.items():
         frags = 0
         for r in rows:
             frags = max(frags, r.get("score", 0))
         tot_frag += frags
         tot_pick += ev[bot].get("pickup", 0)
-        tot_death += ev[bot].get("death", 0)
+        deaths = ev[bot].get("death", 0)
+        tot_death += deaths
+        # skill-parity axis: cohort by id parity (bot_skilltest gives even ids high
+        # skill, odd ids low; run_parallel's BOT_ID_STRIDE=1000 keeps id%2 across merge)
+        if bot % 2 == 0:
+            kills_even += frags
+            deaths_even += deaths
+        else:
+            kills_odd += frags
+            deaths_odd += deaths
 
     item_attempts = sum(ev[b].get("goal_item", 0) for b in ev)
     goal_attempts = sum(ev[b].get("goal_item", 0) + ev[b].get("goal", 0) for b in ev)
@@ -148,6 +159,10 @@ def compute_metrics(path):
         "frags": tot_frag,
         "deaths": tot_death,
         "kd": round(tot_frag / tot_death, 2) if tot_death else None,
+        "kills_even": kills_even,
+        "kills_odd": kills_odd,
+        "deaths_even": deaths_even,
+        "deaths_odd": deaths_odd,
         "pickups_by_item": dict(sorted(pickups_by_item.items(), key=lambda kv: -kv[1])),
     }
 
@@ -270,14 +285,15 @@ def mature_map(engine, exe, mapname, seconds, bots, seed):
     return staged, n
 
 
-def run_map(engine, exe, mapname, args, bots):
+def run_map(engine, exe, mapname, args, bots, extra_cvars=None):
     """Run one map's rig at the given bot count and return its metrics dict
-    (or None on no telemetry)."""
+    (or None on no telemetry).  extra_cvars appends per-call cvars (e.g. the
+    skill-parity axis' bot_skilltest) on top of the required + user cvars."""
     worker_mods = [f"{BENCH_MOD}_w{i}" for i in range(1, args.instances + 1)]
     sim_args = types.SimpleNamespace(
         repro=True, fastsim=True, bots=bots, skill=args.skill,
         timescale=1.0, seconds=args.seconds, map=mapname,
-        cvar=list(REQUIRED_CVARS) + (args.cvar or []),
+        cvar=list(REQUIRED_CVARS) + (args.cvar or []) + (extra_cvars or []),
     )
     for mod in worker_mods:
         rp.setup_worker(engine, BENCH_MOD, mod, mapname, DLL_NAME)
@@ -305,6 +321,40 @@ def run_map(engine, exe, mapname, args, bots):
         log(f"  {mapname}: WARNING no telemetry ({nw}/{args.instances} workers)")
         return None
     return compute_metrics(out_path)
+
+
+def run_parity_map(engine, exe, mapname, args):
+    """Skill-parity kill-share axis for ONE map.  Runs a treatment
+    (bot_skilltest 1 -> even ids high skill, odd ids low) and a PAIRED control
+    (bot_skilltest 0, all bots equal, SAME seed), then reports the SHIFT
+    treatment_share - control_share to cancel the id-position bias baked into
+    the raw even/odd split (~0.81 at low seed counts, washing to 0.5 at 16).
+
+    run_map merges all args.instances workers (seed+0..) into one JSONL before
+    compute_metrics, so kills_even/kills_odd are already pooled across the map's
+    seeds."""
+    t = run_map(engine, exe, mapname, args, PARITY_BOTS, extra_cvars=[["bot_skilltest", "1"]])
+    c = run_map(engine, exe, mapname, args, PARITY_BOTS, extra_cvars=[["bot_skilltest", "0"]])
+    if not t or not c:
+        return None
+
+    def _share(even, odd):
+        tot = even + odd
+        return (even / tot) if tot else None
+
+    treatment_share = _share(t["kills_even"], t["kills_odd"])
+    control_share = _share(c["kills_even"], c["kills_odd"])
+    shift = (treatment_share - control_share
+             if treatment_share is not None and control_share is not None else None)
+    return {
+        "kills_hi": t["kills_even"],
+        "kills_lo": t["kills_odd"],
+        "treatment_share": treatment_share,
+        "ctrl_even": c["kills_even"],
+        "ctrl_odd": c["kills_odd"],
+        "control_share": control_share,
+        "shift": shift,
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -439,6 +489,33 @@ def write_stats_md(history):
     lines.append("</details>")
     lines.append("")
 
+    # --- skill parity: id-parity kill-share (bot_skilltest, paired control) ---
+    if latest.get("parity"):
+        def _sh(v):   # share/shift fraction -> percentage cell
+            return "—" if v is None else f"{v*100:.1f}%"
+
+        def _shift(v):
+            return "—" if v is None else f"{v*100:+.1f}pt"
+
+        lines.append("### Skill parity (kill-share — bot_skilltest, 6 bots, paired control)")
+        lines.append("")
+        lines.append("Even ids get high skill (0.9), odd ids low (0.1). The raw even/odd kill "
+                     "split carries a ~0.81 id-**position** bias at low seed counts (it washes "
+                     "toward 0.5 at 16 seeds), so the headline is the **corrected shift** = "
+                     "treatment_share − control_share (paired `bot_skilltest 0` run, same seed).")
+        lines.append("")
+        lines.append("| Map | high-skill share | control share | corrected shift | high kills | low kills |")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        for m in maps:
+            p = _parity(latest, m)
+            if not p:
+                lines.append(f"| {m} | — | — | — | — | — |")
+                continue
+            lines.append(f"| {m} | {_sh(p.get('treatment_share'))} | {_sh(p.get('control_share'))} | "
+                         f"{_shift(p.get('shift'))} | {p.get('kills_hi','—')} | {p.get('kills_lo','—')} |")
+        lines.append(f"| **mean** | | | **{_shift(_mean_shift(latest))}** | | |")
+        lines.append("")
+
     header = "| Date | Note | " + " | ".join(maps) + " | mean |"
     sep = "|---|---|" + "|".join(["---:"] * (len(maps) + 1)) + "|"
 
@@ -519,6 +596,16 @@ def _mean_item(rec, variant):
     return round(sum(vals) / len(vals), 1) if vals else None
 
 
+def _parity(rec, m):
+    return rec.get("parity", {}).get(m)
+
+
+def _mean_shift(rec):
+    vals = [p["shift"] for p in rec.get("parity", {}).values()
+            if p and p.get("shift") is not None]
+    return (sum(vals) / len(vals)) if vals else None
+
+
 def _write(path, text):
     with open(path, "w", encoding="utf-8") as fp:
         fp.write(text)
@@ -551,6 +638,8 @@ def main(argv):
     ap.add_argument("--mature-bots", type=int, default=11,
                     help="bot population during maturation (default 11)")
     ap.add_argument("--report-only", action="store_true", help="regenerate STATS.md from history and exit")
+    ap.add_argument("--no-parity", action="store_true",
+                    help="skip the skill-parity kill-share pass (bot_skilltest, 6 bots, paired control)")
     ap.add_argument("--dry-run", action="store_true", help="run sims + print metrics but do NOT append to history")
     args = ap.parse_args(argv[1:])
 
@@ -614,6 +703,23 @@ def main(argv):
             results[m][vname] = met
         shutil.rmtree(os.path.join(engine, BENCH_MOD), ignore_errors=True)
 
+    # skill-parity kill-share axis (default ON) -- run on the shipped pinned navs
+    parity = {}
+    if not args.no_parity and glob.glob(os.path.join(PINNED_NAV_SHIPPED, "*.nav")):
+        prepare_bench_mod(engine, PINNED_NAV_SHIPPED)
+        for m in maps:
+            log(f"running {m} [parity] (bot_skilltest treatment + paired control, "
+                f"{PARITY_BOTS} bots, seed {args.seed})...")
+            p = run_parity_map(engine, exe, m, args)
+            parity[m] = p
+            if p and p.get("shift") is not None:
+                log(f"  {m} [parity]: high-skill share {p['treatment_share']*100:.1f}% "
+                    f"vs control {p['control_share']*100:.1f}% -> shift {p['shift']*100:+.1f}pt "
+                    f"(hi {p['kills_hi']} / lo {p['kills_lo']} kills)")
+        shutil.rmtree(os.path.join(engine, BENCH_MOD), ignore_errors=True)
+    elif not args.no_parity:
+        log("WARNING: no shipped navs -- skipping skill-parity pass (run --pin-shipped first)")
+
     record = {
         "date": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "commit": git("rev-parse", "--short", "HEAD"),
@@ -627,6 +733,11 @@ def main(argv):
                      "skill": args.skill, "seed": args.seed, "repro": True,
                      "cvars": REQUIRED_CVARS + (args.cvar or [])},
         "maps": results,   # nested: {map: {shipped-solo, cold-solo, shipped-dm, cold-dm}}
+        "parity": parity,  # nested: {map: {treatment_share, control_share, shift, kills_hi, ...}}
+        "parity_rig": {"instances": args.instances, "seconds": args.seconds, "bots": PARITY_BOTS,
+                       "skill": args.skill, "seed": args.seed, "repro": True, "paired_control": True,
+                       "treatment_cvar": ["bot_skilltest", "1"], "control_cvar": ["bot_skilltest", "0"],
+                       "nav": "shipped"},
         "wall_seconds": round(time.time() - t0, 1),
     }
 

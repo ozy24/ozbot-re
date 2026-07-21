@@ -1,16 +1,20 @@
 @echo off
-REM ozbot-re - record YOUR OWN inputs (+ a demo) on q2dm1 for jump analysis / playbooks.
+REM ozbot-re - launch a q2dm1 listen server for granular human-input recording.
 REM
-REM Launches a q2repro listen server you play in, with:
-REM   - bot_inputlog 1  -> per-frame usercmd trace to ozbotre\logs\q2dm1_<timestamp>.jsonl
-REM                        (forward/side/up move, jump, attack, view yaw/pitch, speed)
-REM   - a synchronized .dm2 demo to ozbotre\demos\inputs_*.dm2 (for replay / cross-check)
+REM This just starts the server; recording itself is driven in-game with the
+REM  "capture" console command (~ to open console):
+REM    capture start <name>   -> begins ozbotre\logs\<name>.jsonl (per-frame
+REM                              usercmd trace: forward/side/up move, jump,
+REM                              attack, view yaw/pitch, speed) AND a synced
+REM                              ozbotre\demos\<name>.dm2 demo
+REM    capture stop           -> ends both, reports frame count
+REM    capture status         -> shows whether a take is in progress
+REM Repeat start/stop with new names to carve many clean, well-labelled takes
+REM (e.g. the Megahealth box+strafe jump) in a single session, no relaunch
+REM needed.  A take with a name already used on disk is OVERWRITTEN.
 REM
-REM Use it:  run this, do the trick move (e.g. the Megahealth box+strafe jump) a few
-REM          clean times, then type  quit  in the console (~) or use the menu to exit.
-REM          (Quitting cleanly is what flushes the .dm2 -- don't just close the window.)
-REM Then analyze with:  py tools\input_view.py <newest ozbotre\logs\q2dm1_*.jsonl>
-REM or bake a playbook:  py tools\make_playbook.py <log.jsonl>   (Phase R4)
+REM Analyze with:  py tools\input_view.py ozbotre\logs\<name>.jsonl
+REM or bake a playbook:  py tools\make_playbook.py ozbotre\logs\<name>.jsonl
 REM
 REM Override the install location with:  set Q2DIR=C:\path\to\quake2
 setlocal
@@ -22,26 +26,22 @@ if not exist "ozbotre\gamex86_64.dll" (
   exit /b 1
 )
 
-set "DEMO=inputs_%RANDOM%"
-
-REM Generate a config so the quoting for cl_beginmapcmd (starts the demo on map
-REM load) is reliable -- command-line quoting through the batch is not.
 > "ozbotre\record_inputs.cfg" (
   echo set deathmatch 1
   echo set maxclients 16
   echo set bot_count 0
-  echo set bot_inputlog 1
   echo set vid_fullscreen 0
   echo set vid_geometry "1280x720"
-  echo set cl_beginmapcmd "record %DEMO%"
   echo set sv_fps 40
   echo map q2dm1
 )
 
 echo.
-echo [ozbot-re] Input log : ozbotre\logs\q2dm1_^<timestamp^>.jsonl   (bot_inputlog 1)
-echo [ozbot-re] Demo       : ozbotre\demos\%DEMO%.dm2
-echo [ozbot-re] Play q2dm1, do the trick moves, then type  quit  (or use the menu).
+echo [ozbot-re] Listen server up. In the console (~):
+echo [ozbot-re]   capture start ^<name^>   -- begin logs\^<name^>.jsonl + demos\^<name^>.dm2
+echo [ozbot-re]   capture stop            -- end the take, reports frame count
+echo [ozbot-re]   capture status          -- check if a take is in progress
+echo [ozbot-re] Repeat with new names for as many takes as you like, then quit.
 echo.
 
 q2repro.exe +set com_rerelease -1 +set game ozbotre +exec record_inputs.cfg
