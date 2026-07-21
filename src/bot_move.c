@@ -732,6 +732,428 @@ qboolean Bot_LiftThink (bot_t *b)
 }
 
 //==========================================================================
+// func_train riding (bot_train)
+//
+// A func_train shuttles horizontally between path_corners; Nav_SeedTrainLinks
+// seeds a NAV_LINK_TRAIN between the standable top-centers of consecutive
+// corners.  The controller mirrors the lift's WAIT/BOARD/RIDE, but the crucial
+// difference is that the boarding endpoint node floats in mid-air whenever the
+// train has shuttled to the other end -- so WAIT must HOLD on the approach
+// ledge (never advance onto the endpoint) and only BOARD once the train's brush
+// is actually under it.
+//==========================================================================
+
+#define TRAIN_ENGAGE_RANGE	160.0f
+#define TRAIN_RELEASE_RANGE	280.0f
+#define TRAIN_WAIT_TIMEOUT	16.0f	// a full shuttle cycle can be long (q2dm2 ~7s/leg)
+#define TRAIN_RIDE_TIMEOUT	20.0f	// safety only
+#define TRAIN_COVER_MARGIN	24.0f	// footprint slop for "the train is at this end"
+
+static qboolean Train_IsTrain (edict_t *e)
+{
+	return (e && e->inuse && e->classname
+		&& strcmp (e->classname, "func_train") == 0);
+}
+
+// the train's CURRENT footprint covers pos horizontally (it moves, so this is
+// only true while the train is parked at/near the end that owns pos)
+static qboolean Train_CoversXY (edict_t *tr, vec3_t pos)
+{
+	return pos[0] >= tr->absmin[0] - TRAIN_COVER_MARGIN
+		&& pos[0] <= tr->absmax[0] + TRAIN_COVER_MARGIN
+		&& pos[1] >= tr->absmin[1] - TRAIN_COVER_MARGIN
+		&& pos[1] <= tr->absmax[1] + TRAIN_COVER_MARGIN;
+}
+
+// the func_train whose current center is nearest pos.  Callers pass the
+// midpoint of the two endpoint nodes, which lies on the train's travel line, so
+// the nearest train (they are sparse) is the one that owns this link.
+static edict_t *Bot_FindTrainNear (vec3_t pos)
+{
+	int		i;
+	edict_t	*best = NULL;
+	float	bd = 1e9f;
+
+	for (i = (int)game.maxclients + 1; i < globals.num_edicts; i++)
+	{
+		edict_t	*e = g_edicts + i;
+		vec3_t	c, d;
+		float	dist;
+		if (!Train_IsTrain (e))
+			continue;
+		c[0] = (e->absmin[0] + e->absmax[0]) * 0.5f;
+		c[1] = (e->absmin[1] + e->absmax[1]) * 0.5f;
+		c[2] = (e->absmin[2] + e->absmax[2]) * 0.5f;
+		VectorSubtract (c, pos, d);
+		dist = VectorLength (d);
+		if (dist < bd)
+		{
+			bd = dist;
+			best = e;
+		}
+	}
+	return best;
+}
+
+/*
+=================
+Bot_TrainReset
+=================
+*/
+void Bot_TrainReset (bot_t *b)
+{
+	b->train_state = TRAIN_NONE;
+	b->train_ent = NULL;
+	b->train_deadline = 0;
+}
+
+/*
+=================
+Bot_TrainThink
+
+Returns true while the train controller owns this frame's movement intent
+(the caller then skips path following / stuck recovery / goal-budget, as for
+the lift).  TRAIN_FAILED sticks for the goal attempt.
+=================
+*/
+qboolean Bot_TrainThink (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	edict_t	*tr;
+	vec3_t	boardpos, exitpos, c, d;
+	int		hop;
+
+	if (b->train_state == TRAIN_FAILED)
+		return false;
+
+	hop = Bot_UpcomingHop (b, NAV_LINK_TRAIN, TRAIN_ENGAGE_RANGE, TRAIN_RELEASE_RANGE,
+		b->train_state != TRAIN_NONE);
+	if (hop < 0)
+	{
+		if (b->train_state != TRAIN_NONE)
+			Bot_TrainReset (b);
+		return false;
+	}
+
+	VectorCopy (nav.nodes[b->path[hop]].origin, boardpos);
+	VectorCopy (nav.nodes[b->path[hop + 1]].origin, exitpos);
+
+	// resolve the train for this link (cached per attempt): the one nearest the
+	// travel midpoint of the two endpoints
+	if (!b->train_ent)
+	{
+		vec3_t	mid;
+		VectorAdd (boardpos, exitpos, mid);
+		VectorScale (mid, 0.5f, mid);
+		b->train_ent = Bot_FindTrainNear (mid);
+		if (!b->train_ent)
+		{
+			Bot_LogEvent (b, "train_notrain");
+			b->train_state = TRAIN_FAILED;
+			return false;
+		}
+		b->train_deadline = level.time + TRAIN_WAIT_TIMEOUT;
+	}
+	tr = b->train_ent;
+
+	if (level.time > b->train_deadline)
+	{
+		Bot_LogEvent (b, "train_timeout");
+		b->train_state = TRAIN_FAILED;
+		return false;
+	}
+
+	b->want_jump = false;
+
+	// COMMIT (cf. bot_liftcommit): once we've started RIDING, keep riding while
+	// we're still over the train's footprint even if groundentity separates for
+	// a tick as the shuttle accelerates -- otherwise we revert to WAIT (hold
+	// position) and the train slides out from under us, dropping us mid-leg.
+	{
+		qboolean over = Train_CoversXY (tr, ent->s.origin)
+			&& ent->s.origin[2] > tr->absmin[2] - 8.0f
+			&& ent->s.origin[2] < tr->absmax[2] + 40.0f;
+
+	if (ent->groundentity == tr || (b->train_state == TRAIN_RIDE && over))
+	{
+		// ---- RIDE: the train has us; it carries us to the far end ----
+		if (b->train_state != TRAIN_RIDE)
+		{
+			Bot_LogEvent (b, "train_ride");
+			b->train_state = TRAIN_RIDE;
+			b->train_deadline = level.time + TRAIN_RIDE_TIMEOUT;
+		}
+
+		// arrived at the far endpoint: hand back to normal following past the
+		// train link so it steps off onto the connected platform promptly
+		VectorSubtract (exitpos, ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) < NAV_ARRIVE_RADIUS)
+		{
+			Bot_LogEvent (b, "train_exit");
+			b->path_idx = hop + 1;
+			Bot_TrainReset (b);
+			return false;
+		}
+
+		// still travelling: hold the train's center so we can't slide off an edge
+		c[0] = (tr->absmin[0] + tr->absmax[0]) * 0.5f;
+		c[1] = (tr->absmin[1] + tr->absmax[1]) * 0.5f;
+		VectorSubtract (c, ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) > 24)
+		{
+			b->move_yaw = vectoyaw (d);
+			VectorNormalize (d);
+			VectorScale (d, 0.35f, b->move_dir);
+		}
+		else
+			VectorClear (b->move_dir);
+		return true;
+	}
+	}	// end COMMIT scope
+
+	if (Train_CoversXY (tr, boardpos))
+	{
+		// ---- BOARD: the train is parked at our end; step onto its center ----
+		if (b->train_state != TRAIN_BOARD)
+		{
+			Bot_LogEvent (b, "train_board");
+			b->train_state = TRAIN_BOARD;
+		}
+		c[0] = (tr->absmin[0] + tr->absmax[0]) * 0.5f;
+		c[1] = (tr->absmin[1] + tr->absmax[1]) * 0.5f;
+		c[2] = ent->s.origin[2];
+		VectorSubtract (c, ent->s.origin, d);
+		d[2] = 0;
+		if (VectorLength (d) > 1)
+		{
+			VectorNormalize (d);
+			VectorCopy (d, b->move_dir);
+			b->move_yaw = vectoyaw (d);
+		}
+		return true;
+	}
+
+	// ---- WAIT: the train is away.  HOLD on the ledge -- boardpos floats in the
+	// void until the train returns, so never walk toward it here.  Face it so the
+	// board step is a straight walk when the ride arrives.
+	if (b->train_state != TRAIN_WAIT)
+	{
+		Bot_LogEvent (b, "train_wait");
+		b->train_state = TRAIN_WAIT;
+	}
+	VectorClear (b->move_dir);
+	VectorSubtract (boardpos, ent->s.origin, d);
+	d[2] = 0;
+	if (VectorLength (d) > 1)
+		b->move_yaw = vectoyaw (d);
+	return true;
+}
+
+//==========================================================================
+// ladder climbing (bot_ladder)
+//
+// Ladders are CONTENTS_LADDER brush volumes; the engine's pmove already does
+// the climb physics -- while the bot FACES a ladder (a 1u forward trace hits
+// CONTENTS_LADDER), upmove>0 drives it up and upmove<0 down (template.c).  So
+// the bot side is just: detect the ladder, turn to face it, and feed upmove
+// toward the goal's height.  Owns the frame like the lift/train so the climb
+// isn't punished as a stall.  No nav seeding needed -- bots meet ladders where
+// they're already stuck (pits, the q2dm2 quad pool), climb out, and the learner
+// records the traversal for A* to route next time.
+//==========================================================================
+
+#define LADDER_PROBE	24.0f	// how far to look sideways for a ladder surface
+#define LADDER_DEADBAND	32.0f	// don't grab a ladder unless the goal is this far
+								// above/below (else a bot passing one sticks to it)
+
+// direction (unit, horizontal) toward a ladder surface touching the bot, or
+// false if none.  Scans 8 compass directions; the mask makes the trace collide
+// ONLY with ladder content, and a MASK_SOLID re-check rejects a ladder sensed
+// through a wall.
+static qboolean Bot_LadderDir (edict_t *ent, vec3_t out_into)
+{
+	static const float dirs[8][2] = {
+		{1,0}, {0,1}, {-1,0}, {0,-1},
+		{0.7f,0.7f}, {-0.7f,0.7f}, {0.7f,-0.7f}, {-0.7f,-0.7f} };
+	int	i;
+
+	for (i = 0; i < 8; i++)
+	{
+		vec3_t	spot;
+		trace_t	tr, wall;
+		spot[0] = ent->s.origin[0] + dirs[i][0] * LADDER_PROBE;
+		spot[1] = ent->s.origin[1] + dirs[i][1] * LADDER_PROBE;
+		spot[2] = ent->s.origin[2];
+
+		tr = gi.trace (ent->s.origin, ent->mins, ent->maxs, spot, ent, CONTENTS_LADDER);
+		if (tr.fraction >= 1 || !(tr.contents & CONTENTS_LADDER))
+			continue;
+
+		// reject a ladder felt through a wall: a solid trace to the same spot
+		// must reach at least as far as the ladder contact
+		wall = gi.trace (ent->s.origin, ent->mins, ent->maxs, spot, ent, MASK_SOLID);
+		if (wall.fraction < tr.fraction - 0.01f)
+			continue;
+
+		out_into[0] = dirs[i][0];
+		out_into[1] = dirs[i][1];
+		out_into[2] = 0;
+		VectorNormalize (out_into);
+		return true;
+	}
+	return false;
+}
+
+/*
+=================
+Bot_LadderReset
+=================
+*/
+void Bot_LadderReset (bot_t *b)
+{
+	b->on_ladder = false;
+}
+
+/*
+=================
+Bot_LadderThink
+
+Returns true while the ladder controller owns this frame's movement intent.
+Sets move_dir INTO the ladder (so pmove keeps sensing it) plus a vertical
+component the applier turns into upmove; the caller freezes stuck/budget like
+the lift.  Only engages when the bot's next waypoint / goal is meaningfully
+above or below, so a bot merely brushing a ladder in passing isn't captured.
+=================
+*/
+qboolean Bot_LadderThink (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	vec3_t	into;
+	float	targetz, dz;
+
+	if (bot_ladder->value == 0)
+		return false;
+
+	if (!Bot_LadderDir (ent, into))
+	{
+		if (b->on_ladder)
+			Bot_LadderReset (b);
+		return false;
+	}
+
+	// height we're trying to reach: the next path node, else the goal node
+	targetz = ent->s.origin[2];
+	if (b->path_len > 0 && b->path_idx >= 0 && b->path_idx < b->path_len)
+		targetz = nav.nodes[b->path[b->path_idx]].origin[2];
+	else if (b->goal_node >= 0 && b->goal_node < nav.num_nodes)
+		targetz = nav.nodes[b->goal_node].origin[2];
+
+	// submerged in slime, an adjacent ladder IS the exit: climb UP regardless of
+	// where the item goal sits (a drowning bot's goal is usually across the map,
+	// so the deadband would otherwise release the ladder and it drowns instead).
+	{
+		qboolean escape = bot_slimeescape->value != 0
+			&& ent->waterlevel >= 2 && (ent->watertype & CONTENTS_SLIME);
+		dz = targetz - ent->s.origin[2];
+		if (!escape && dz > -LADDER_DEADBAND && dz < LADDER_DEADBAND)
+		{
+			// goal is on our level: don't cling to the ladder
+			if (b->on_ladder)
+				Bot_LadderReset (b);
+			return false;
+		}
+		if (escape)
+			dz = LADDER_DEADBAND + 1.0f;		// force the climb direction UP
+	}
+
+	if (!b->on_ladder)
+	{
+		Bot_LogEvent (b, "ladder_climb");
+		b->on_ladder = true;
+	}
+
+	// face the ladder and press into it (pmove clamps horizontal to +/-25, so
+	// this just keeps us pinned); the vertical component becomes upmove
+	b->move_yaw = vectoyaw (into);
+	VectorCopy (into, b->move_dir);
+	b->move_dir[2] = (dz > 0) ? 1.0f : -1.0f;
+	b->want_jump = false;
+	return true;
+}
+
+/*
+=================
+Bot_SlimeEscapeThink  (bot_slimeescape)
+
+q2dm7's slime channel drowned bots: 57% of deaths there were MOD_SLIME, almost
+all while SUBMERGED (waterlevel 2-3).  bot_hazard deliberately treats slime as a
+survivable, A*-priced wade (not a wall), so nothing forces a submerged bot out --
+its item goal is usually across the map, so Bot_Swimming steers it HORIZONTALLY
+and it dies in place, and the opportunistic ladder controller releases (its goal
+isn't above).  This controller fires only when the bot is SUBMERGED in slime
+(waterlevel >= 2 -- a shallow waterlevel-1 wade is a legit priced crossing we
+must NOT interrupt): it abandons the item goal and drives toward the nearest DRY
+node with a hard upward swim so the bot surfaces and heads for the exit.  An
+adjacent ladder is handled one step earlier by Bot_LadderThink (deadband relaxed
+under the same submerged-slime condition), so the dispatch order means: climb a
+ladder if one is in reach, otherwise swim to the nearest dry ground.  Off (or in
+water/lava, or only ankle-deep) it never fires, so the off-state is unchanged.
+=================
+*/
+qboolean Bot_SlimeEscapeThink (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	int		i, best = -1;
+	float	bestd = 1e18f;
+
+	if (bot_slimeescape->value == 0)
+	{
+		b->slime_escaping = false;
+		return false;
+	}
+	if (ent->waterlevel < 2 || !(ent->watertype & CONTENTS_SLIME))
+	{
+		b->slime_escaping = false;
+		return false;			// dry, ankle-deep, or a non-slime liquid
+	}
+
+	// nearest safe node (not slime/hazard/water), biased against nodes below us
+	// (a node far beneath is not an exit -- we need to climb OUT)
+	for (i = 0; i < nav.num_nodes; i++)
+	{
+		vec3_t	d;
+		float	dd;
+		if (nav.nodes[i].flags & (NAV_FLAG_SLIME | NAV_FLAG_HAZARD | NAV_FLAG_WATER))
+			continue;
+		VectorSubtract (nav.nodes[i].origin, ent->s.origin, d);
+		dd = VectorLength (d);
+		if (nav.nodes[i].origin[2] < ent->s.origin[2] - 32.0f)
+			dd += 2000.0f;		// deprioritize anything below the surface
+		if (dd < bestd)
+		{
+			bestd = dd;
+			best = i;
+		}
+	}
+	if (best < 0)
+		return false;			// no safe node known: fall through to normal steer
+
+	Bot_SetMoveToward (b, nav.nodes[best].origin);	// 3D swim intent toward the exit
+	b->move_dir[2] = 1.0f;			// hard swim UP so we surface (water-jump then
+	VectorNormalize (b->move_dir);	// climbs us out at the channel lip)
+	b->want_jump = false;
+
+	if (!b->slime_escaping)
+	{
+		Bot_LogEvent (b, "slime_escape");
+		b->slime_escaping = true;
+	}
+	return true;
+}
+
+//==========================================================================
 // strafe jumping (bot_strafejump) -- Phase 19
 //
 // Chained bunny hops with forward+side both held and a per-tick yaw sweep
@@ -1391,6 +1813,13 @@ qboolean Bot_FollowPath (bot_t *b)
 
 		if (hdist < NAV_ARRIVE_RADIUS && (!vertical || vdist < NAV_ARRIVE_RADIUS))
 		{
+			// Hold on a playbook start node: advancing would make FollowPath
+			// aim at the exit through solid (q2dm3 MH giveups under the
+			// pedestal).  Playback consumes the hop from here.
+			if (bot_playbook && bot_playbook->value != 0
+				&& b->path_idx + 1 < b->path_len
+				&& Bot_LinkType (node, b->path[b->path_idx + 1]) == NAV_LINK_PLAYBOOK)
+				break;
 			b->path_idx++;
 			continue;
 		}
@@ -1399,6 +1828,10 @@ qboolean Bot_FollowPath (bot_t *b)
 		vel[2] = 0;
 		if (!vertical && hdist < 96 && VectorLength (vel) > 40 && DotProduct (vel, d) < 0)
 		{
+			if (bot_playbook && bot_playbook->value != 0
+				&& b->path_idx + 1 < b->path_len
+				&& Bot_LinkType (node, b->path[b->path_idx + 1]) == NAV_LINK_PLAYBOOK)
+				break;
 			b->path_idx++;
 			continue;
 		}
@@ -1527,6 +1960,50 @@ static qboolean Bot_HazardInDir (edict_t *ent, const vec3_t dir, float dist)
 	if (tr.fraction == 1.0f)
 		return false;	// bottomless within range: the void is not our call
 	return (tr.contents & CONTENTS_LAVA) != 0;
+}
+
+/*
+=================
+Bot_SlimeDropAhead  (bot_slimeescape)
+
+Like Bot_HazardInDir but for SLIME, and it fires ONLY for a DROP -- the slime
+surface `dist` ahead sits well below the bot's feet (a fall off a ledge into the
+channel), not an at-foot-level wade.  This is the discriminator that lets us keep
+q2dm7's legitimate at-level channel crossings (a shallow step-in, priced 4x by
+A*) while braking the ledge falls that were drowning bots: 57% of q2dm7 deaths
+were MOD_SLIME, most from bots that walked/coasted off the rim into deep slime.
+=================
+*/
+#define SLIME_DROP_MIN	40.0f	// surface this far below our feet = a fall, not a wade
+
+static qboolean Bot_SlimeDropAhead (edict_t *ent, const vec3_t dir, float dist)
+{
+	vec3_t	d, ahead, start, end;
+	trace_t	tr;
+	float	len;
+
+	d[0] = dir[0];
+	d[1] = dir[1];
+	d[2] = 0;
+	len = (float)sqrt (d[0]*d[0] + d[1]*d[1]);
+	if (len < 0.1f)
+		return false;
+	d[0] /= len;
+	d[1] /= len;
+
+	VectorMA (ent->s.origin, dist, d, ahead);
+	VectorCopy (ahead, start);
+	start[2] += 16;
+	VectorCopy (ahead, end);
+	end[2] -= 512;
+
+	tr = gi.trace (start, vec3_origin, vec3_origin, end, ent, MASK_SOLID | MASK_WATER);
+	if (tr.fraction == 1.0f)
+		return false;
+	if (!(tr.contents & CONTENTS_SLIME))
+		return false;
+	// only a genuine drop into the slime counts (surface well below our feet)
+	return tr.endpos[2] < ent->s.origin[2] - SLIME_DROP_MIN;
 }
 
 /*
@@ -1765,6 +2242,47 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 		return;
 	}
 
+	// bot_slimeescape: same momentum brake for a DROP into slime (a ledge fall,
+	// not an at-level wade).  q2dm7 drowned bots that walked/coasted off the rim
+	// into the deep channel -- the escape controller can't reliably climb a
+	// walled slime pit, so the real fix is not to fall in.  Gated on a genuine
+	// drop (Bot_SlimeDropAhead) so legitimate priced at-level crossings still
+	// happen; skipped when already in the slime (escape/swim owns that).  Off
+	// (bot_slimeescape 0) it never fires, so the off-state is unchanged.
+	if (bot_slimeescape->value != 0 && b->ent->groundentity
+		&& !(b->ent->watertype & CONTENTS_SLIME)
+		&& Bot_SlimeDropAhead (b->ent, b->move_dir, Bot_HazardProbe (b->ent, 0.0f)))
+	{
+		vec3_t	back;
+
+		back[0] = -b->move_dir[0];
+		back[1] = -b->move_dir[1];
+		back[2] = 0;
+
+		// only reverse onto ground that isn't itself a slime drop, else zero and
+		// let friction bleed the slide (mirrors the lava brake's boxed-in case)
+		if (VectorLength (back) > 0.1f
+			&& !Bot_SlimeDropAhead (b->ent, back, Bot_HazardProbe (b->ent, 16.0f)))
+		{
+			a[YAW] = facing_yaw;
+			AngleVectors (a, f, r, u);
+			f[2] = 0;
+			r[2] = 0;
+			VectorNormalize (f);
+			VectorNormalize (r);
+			cmd->forwardmove = (short)(DotProduct (back, f) * speed);
+			cmd->sidemove    = (short)(DotProduct (back, r) * speed);
+		}
+		else
+		{
+			cmd->forwardmove = 0;
+			cmd->sidemove = 0;
+		}
+		cmd->upmove = 0;
+		b->next_wander_time = level.time;
+		return;
+	}
+
 	// avoid wandering into the void (explore only; combat & learned paths are
 	// allowed to take known drops).  Lava in any mode is handled by the brake
 	// above; this remains for the bottomless-drop case the lava probe ignores.
@@ -1796,6 +2314,11 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 	// keys off upmove when we surface against a ledge, which climbs us out)
 	if (Bot_Swimming (b->ent))
 		cmd->upmove = (short)(b->move_dir[2] * speed);
+
+	// climbing: on a ladder, upmove drives the climb (engine template.c: upmove
+	// >0 -> +200 up, <0 -> down).  Full-strength so we actually make height.
+	if (b->on_ladder)
+		cmd->upmove = (b->move_dir[2] > 0) ? 350 : -350;
 
 	if (b->want_jump && b->ent->groundentity)
 		cmd->upmove = 350;

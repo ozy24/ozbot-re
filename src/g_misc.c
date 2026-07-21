@@ -1806,8 +1806,10 @@ void teleporter_touch (edict_t *self, edict_t *other, cplane_t *plane, csurface_
 	other->client->ps.pmove.pm_time = 160>>3;		// hold time
 	other->client->ps.pmove.pm_flags |= PMF_TIME_TELEPORT;
 
-	// draw the teleport splash at source and on the player
-	self->owner->s.event = EV_PLAYER_TELEPORT;
+	// draw the teleport splash at source and on the player.  A brush
+	// trigger_teleport has no spawned disc owner, so guard it.
+	if (self->owner)
+		self->owner->s.event = EV_PLAYER_TELEPORT;
 	other->s.event = EV_PLAYER_TELEPORT;
 
 	// set angles
@@ -1872,5 +1874,38 @@ void SP_misc_teleporter_dest (edict_t *ent)
 	VectorSet (ent->mins, -32, -32, -24);
 	VectorSet (ent->maxs, 32, 32, -16);
 	gi.linkentity (ent);
+}
+
+/*QUAKED trigger_teleport (0.5 0.5 0.5) ?
+The brush-model teleporter used by most custom DM maps (the disc-style
+misc_teleporter is the id/base form).  Touching the brush relocates the player
+to the entity `target` points at (an info_teleport_destination / misc_teleporter_dest).
+Reuses teleporter_touch; there is no spawned disc, so its owner splash is guarded.
+This base previously left trigger_teleport without a spawn function, so those
+teleporters were inert -- breaking custom maps that use them.
+*/
+void SP_trigger_teleport (edict_t *self)
+{
+	if (!self->target)
+	{
+		gi.dprintf ("trigger_teleport without a target at %s\n", vtos (self->s.origin));
+		G_FreeEdict (self);
+		return;
+	}
+	gi.setmodel (self, self->model);	// brush model (*N)
+	self->solid = SOLID_TRIGGER;
+	self->touch = teleporter_touch;
+	self->svflags |= SVF_NOCLIENT;
+	gi.linkentity (self);
+}
+
+/*QUAKED info_teleport_destination (0.5 0.5 0.5) (-16 -16 -24) (16 16 32)
+Destination marker for trigger_teleport (the brush-teleporter analogue of
+misc_teleporter_dest).  Only its origin/angles are used, so this is a no-op
+spawn that just keeps the edict alive for target lookup.
+*/
+void SP_info_teleport_destination (edict_t *self)
+{
+	// origin + angles were parsed already; nothing else to do.
 }
 

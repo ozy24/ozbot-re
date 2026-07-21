@@ -41,6 +41,8 @@ cvar_t	*bot_itemfail;
 cvar_t	*bot_navmask;
 cvar_t	*bot_reachlog;
 cvar_t	*bot_goalnode;
+cvar_t	*bot_commit;	// travel-cost commitment discount (see bot.h)
+cvar_t	*bot_navlearn;	// runtime nav learning + autosave master switch (see bot.h)
 cvar_t	*bot_navvalidate;
 cvar_t	*bot_failpersist;
 cvar_t	*bot_reroutemid;
@@ -48,6 +50,11 @@ cvar_t	*bot_swim;
 cvar_t	*bot_hazard;	// environmental-hazard awareness (lava/slime/hurt volumes)
 cvar_t	*bot_hazlog;	// per-death diagnostic: MOD + path/airborne state (default 0)
 cvar_t	*bot_lift;
+cvar_t	*bot_train;			// ride func_trains (horizontal shuttles) -- see bot_move.c
+cvar_t	*bot_teleport;		// route through misc_teleporters (seeded TELEPORT links)
+cvar_t	*bot_jumppad;		// route through trigger_push jump pads (seeded PUSH links)
+cvar_t	*bot_ladder;		// climb CONTENTS_LADDER surfaces -- see bot_move.c
+cvar_t	*bot_slimeescape;	// submerged in slime: climb/swim out (see bot_move.c)
 cvar_t	*bot_liftcommit;	// once on a rising plat, commit to the ride (don't step off)
 cvar_t	*bot_liftlog;
 cvar_t	*bot_strafejump;
@@ -133,6 +140,12 @@ void Bot_Init (void)
 	bot_reachlog     = gi.cvar ("bot_reachlog", "1", 0);	// map-load item reachability sweep (oracle diagnostics)
 	bot_goalnode     = gi.cvar ("bot_goalnode", "0", 0);	// resolve item goal nodes to CONNECTED nodes (skip
 															// in-degree-0 orphans that shadow real coverage)
+	bot_commit       = gi.cvar ("bot_commit", "0.8", 0);	// travel-cost commitment discount (default-ON): penalize
+															// the detour past the cheapest reachable item so far/hard
+															// items only win when idle or themselves close. Net +pickups
+															// (strong in deathmatch contention; 0 = pre-lever, bit-exact)
+	bot_navlearn     = gi.cvar ("bot_navlearn", "1", 0);	// runtime nav learning + autosave master switch;
+															// FROZEN-flagged graphs ignore it and never grow/save
 	bot_navvalidate  = gi.cvar ("bot_navvalidate", "0", 0);	// P1: at load, drop learned fluke WALK links (steep,
 															// one-way -- lucky falls/combat shoves A* re-sells)
 	bot_failpersist  = gi.cvar ("bot_failpersist", "0", 0);	// P4a: persist per-item giveup counts across map loads
@@ -186,6 +199,33 @@ void Bot_Init (void)
 	bot_hazlog       = gi.cvar ("bot_hazlog", "0", 0);		// per-death MOD + path/airborne classification diagnostic
 	bot_lift         = gi.cvar ("bot_lift", "1", 0);		// the lift capability: plat links, wait/board/ride
 															// controller, 3D column arrival, level-aware homing
+	bot_ladder       = gi.cvar ("bot_ladder", "1", 0);		// the ladder capability: face + climb
+															// CONTENTS_LADDER surfaces toward a higher/lower goal
+	bot_slimeescape  = gi.cvar ("bot_slimeescape", "0", 0);	// submerged in slime: abandon the item goal and
+															// climb the nearest ladder / swim to the nearest dry
+															// node (q2dm7 slime deaths were 57% of all deaths)
+	bot_train        = gi.cvar ("bot_train", "1", 0);		// the train capability: ride func_trains across
+															// gaps they bridge (seeded TRAIN links + controller +
+															// availability-priced links, Goal_UpdateTrainCosts).
+															// Default ON for map-completeness: reliably rides and
+															// unlocks q2dm2's otherwise-no_path RG/BFG/Body Armor
+															// platform.  NOTE the benchmark's raw pickup count dips
+															// on q2dm2 (a ride is an expensive round trip) and frags
+															// are ~flat -- the symmetric sim gives every bot equal
+															// access so the unlock shows no RELATIVE edge, but a bot
+															// that can reach the whole map is more capable in real
+															// play.  Bit-identical on train-less maps (q2dm1). See
+															// ozbot-re-q2dm2-* memory
+	bot_teleport     = gi.cvar ("bot_teleport", "1", 0);	// route through misc_teleporters: seed one-way
+															// TELEPORT links pad->destination (Nav_SeedTeleportLinks).
+															// The teleport is automatic on touch, so no controller --
+															// just the routing edge the >200u learn guard refuses to
+															// learn.  Off = graph untouched (byte-identical).
+	bot_jumppad      = gi.cvar ("bot_jumppad", "1", 0);	// route through trigger_push jump pads: seed one-way
+															// PUSH links pad->ballistic-landing (Nav_SeedPushLinks).
+															// The launch is automatic on touch, so no controller --
+															// just the routing edge the learn guard refuses to learn.
+															// Off = no push links (byte-identical on pad-less maps).
 	// once the bot is standing in a RISING plat's footprint, commit to riding it
 	// to the top (hold center) instead of the WAIT logic backing it out -- fixes
 	// "the bot steps off the lift before it goes up".  Off = pre-fix behavior.
@@ -207,6 +247,11 @@ void Bot_Init (void)
 	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);	// head-to-head: even bot ids lead, odd don't
 	bot_flee         = gi.cvar ("bot_flee", "1", 0);		// retreat + fetch health/armor when outmatched
 	bot_fleetest     = gi.cvar ("bot_fleetest", "0", 0);	// head-to-head: even bot ids flee, odd don't
+	bot_outnumbered     = gi.cvar ("bot_outnumbered", "0", 0);	// break off + retreat from a LOSING 2+ enemy crossfire
+															// (strength-gated).  Default OFF: parity A/B is marginal/
+															// mixed (q2dm1/6 net-positive, q2dm8 regresses) -- promising
+															// but unconfirmed; needs multi-seed + q2dm8 diagnosis
+	bot_outnumberedtest = gi.cvar ("bot_outnumberedtest", "0", 0);	// id-parity A/B: even ids use it, odd control
 	bot_aimtest      = gi.cvar ("bot_aimtest", "0", 0);		// head-to-head: even ids apply the bot_aim* multipliers
 	bot_aimreact     = gi.cvar ("bot_aimreact", "1", 0);	//   reaction-delay multiplier
 	bot_aimturn      = gi.cvar ("bot_aimturn", "1", 0);		//   turn-rate multiplier
@@ -374,6 +419,8 @@ static void Bot_ResetNavState (bot_t *b)
 	b->replan_time  = level.time + 1.0;
 	b->progress_time = level.time;
 	Bot_LiftReset (b);
+	Bot_TrainReset (b);
+	Bot_LadderReset (b);
 	Bot_StrafeReset (b);
 	Bot_PlaybackReset (b);
 	b->glance_until = 0;			// no stale glance across a respawn
@@ -482,6 +529,8 @@ int Bot_NavMask (bot_t *b)
 		mask &= ~NAV_MASK (NAV_LINK_WATER);
 	if (bot_lift->value == 0)
 		mask &= ~NAV_MASK (NAV_LINK_PLAT);
+	if (bot_train->value == 0)
+		mask &= ~NAV_MASK (NAV_LINK_TRAIN);
 	return mask;
 }
 
@@ -814,6 +863,8 @@ static void Bot_GoExplore (bot_t *b)
 	b->reroute_idx_time = level.time;
 	b->steer_item    = NULL;	// fresh explore leg: no stale steering target
 	Bot_LiftReset (b);
+	Bot_TrainReset (b);
+	Bot_LadderReset (b);
 	Bot_StrafeReset (b);
 	Bot_PlaybackReset (b);
 }
@@ -1109,15 +1160,64 @@ static void Bot_Navigate (bot_t *b)
 		else if (b->lift_state != LIFT_NONE)
 			Bot_LiftReset (b);	// cvar turned off mid-attempt: clear stale state
 
+		// func_train riding: same deal as the lift for a horizontal shuttle hop
+		if (bot_train->value != 0)
+		{
+			if (Bot_TrainThink (b))
+			{
+				b->progress_time = level.time;
+				b->goal_time += FRAMETIME;
+				if (b->sj_state != SJ_NONE)
+					Bot_StrafeReset (b);	// the train owns the frame now
+				return;
+			}
+		}
+		else if (b->train_state != TRAIN_NONE)
+			Bot_TrainReset (b);	// cvar turned off mid-attempt: clear stale state
+
 		// playbook maneuvers (bot_playbook): when a recorded-move hop is next
 		// on the path the controller owns movement AND facing.  Budget clock
 		// freezes like a lift (the align-up wait must not be billed).
+		// MUST run before the ladder controller: playbook exits are often
+		// elevated (e.g. q2dm3 mh_ladder), so LadderThink would otherwise
+		// steal every frame near the mouth and ALIGN never reaches engage.
 		if (Bot_PlaybackThink (b))
 		{
 			b->progress_time = level.time;
 			b->goal_time += FRAMETIME;
 			if (b->sj_state != SJ_NONE)
 				Bot_StrafeReset (b);	// the replay owns the frame now
+			if (b->on_ladder)
+				Bot_LadderReset (b);	// recorded climb owns upmove via pb_cmd
+			b->want_jump = false;		// path-fidget JUMP must not bounce ALIGN
+			return;
+		}
+
+		// ladder climbing: on a ladder with a higher/lower goal, the controller
+		// owns movement (face + climb).  Frozen budget/stuck like the lift.
+		if (bot_ladder->value != 0)
+		{
+			if (Bot_LadderThink (b))
+			{
+				b->progress_time = level.time;
+				b->goal_time += FRAMETIME;
+				if (b->sj_state != SJ_NONE)
+					Bot_StrafeReset (b);	// the ladder owns the frame now
+				return;
+			}
+		}
+		else if (b->on_ladder)
+			Bot_LadderReset (b);	// cvar turned off mid-climb: clear stale state
+
+		// slime escape (bot_slimeescape): submerged in slime with no ladder in
+		// reach -- abandon the item goal and swim to the nearest dry node.  Runs
+		// AFTER the ladder controller so an adjacent ladder wins (it climbs out
+		// directly).  Sets move_dir/move_yaw; Bot_ApplyMovement (in Bot_Think)
+		// turns the upward intent into swim upmove.  Counts as progress so the
+		// active climb-out isn't mistaken for a stall.
+		if (Bot_SlimeEscapeThink (b))
+		{
+			b->progress_time = level.time;
 			return;
 		}
 
@@ -1270,6 +1370,8 @@ static void Bot_Navigate (bot_t *b)
 				b->reroute_last_idx = 0;
 				b->reroute_idx_time = level.time;
 				Bot_LiftReset (b);
+				Bot_TrainReset (b);
+				Bot_LadderReset (b);
 				Bot_StrafeReset (b);	// fresh path: any runway is stale
 				Bot_PlaybackReset (b);
 				if (b->goal_item)
@@ -1460,6 +1562,12 @@ void Bot_RunFrame (void)
 		Nav_TagPlatLinks ();		// bot_lift: retag learned lift columns
 		if (bot_navvalidate->value != 0)	// P1: prune fluke walk links AFTER plat
 			Nav_ValidateLinks ();			// columns are protected (PLAT-typed)
+		Nav_SeedTrainLinks ();			// bot_train: bridge func_train gaps (AFTER validate
+										// so its seeded approach links aren't pruned as flukes)
+		Nav_SeedTeleportLinks ();		// bot_teleport: route through misc_teleporters
+										// (one-way pad->dest links; the learn guard can't learn them)
+		Nav_SeedPushLinks ();			// bot_jumppad: route through trigger_push jump pads
+										// (one-way pad->ballistic-landing links; automatic on touch)
 		Playbook_Load (level.mapname);	// bot_playbook: recorded maneuvers...
 		Playbook_Register ();			// ...surfaced as NAV_LINK_PLAYBOOK links
 		Nav_FlagHazardNodes ();		// bot_hazard: mark lava/slime/hurt-volume nodes
@@ -1475,6 +1583,22 @@ void Bot_RunFrame (void)
 		Bot_Add ();
 	else if (active > (int)bot_count->value)
 		Bot_RemoveOne ();
+
+	// bot_train: re-price train links by current item availability (~2 Hz -- item
+	// respawn is on a 30s timer, so this is plenty responsive and cheap).  Reset
+	// the throttle when level.time jumps back (a map change).
+	if (bot_train->value != 0)
+	{
+		static float next_traincost = 0.0f, last_ttime = -1.0f;
+		if (level.time < last_ttime)
+			next_traincost = 0.0f;
+		last_ttime = level.time;
+		if (level.time >= next_traincost)
+		{
+			next_traincost = level.time + 0.5f;
+			Goal_UpdateTrainCosts ();
+		}
+	}
 
 	for (i = 0; i < game.maxclients; i++)
 	{

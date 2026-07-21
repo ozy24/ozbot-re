@@ -29,6 +29,13 @@ files (see g_svcmds.c SVCmd_WriteIP_f).
 static FILE		*log_fp;
 static float	log_last_flush;
 
+// bot_capture: separate, user-named input-log file driven by the in-game
+// "capture start/stop" command -- independent of the per-level telemetry
+// log_fp above, so a human can carve many granular takes in one session.
+static FILE		*capture_fp;
+static int		capture_frames;
+static char		capture_name[64];
+
 /*
 =================
 Bot_GameDir
@@ -102,6 +109,10 @@ void Bot_LogEndLevel (void)
 		fclose (log_fp);
 		log_fp = NULL;
 	}
+
+	// a "map" change or ShutdownGame routes here -- make sure an in-flight
+	// named capture is closed too, so it isn't left truncated.
+	Bot_CaptureShutdown ();
 }
 
 /*
@@ -336,23 +347,19 @@ void Bot_LogRespawn (const char *event, edict_t *item_ent, float delay)
 
 /*
 =================
-Bot_LogInput
+Write_InputRecord
 
-bot_inputlog: one record per frame of a REAL player's usercmd_t -- the exact
+Shared formatter for one frame of a REAL player's usercmd_t -- the exact
 inputs a .dm2 demo doesn't carry (forward/side/up move, jump = up>0, attack, and
 the per-frame view yaw/pitch sweep), plus the state the player is acting from
-(origin/velocity/ground).  Useful for analysing how a human performs a maneuver
-(movement/jumps).  Feeds tools/input_view.py; recorded via ozbot/record_inputs.bat.
-Caller gates on bot_inputlog and !Bot_IsClient so bots are excluded.
+(origin/velocity/ground).  Used by both Bot_LogInput (global telemetry) and
+Bot_CaptureInput (named capture file) so the two paths never diverge in format.
 =================
 */
-void Bot_LogInput (edict_t *ent, usercmd_t *ucmd)
+static void Write_InputRecord (FILE *fp, edict_t *ent, usercmd_t *ucmd)
 {
 	int		slot;
 	float	vx, vy, vz, spd;
-
-	if (!log_fp || !ent || !ent->client || !ucmd)
-		return;
 
 	slot = (int)(ent - g_edicts) - 1;
 	vx = ent->velocity[0];
@@ -360,7 +367,7 @@ void Bot_LogInput (edict_t *ent, usercmd_t *ucmd)
 	vz = ent->velocity[2];
 	spd = (float)sqrt (vx * vx + vy * vy);
 
-	fprintf (log_fp,
+	fprintf (fp,
 		"{\"type\":\"input\",\"t\":%.2f,\"slot\":%d,\"msec\":%d,"
 		"\"fwd\":%d,\"side\":%d,\"up\":%d,\"atk\":%d,"
 		"\"yaw\":%.2f,\"pitch\":%.2f,"
@@ -375,6 +382,24 @@ void Bot_LogInput (edict_t *ent, usercmd_t *ucmd)
 		vx, vy, vz, spd,
 		ent->groundentity ? "true" : "false",
 		(int)ent->waterlevel);
+}
+
+/*
+=================
+Bot_LogInput
+
+bot_inputlog: one record per frame of a REAL player's usercmd_t, via
+Write_InputRecord.  Feeds tools/input_view.py; recorded via
+ozbot/record_inputs.bat.  Caller gates on bot_inputlog and !Bot_IsClient so
+bots are excluded.
+=================
+*/
+void Bot_LogInput (edict_t *ent, usercmd_t *ucmd)
+{
+	if (!log_fp || !ent || !ent->client || !ucmd)
+		return;
+
+	Write_InputRecord (log_fp, ent, ucmd);
 }
 
 /*
@@ -668,5 +693,159 @@ void Bot_LogMaybeFlush (void)
 	{
 		fflush (log_fp);
 		log_last_flush = level.time;
+	}
+}
+
+/*
+=================
+Bot_CaptureStart
+
+"capture start <name>": opens a fresh, user-named JSONL input log at
+<gamedir>/logs/<name>.jsonl, independent of the per-level telemetry log_fp.
+Ends any capture already in progress first.  name is sanitized to
+[A-Za-z0-9_-] (anything else becomes '_'); an empty/NULL name falls back to
+"capture_<HHMMSS>".  Overwrites on collision.  Writes the same "run" header
+as Bot_LogBeginLevel so tools/input_view.py and tools/make_playbook.py pick
+up the tick rate without a --tickrate override.
+=================
+*/
+void Bot_CaptureStart (edict_t *ent, const char *name)
+{
+	char		dir[MAX_OSPATH];
+	char		path[MAX_OSPATH];
+	char		stamp[32];
+	time_t		now;
+	struct tm	*lt;
+	int			i, len;
+
+	if (capture_fp)
+		Bot_CaptureStop (ent);
+
+	capture_name[0] = '\0';
+	if (name && name[0])
+	{
+		len = (int)strlen (name);
+		if (len > (int)sizeof(capture_name) - 1)
+			len = (int)sizeof(capture_name) - 1;
+		for (i = 0; i < len; i++)
+		{
+			char c = name[i];
+			if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+				(c >= '0' && c <= '9') || c == '_' || c == '-')
+				capture_name[i] = c;
+			else
+				capture_name[i] = '_';
+		}
+		capture_name[len] = '\0';
+	}
+
+	if (!capture_name[0])
+	{
+		now = time (NULL);
+		lt = localtime (&now);
+		if (lt)
+			strftime (stamp, sizeof(stamp), "%H%M%S", lt);
+		else
+			Com_sprintf (stamp, sizeof(stamp), "0");
+		Com_sprintf (capture_name, sizeof(capture_name), "capture_%s", stamp);
+	}
+
+	Com_sprintf (dir, sizeof(dir), "%s/logs", Bot_GameDir());
+	OZ_MKDIR (dir);	// ignore "already exists"
+
+	Com_sprintf (path, sizeof(path), "%s/%s.jsonl", dir, capture_name);
+
+	capture_fp = fopen (path, "w");
+	if (!capture_fp)
+	{
+		gi.cprintf (ent, PRINT_HIGH, "capture: could not open %s\n", path);
+		return;
+	}
+
+	fprintf (capture_fp, "{\"type\":\"run\",\"map\":\"%s\",\"tick_rate\":%d,\"maxclients\":%d}\n",
+		(level.mapname[0]) ? level.mapname : "unknown",
+		(int)(1.0f / FRAMETIME + 0.5f), (int)game.maxclients);
+
+	capture_frames = 0;
+	gi.cprintf (ent, PRINT_HIGH, "capture: recording to logs/%s.jsonl\n", capture_name);
+}
+
+/*
+=================
+Bot_CaptureStop
+
+"capture stop": closes the current capture file (if any) and reports how
+many frames were written.
+=================
+*/
+void Bot_CaptureStop (edict_t *ent)
+{
+	if (!capture_fp)
+	{
+		gi.cprintf (ent, PRINT_HIGH, "capture: not capturing\n");
+		return;
+	}
+
+	fclose (capture_fp);
+	capture_fp = NULL;
+
+	gi.cprintf (ent, PRINT_HIGH, "capture: %d frames -> logs/%s.jsonl\n",
+		capture_frames, capture_name);
+}
+
+/*
+=================
+Bot_CaptureInput
+
+Per-frame write to the active named capture file, via the same
+Write_InputRecord formatter as the global telemetry log.  Flushed every
+frame -- this is a single-player, low-rate capture (40Hz), so the cost is
+cheap and it makes a hard exit crash-safe (no lost take).
+=================
+*/
+void Bot_CaptureInput (edict_t *ent, usercmd_t *ucmd)
+{
+	if (!capture_fp || !ent || !ent->client || !ucmd)
+		return;
+
+	Write_InputRecord (capture_fp, ent, ucmd);
+	capture_frames++;
+	fflush (capture_fp);
+}
+
+/*
+=================
+Bot_CaptureActive
+=================
+*/
+qboolean Bot_CaptureActive (void)
+{
+	return capture_fp != NULL;
+}
+
+/*
+=================
+Bot_CaptureName
+=================
+*/
+const char *Bot_CaptureName (void)
+{
+	return capture_name;
+}
+
+/*
+=================
+Bot_CaptureShutdown
+
+Closes the capture file if one is open (level end / ShutdownGame), without
+the "N frames" report Bot_CaptureStop gives an interactive caller.
+=================
+*/
+void Bot_CaptureShutdown (void)
+{
+	if (capture_fp)
+	{
+		fclose (capture_fp);
+		capture_fp = NULL;
 	}
 }

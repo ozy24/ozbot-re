@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 #include "g_local.h"
 #include "m_player.h"
+#include "bot.h"		// Bot_Capture* (capture start/stop command)
 
 
 char *ClientTeam (edict_t *ent)
@@ -937,6 +938,37 @@ void ClientCommand (edict_t *ent)
 	if (Q_stricmp (cmd, "help") == 0)
 	{
 		Cmd_Help_f (ent);
+		return;
+	}
+	if (Q_stricmp (cmd, "capture") == 0)
+	{
+		// granular, user-named input+demo takes (see CLAUDE.md Playbooks).
+		// Reachable any time, including intermission, so a take can be
+		// stopped cleanly no matter what the round is doing.
+		char *sub = gi.argv (1);
+
+		if (Q_stricmp (sub, "start") == 0)
+		{
+			Bot_CaptureStart (ent, gi.argv (2));
+			// "stop" first so a back-to-back start (no intervening capture
+			// stop) closes any demo still recording -- else the engine
+			// refuses "record" and the .dm2 desyncs from the .jsonl.  A
+			// stray "stop" with no demo active is a harmless no-op.
+			gi.AddCommandString ("stop\n");
+			gi.AddCommandString (va ("record %s\n", Bot_CaptureName ()));
+		}
+		else if (Q_stricmp (sub, "stop") == 0)
+		{
+			Bot_CaptureStop (ent);
+			gi.AddCommandString ("stop\n");
+		}
+		else	// "status" or anything else
+		{
+			if (Bot_CaptureActive ())
+				gi.cprintf (ent, PRINT_HIGH, "capture: recording %s\n", Bot_CaptureName ());
+			else
+				gi.cprintf (ent, PRINT_HIGH, "capture: not capturing\n");
+		}
 		return;
 	}
 

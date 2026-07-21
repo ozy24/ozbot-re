@@ -45,6 +45,16 @@ float Bot_TickGain (float gain10);
 #define LIFT_RIDE		3	// standing on the plat: let it carry us
 #define LIFT_FAILED		4	// timed out this attempt: normal systems resume
 
+// func_train riding (bot_train; bot_move.c).  A train shuttles horizontally
+// between path_corners, so unlike the plat the bot boards only when the train
+// is AT the near end and steps off at the far end -- otherwise it walks into
+// the void where the endpoint node floats.  Mirrors LIFT_* / owns the intent.
+#define TRAIN_NONE		0
+#define TRAIN_WAIT		1	// train is away: hold on the ledge, don't advance onto air
+#define TRAIN_BOARD		2	// train is at the near end: step onto it
+#define TRAIN_RIDE		3	// standing on the train: let it carry us to the far end
+#define TRAIN_FAILED	4	// timed out this attempt: normal systems resume
+
 // playback controller states (bot_playbook; bot_playback.c).  A playbook
 // entry replays a recorded input sequence; ALIGN gets the bot onto the
 // recorded anchor first, FAILED sticks for the goal attempt like LIFT_FAILED.
@@ -121,6 +131,15 @@ typedef struct
 	vec3_t		lift_move_pos;	// BOARD progress: last position...
 	float		lift_move_time;	// ...and when we were there (geometry-block
 								// detector -- boarding should never stall)
+
+	// func_train riding (bot_train)
+	int			train_state;	// TRAIN_*
+	edict_t		*train_ent;		// the func_train being waited for / ridden
+	float		train_deadline;	// level.time cap on the current train state
+
+	// ladder climbing (bot_ladder)
+	qboolean	on_ladder;		// the ladder controller owns movement this frame
+	qboolean	slime_escaping;	// bot_slimeescape: submerged in slime, driving to safety
 
 	// playback (bot_playbook -- recorded maneuvers, bot_playback.c)
 	int			pb_state;		// PB_*
@@ -244,6 +263,16 @@ extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_navmask;
 extern cvar_t	*bot_reachlog;
 extern cvar_t	*bot_goalnode;
+extern cvar_t	*bot_commit;	// travel-cost commitment discount: charge the marginal detour
+								// past the cheapest reachable item, so a far/hard item only wins
+								// when nothing cheaper is nearby (bot idle) or it is itself close.
+								// 0 = off, byte-identical to the pre-lever pick. Attacks
+								// reachable != completable (teleporter/playbook over-investment).
+extern cvar_t	*bot_navlearn;	// runtime nav learning + autosave master switch (default 1).
+									// 0 = never add nodes/links or save (play a fixed graph).
+									// A graph loaded with the ONAV FROZEN header flag is treated
+									// as navlearn==0 regardless, so shipped/baked navs can't
+									// over-grow past their tuned sweet spot on a live server.
 extern cvar_t	*bot_navvalidate;	// load-time fluke-link pruner (P1; map-general hygiene)
 extern cvar_t	*bot_failpersist;	// persist per-item completability across map loads (P4a)
 extern cvar_t	*bot_reroutemid;	// penalize a stalled hop mid-attempt, not only at giveup (P4b)
@@ -253,6 +282,13 @@ extern cvar_t	*bot_hazard;	// environmental-hazard awareness (learner refusal, s
 								// + A* exclusion, in-lava goal filter)
 extern cvar_t	*bot_hazlog;	// per-death MOD + path/airborne classification diagnostic
 extern cvar_t	*bot_lift;
+extern cvar_t	*bot_train;			// the train capability: ride func_trains (bot_move.c)
+extern cvar_t	*bot_teleport;		// route through misc_teleporters (seeded TELEPORT links;
+									// the teleport itself is automatic on touch -- no controller)
+extern cvar_t	*bot_jumppad;		// route through trigger_push jump pads (seeded PUSH links
+									// to a ballistic landing; the launch is automatic on touch)
+extern cvar_t	*bot_ladder;		// the ladder capability: climb CONTENTS_LADDER surfaces
+extern cvar_t	*bot_slimeescape;	// submerged in slime: abandon the goal and climb/swim out
 extern cvar_t	*bot_liftcommit;	// commit to riding a rising plat (don't step off mid-ride)
 extern cvar_t	*bot_liftlog;
 extern cvar_t	*bot_inputlog;
@@ -300,6 +336,11 @@ int Bot_UpcomingHop (bot_t *b, int type, float engage, float release, qboolean e
 // stuck recovery, and the goal-budget clock for the frame).
 qboolean Bot_LiftThink (bot_t *b);
 void Bot_LiftReset (bot_t *b);
+qboolean Bot_TrainThink (bot_t *b);
+void Bot_TrainReset (bot_t *b);
+qboolean Bot_LadderThink (bot_t *b);
+void Bot_LadderReset (bot_t *b);
+qboolean Bot_SlimeEscapeThink (bot_t *b);	// bot_slimeescape: climb/swim out of slime
 // the func_plat whose horizontal footprint contains pos, or NULL
 edict_t *Bot_FindPlatAt (vec3_t pos);
 
@@ -383,6 +424,8 @@ extern cvar_t	*bot_lead;
 extern cvar_t	*bot_leadtest;
 extern cvar_t	*bot_flee;
 extern cvar_t	*bot_fleetest;
+extern cvar_t	*bot_outnumbered;		// retreat from a 2+ enemy crossfire (bot_combat.c)
+extern cvar_t	*bot_outnumberedtest;	// id-parity A/B for bot_outnumbered
 extern cvar_t	*bot_aimtest;
 extern cvar_t	*bot_aimreact;
 extern cvar_t	*bot_aimturn;
@@ -416,6 +459,7 @@ float Bot_NoiseTime (edict_t *who);
 //
 qboolean Goal_Select (bot_t *b);		// choose b->goal_item; true if found
 qboolean Goal_ItemAvailable (edict_t *it);
+void Goal_UpdateTrainCosts (void);		// bot_train: price TRAIN links by item availability
 qboolean Goal_IsRecovery (edict_t *it);	// health or armor pickup?
 edict_t *Goal_NearestItem (bot_t *b, float maxdist);	// for directed exploration
 void Goal_Blacklist (edict_t *it, float secs);	// avoid re-targeting briefly
@@ -458,6 +502,14 @@ void Bot_LogAimShot (bot_t *b, const char *weapon, float range, float latspeed,
 void Bot_LogRespawn (const char *event, edict_t *item_ent, float delay);	// respawn scheduling/firing
 void Bot_LogInput (edict_t *ent, usercmd_t *ucmd);	// bot_inputlog: human usercmd trace
 void Bot_LogMaybeFlush (void);					// periodic flush
+// bot_capture: "capture start/stop/status" -- separate, user-named input log
+// (+ synced .dm2 demo via g_cmds.c) independent of the per-level telemetry log.
+void Bot_CaptureStart (edict_t *ent, const char *name);	// open logs/<name>.jsonl (overwrite)
+void Bot_CaptureStop (edict_t *ent);				// close + report frame count
+void Bot_CaptureInput (edict_t *ent, usercmd_t *ucmd);	// per-frame write while active
+void Bot_CaptureShutdown (void);					// close on level end, no report
+qboolean Bot_CaptureActive (void);					// cheap ClientThink gate
+const char *Bot_CaptureName (void);				// current capture's name (for demo sync)
 // bot_liftlog diagnosis instrumentation (throwaway, see plans/lift-riding.md)
 void Bot_LogLiftBegin (void);					// cache func_plats + emit platinfo
 void Bot_LogLiftTick (bot_t *b);				// per-tick record while near a plat

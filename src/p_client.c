@@ -1592,6 +1592,12 @@ void ClientThink (edict_t *ent, usercmd_t *ucmd)
 	if (bot_inputlog->value != 0 && !Bot_IsClient (ent))
 		Bot_LogInput (ent, ucmd);
 
+	// capture start/stop: separate, user-named take (see g_cmds.c). Same
+	// !Bot_IsClient gate -- on a listen server the host human is the only
+	// non-bot.
+	if (Bot_CaptureActive () && !Bot_IsClient (ent))
+		Bot_CaptureInput (ent, ucmd);
+
 	if (level.intermissiontime)
 	{
 		client->ps.pmove.pm_type = PM_FREEZE;

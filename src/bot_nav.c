@@ -20,6 +20,13 @@ and A* pathfinding.
 nav_graph_t		nav;
 static qboolean	nav_dirty;
 
+// bot_navlearn / ONAV FROZEN flag: when the loaded graph is frozen (a baked
+// gen_nav.exe output) the runtime learner never adds to it and it is never
+// re-saved, so live play can't grow it past its tuned sweet spot.  nav_flags
+// carries the loaded header flags through to the next save (v1 files -> 0).
+static qboolean	nav_frozen;
+static int		nav_flags;
+
 // transient per-link failure counters (not persisted): a link the bots keep
 // failing to traverse gets penalized, then removed, so A* routes around it
 static byte		link_fails[NAV_MAX_NODES][NAV_MAX_LINKS];
@@ -96,6 +103,11 @@ static float Nav_LinkCost (vec3_t a, vec3_t b, int type)
 	case NAV_LINK_FALL:		return d * 1.2f;
 	case NAV_LINK_JUMP:		return d * 1.5f + 32.0f;
 	case NAV_LINK_TELEPORT:	return 64.0f;	// cheap, fixed
+	case NAV_LINK_PUSH:		return 96.0f;	// jump pad: fast, near-free to ride (a
+											// short launch-and-land), but a hair above
+											// TELEPORT -- the arc costs a moment of
+											// airtime and the landing snap is fuzzier
+											// than a teleport's exact drop-point
 	case NAV_LINK_WATER:	return d * 1.6f;
 	case NAV_LINK_PLAT:		return d + 400.0f;	// wait allowance: boarding may
 												// mean waiting out a plat cycle
@@ -106,6 +118,11 @@ static float Nav_LinkCost (vec3_t a, vec3_t b, int type)
 												// through the maneuver (teleport
 												// links already break strict
 												// distance admissibility)
+	case NAV_LINK_TRAIN:	return d + 1500.0f;	// a shuttle ride is a big time sink
+												// (wait for it + ride a full leg): price
+												// it well above a plat so A* only detours
+												// here for a goal worth the round trip,
+												// not to re-check a respawning platform
 	default:				return d;
 	}
 }
@@ -233,6 +250,15 @@ int Nav_LearnStep (edict_t *ent, int prev_node, int link_type)
 	int		cur;
 	byte	flags = 0;
 
+	// bot_navlearn / FROZEN: a baked or explicitly-frozen graph is played as-is
+	// -- never grow or mutate it (protects the tuned node-count sweet spot on a
+	// long-running live server).  Seeding (items/train/teleport/plat) and
+	// playbook injection still run at load; only the per-frame LEARNER stops.
+	if (nav_frozen)
+		return prev_node;
+	if (bot_navlearn && bot_navlearn->value == 0)
+		return prev_node;
+
 	// only place nodes on solid ground (or while swimming) and while alive
 	if (ent->deadflag)
 		return prev_node;
@@ -337,6 +363,379 @@ void Nav_TagPlatLinks (void)
 
 /*
 =================
+Nav_SeedTrainLinks
+
+bot_train: surface each func_train's ride as NAV_LINK_TRAIN links so A* can
+route a bot across the gap the train bridges.  Unlike a func_plat -- which
+rests flush at the floor, so bots walk onto it and the ride is LEARNED then
+retagged (Nav_TagPlatLinks) -- a func_train shuttles horizontally with its
+brush elevated / across a gap, so bots can never board it organically and no
+link is ever learned.  We seed it from geometry instead.
+
+The QUAKED spec: a path_corner's origin is the train's MIN point at that
+corner, so the standable top-center of the train parked at that corner is
+corner + (size.x/2, size.y/2, size.z).  Seed a node there (Nav_SeedNode wires
+it to the adjacent static ground -- the boarding ledge at one end, the far
+platform at the other) and link consecutive corners two-way (the shuttle
+carries either direction).  Never saved (Nav_Save filters TRAIN), regenerated
+each load.  Gated on bot_train so the capability-off graph is untouched.
+=================
+*/
+void Nav_SeedTrainLinks (void)
+{
+	edict_t	*tr;
+	int		seeded = 0;
+
+	if (!bot_train || bot_train->value == 0)
+		return;
+
+	for (tr = NULL; (tr = G_Find (tr, FOFS(classname), "func_train")) != NULL; )
+	{
+		vec3_t	size;
+		edict_t	*c, *first;
+		int		guard, prev_node = -1, first_node = -1;
+		float	deck_off = 0;
+
+		if (!tr->target)
+			continue;
+
+		// bot_train handles HORIZONTAL shuttles (a moving bridge across a gap).
+		// A func_train that travels mostly VERTICALLY is an elevator -- boarding
+		// and riding one is awkward for this controller, and there is normally a
+		// ladder/plat alternative (q2dm2's quad-pool lift, which bots got stuck
+		// milling under), so skip it and let bots take those instead.
+		{
+			edict_t	*c1, *c2;
+			c1 = G_PickTarget (tr->target);
+			c2 = c1 ? G_PickTarget (c1->target) : NULL;
+			if (c1 && c2)
+			{
+				vec3_t	cd;
+				VectorSubtract (c2->s.origin, c1->s.origin, cd);
+				if (fabs (cd[2]) > sqrt (cd[0]*cd[0] + cd[1]*cd[1]))
+					continue;	// vertical elevator, not a shuttle
+			}
+		}
+
+		VectorSubtract (tr->maxs, tr->mins, size);
+
+		// The train's standable deck is NOT its bbox top: the brush can carry a
+		// wall/pillar that makes size.z far taller than the surface a bot walks
+		// on (q2dm2's RG/BFG train is 178 tall over a ~44-high deck).  Trace down
+		// onto the spawn bbox to find the real deck, as an offset above the min
+		// point (rigid, so it holds at every corner).  Add a stand offset so the
+		// seeded node sits at bot-origin height, not on the surface.
+		{
+			// sample a grid across the bbox and take the LOWEST surface hit: the
+			// walkable deck sits low, any wall/pillar rides above it, so the min
+			// avoids being fooled by a central pillar (q2dm2's RG/BFG train).
+			static const float fx[5] = { 0.0f, -0.35f, 0.35f, -0.35f, 0.35f };
+			static const float fy[5] = { 0.0f, -0.35f, -0.35f, 0.35f, 0.35f };
+			float	cx = (tr->absmin[0] + tr->absmax[0]) * 0.5f;
+			float	cy = (tr->absmin[1] + tr->absmax[1]) * 0.5f;
+			float	best = 1e9f;
+			int		s;
+			for (s = 0; s < 5; s++)
+			{
+				vec3_t	ts, te;
+				trace_t	dn;
+				ts[0] = te[0] = cx + fx[s] * size[0];
+				ts[1] = te[1] = cy + fy[s] * size[1];
+				ts[2] = tr->absmax[2] + 16;
+				te[2] = tr->absmin[2] - 16;
+				dn = gi.trace (ts, vec3_origin, vec3_origin, te, NULL, MASK_SOLID);
+				if (dn.fraction < 1.0f && dn.endpos[2] < best)
+					best = dn.endpos[2];
+			}
+			if (best < 1e8f)
+				deck_off = best - tr->absmin[2] + 24.0f;
+			else
+				deck_off = size[2];
+		}
+
+		first = G_PickTarget (tr->target);
+		for (c = first, guard = 0; c && guard < 16; guard++)
+		{
+			vec3_t	top;
+			int		node;
+
+			top[0] = c->s.origin[0] + size[0] * 0.5f;
+			top[1] = c->s.origin[1] + size[1] * 0.5f;
+			top[2] = c->s.origin[2] + deck_off;
+			node = Nav_SeedNode (top);
+			if (node >= 0)
+			{
+				int	m;
+
+				// The brush-top endpoint floats in mid-air whenever the train
+				// has shuttled to its OTHER corner, so Nav_SeedNode's clear-walk
+				// connector (a floor trace) can't wire this end to the adjacent
+				// ground.  Force a short walk link to nearby existing nodes: the
+				// train is the floor when parked here, and these are the
+				// step-on/step-off ledges (board side at the near corner, far
+				// platform -- the gated items -- at the far corner).
+				for (m = 0; m < nav.num_nodes; m++)
+				{
+					vec3_t	dd;
+					if (m == node)
+						continue;
+					VectorSubtract (nav.nodes[m].origin, top, dd);
+					if (dd[2] > 56 || dd[2] < -56)
+						continue;
+					if (dd[0]*dd[0] + dd[1]*dd[1] > 120.0f*120.0f)
+						continue;
+					Nav_AddLink (node, m, NAV_LINK_WALK);
+					Nav_AddLink (m, node, NAV_LINK_WALK);
+				}
+
+				if (first_node < 0)
+					first_node = node;
+				if (prev_node >= 0 && prev_node != node)
+				{
+					Nav_AddLinkType (prev_node, node, NAV_LINK_TRAIN);
+					Nav_AddLinkType (node, prev_node, NAV_LINK_TRAIN);
+					seeded++;
+				}
+				prev_node = node;
+			}
+
+			if (!c->target)
+				break;
+			c = G_PickTarget (c->target);
+			if (c == first)			// path loops closed
+			{
+				if (prev_node >= 0 && first_node >= 0 && prev_node != first_node)
+				{
+					Nav_AddLinkType (prev_node, first_node, NAV_LINK_TRAIN);
+					Nav_AddLinkType (first_node, prev_node, NAV_LINK_TRAIN);
+					seeded++;
+				}
+				break;
+			}
+		}
+	}
+
+	if (seeded)
+		gi.dprintf ("ozbot: seeded %d func_train link(s)\n", seeded);
+}
+
+/*
+=================
+Nav_SeedTeleportLinks
+
+bot_teleport: surface each misc_teleporter as a one-way NAV_LINK_TELEPORT so A*
+can route a bot through it.  A teleporter is AUTOMATIC -- the bot just walks onto
+the pad and teleporter_touch relocates it -- so unlike lifts/trains there is no
+ride controller, only the routing edge.  The learner never captures it: stepping
+on the pad jumps the bot >200u to the destination, and Nav_LearnStep's
+discontinuity guard correctly refuses to link that (a teleported "traversal" is
+not a walkable edge).  Seed from geometry instead -- source = the misc_teleporter
+pad origin, destination = its targeted misc_teleporter_dest (teleporter_touch
+drops the player at dest origin +10z).  Never saved (Nav_Save strips TELEPORT),
+regenerated each load.  Gated on bot_teleport so the capability-off graph is
+untouched.
+
+NOTE: this seeds BOTH teleporter forms.  Point-entity misc_teleporter (+
+misc_teleporter_dest) is the id/base disc bots stand ON (source = pad origin).
+Brush trigger_teleport is the volume most custom DM maps use -- it now has a
+working spawn function (SP_trigger_teleport, g_misc.c, reusing teleporter_touch),
+so bots walk THROUGH it (source = the volume's floor center) and it resolves its
+destination the same way teleporter_touch does (target -> targetname match).
+=================
+*/
+static int Nav_SeedOneTeleport (edict_t *tp, vec3_t src)
+{
+	edict_t	*dest;
+	vec3_t	dst;
+	int		snode, dnode;
+
+	if (!tp->target)
+		return 0;
+	dest = G_Find (NULL, FOFS(targetname), tp->target);
+	if (!dest)
+		return 0;	// dangling teleporter (no destination); leave unrouted
+
+	VectorCopy (dest->s.origin, dst);
+	dst[2] += 10.0f;		// matches teleporter_touch's arrival offset
+
+	snode = Nav_SeedNode (src);
+	dnode = Nav_SeedNode (dst);
+	if (snode >= 0 && dnode >= 0 && snode != dnode)
+	{
+		Nav_AddLinkType (snode, dnode, NAV_LINK_TELEPORT);	// one-way
+		return 1;
+	}
+	return 0;
+}
+
+void Nav_SeedTeleportLinks (void)
+{
+	edict_t	*tp;
+	int		seeded = 0;
+
+	if (!bot_teleport || bot_teleport->value == 0)
+		return;
+
+	// misc_teleporter: a point-entity disc; bots stand ON it, so the pad origin
+	// is the source.  Nav_SeedNode reuses the node bots learned walking onto it.
+	for (tp = NULL; (tp = G_Find (tp, FOFS(classname), "misc_teleporter")) != NULL; )
+	{
+		vec3_t	src;
+		VectorCopy (tp->s.origin, src);
+		seeded += Nav_SeedOneTeleport (tp, src);
+	}
+
+	// trigger_teleport: a BRUSH volume most custom DM maps use.  Bots walk
+	// THROUGH it, so the source is the volume's horizontal center dropped to its
+	// floor (absmin z); Nav_SeedNode wires it to the walked-through ground nodes.
+	for (tp = NULL; (tp = G_Find (tp, FOFS(classname), "trigger_teleport")) != NULL; )
+	{
+		vec3_t	src;
+		src[0] = (tp->absmin[0] + tp->absmax[0]) * 0.5f;
+		src[1] = (tp->absmin[1] + tp->absmax[1]) * 0.5f;
+		src[2] = tp->absmin[2] + 24.0f;		// stand height above the trigger floor
+		seeded += Nav_SeedOneTeleport (tp, src);
+	}
+
+	if (seeded)
+		gi.dprintf ("ozbot: seeded %d teleporter link(s)\n", seeded);
+}
+
+/*
+=================
+Nav_SeedPushLinks
+
+bot_jumppad: surface each trigger_push (jump pad / wind tunnel) as a one-way
+NAV_LINK_PUSH edge so A* can deliberately route a bot through it.  Like a
+teleporter the push is AUTOMATIC -- trigger_push_touch overwrites the toucher's
+velocity with movedir*speed*10 -- so there is no ride controller, only the
+routing edge; and like a teleporter the learner never captures it (the pad flings
+the bot far enough that Nav_LearnStep's discontinuity guard rejects the "walk").
+
+The destination is not an entity we can look up (unlike a teleporter's dest), so
+we PREDICT it by integrating the ballistic arc the launch imparts: start at the
+pad floor, apply the exact launch velocity, step the parabola under sv_gravity,
+and trace the player box between successive points until it lands on a walkable
+floor.  Source = the trigger brush floor center (same as the brush teleport);
+landing = that first floor impact.  Both are snapped via Nav_SeedNode (creating +
+wiring a node if the spot is uncovered).  One-way (a pad launches, it does not
+pull back).  Never saved (Nav_Save strips PUSH), regenerated each load.  Gated on
+bot_jumppad so the capability-off graph is byte-identical.
+
+LIMITATION: trigger_push_touch OVERWRITES velocity (it does not add to the bot's
+run momentum), so a purely vertical pad launches straight up and the arc lands
+back on the pad -- source and landing snap to the same node and no link is seeded
+(correctly: a vertical pad to a ledge directly overhead is not modeled here).
+Angled pads (a horizontal movedir component) route fine.  The airborne leg also
+has no controller, so a mid-arc snag on geometry the trace missed is possible --
+watch for it in play.
+=================
+*/
+static int Nav_SeedOnePush (edict_t *tp, vec3_t src)
+{
+	vec3_t	vel, pos, next, landing;
+	float	grav, dt;
+	int		i, maxsteps, snode, dnode;
+	qboolean found = false;
+
+	// launch velocity EXACTLY as trigger_push_touch applies it on touch
+	VectorScale (tp->movedir, tp->speed * 10.0f, vel);
+	if (vel[0] == 0.0f && vel[1] == 0.0f && vel[2] == 0.0f)
+		return 0;	// no movedir/angle set -> the pad imparts no push (inert); nothing to route
+
+	grav = sv_gravity ? sv_gravity->value : 800.0f;
+	dt = 0.05f;
+	maxsteps = 200;		// <=10s of flight -- generous; a real pad arc is 1-3s
+
+	VectorCopy (src, pos);
+	pos[2] += 1.0f;		// lift a hair off the pad floor so step 0 isn't startsolid
+
+	for (i = 0; i < maxsteps; i++)
+	{
+		trace_t	tr;
+
+		next[0] = pos[0] + vel[0] * dt;
+		next[1] = pos[1] + vel[1] * dt;
+		next[2] = pos[2] + vel[2] * dt;
+
+		tr = gi.trace (pos, (float *)pl_mins, (float *)pl_maxs, next, tp, MASK_PLAYERSOLID);
+
+		if (tr.startsolid || tr.allsolid)
+		{
+			// began inside solid (e.g. still clipping the pad floor on the first
+			// ascending steps): don't treat as a landing, just advance freely.
+			VectorCopy (next, pos);
+			vel[2] -= grav * dt;
+			continue;
+		}
+
+		if (tr.fraction < 1.0f)
+		{
+			if (tr.plane.normal[2] > 0.7f && vel[2] <= 0.0f)
+			{
+				// descending onto a walkable floor -> this is the landing spot
+				VectorCopy (tr.endpos, landing);
+				found = true;
+				break;
+			}
+			// hit a wall or ceiling: slide along it (kill the velocity component
+			// into the surface, like pmove would) and keep integrating so an arc
+			// that grazes a wall on the way up still finds its floor.
+			{
+				float	d = DotProduct (vel, tr.plane.normal);
+				VectorMA (vel, -d, tr.plane.normal, vel);
+				VectorCopy (tr.endpos, pos);
+				VectorMA (pos, 0.5f, tr.plane.normal, pos);	// nudge off the surface
+			}
+		}
+		else
+		{
+			VectorCopy (next, pos);
+		}
+
+		vel[2] -= grav * dt;
+	}
+
+	if (!found)
+		return 0;	// never resolved a clean landing (arc left the world / capped out)
+
+	snode = Nav_SeedNode (src);
+	dnode = Nav_SeedNode (landing);
+	if (snode >= 0 && dnode >= 0 && snode != dnode)
+	{
+		Nav_AddLinkType (snode, dnode, NAV_LINK_PUSH);	// one-way
+		return 1;
+	}
+	return 0;
+}
+
+void Nav_SeedPushLinks (void)
+{
+	edict_t	*tp;
+	int		found = 0, seeded = 0;
+
+	if (!bot_jumppad || bot_jumppad->value == 0)
+		return;
+
+	// trigger_push is always a BRUSH volume: bots walk THROUGH it and touch fires
+	// the launch, so the source is the volume's horizontal center dropped to its
+	// floor (the same derivation as the brush trigger_teleport source).
+	for (tp = NULL; (tp = G_Find (tp, FOFS(classname), "trigger_push")) != NULL; )
+	{
+		vec3_t	src;
+		found++;
+		src[0] = (tp->absmin[0] + tp->absmax[0]) * 0.5f;
+		src[1] = (tp->absmin[1] + tp->absmax[1]) * 0.5f;
+		src[2] = tp->absmin[2] + 24.0f;		// stand height above the trigger floor
+		seeded += Nav_SeedOnePush (tp, src);
+	}
+
+	if (found)
+		gi.dprintf ("ozbot: seeded %d push link(s) from %d jump pad(s)\n", seeded, found);
+}
+
+/*
+=================
 Nav_SeedNode
 
 Ensure a node exists at 'origin' (e.g. an item spot) and connect it to nearby
@@ -362,16 +761,24 @@ static int Nav_AddNodeForce (vec3_t origin, byte flags)
 int Nav_SeedNode (vec3_t origin)
 {
 	int		idx, i, links = 0, nearest;
+	float	near_dist;
 
 	// Put a node *exactly* at the item so a routed path ends on the pickup
 	// ("arrived" == "touched").  Reuse an existing node only if it sits right on
 	// the item AND has a clear final hop to it -- otherwise the bot reaches the
 	// node but a wall blocks the last few units to the item (the dominant
 	// touch-failure we measured).
+	//
+	// Coincident reuse (dist <= 8) skips CanWalk: a zero-length player-box
+	// trace at an item pedestal / recorded stand point often returns startsolid
+	// even when a human just stood there.  Forcing a duplicate orphaned the
+	// q2dm3 Megahealth playbook exit (PLAYBOOK landed on a new node with no
+	// edge to the real item node → MH stayed no_path).
 	nearest = Nav_NearestNode (origin);
-	if (nearest >= 0
-		&& Nav_Dist (nav.nodes[nearest].origin, origin) <= 48.0f
-		&& Nav_CanWalk (nav.nodes[nearest].origin, origin, NULL))
+	near_dist = (nearest >= 0) ? Nav_Dist (nav.nodes[nearest].origin, origin) : 1e18f;
+	if (nearest >= 0 && near_dist <= 48.0f
+		&& (near_dist <= 8.0f
+			|| Nav_CanWalk (nav.nodes[nearest].origin, origin, NULL)))
 		idx = nearest;
 	else
 		idx = Nav_AddNodeForce (origin, 0);
@@ -731,6 +1138,12 @@ int Nav_QueryPath (vec3_t from, vec3_t to, int mask, float *cost, int *gate)
 			if ((missing & NAV_MASK (t))
 				&& Nav_FindPathMasked (start, goal, mask | NAV_MASK (t), buf, NAV_MAX_NODES) > 0)
 				*gate |= NAV_MASK (t);
+		// TRAIN (bot_train) is a capability gate like PLAT/WATER but sits above
+		// PLAYBOOK in the enum, so test it explicitly (the loop stops at PLAT to
+		// skip the non-capability PLAYBOOK type)
+		if ((missing & NAV_MASK (NAV_LINK_TRAIN))
+			&& Nav_FindPathMasked (start, goal, mask | NAV_MASK (NAV_LINK_TRAIN), buf, NAV_MAX_NODES) > 0)
+			*gate |= NAV_MASK (NAV_LINK_TRAIN);
 		if (!*gate)
 			*gate = missing;	// only a combination of capabilities unlocks it
 	}
@@ -810,12 +1223,20 @@ static qboolean Nav_Load (const char *mapname)
 	fread (&magic, sizeof(magic), 1, f);
 	fread (&version, sizeof(version), 1, f);
 	fread (&count, sizeof(count), 1, f);
-	if (magic != NAV_MAGIC || version != NAV_VERSION || count < 0 || count > NAV_MAX_NODES)
+	if (magic != NAV_MAGIC || (version != 1 && version != 2)
+		|| count < 0 || count > NAV_MAX_NODES)
 	{
 		gi.dprintf ("ozbot: nav file %s is incompatible; ignoring\n", path);
 		fclose (f);
 		return false;
 	}
+
+	// v2 carries a header flags word (FROZEN etc.) right after the count; v1
+	// has none.  The node records that follow are byte-identical either way.
+	nav_flags = 0;
+	if (version >= 2)
+		fread (&nav_flags, sizeof(nav_flags), 1, f);
+	nav_frozen = (nav_flags & NAVHDR_FROZEN) != 0;
 
 	nav.num_nodes = count;
 	for (i = 0; i < count; i++)
@@ -843,7 +1264,8 @@ static qboolean Nav_Load (const char *mapname)
 		}
 	}
 
-	gi.dprintf ("ozbot: loaded nav %s (%d nodes)\n", path, count);
+	gi.dprintf ("ozbot: loaded nav %s (%d nodes%s)\n", path, count,
+		nav_frozen ? ", frozen" : "");
 	return true;
 }
 
@@ -862,6 +1284,11 @@ static void Nav_Save (const char *mapname)
 	if (!nav.num_nodes)
 		return;
 
+	// bot_navlearn / FROZEN: never persist a frozen or learn-disabled graph
+	// (belt-and-suspenders -- the learner already can't dirty it).
+	if (nav_frozen || (bot_navlearn && bot_navlearn->value == 0))
+		return;
+
 	Com_sprintf (dir, sizeof(dir), "%s/nav", Bot_GameDir());
 	OZ_MKDIR (dir);
 
@@ -876,23 +1303,25 @@ static void Nav_Save (const char *mapname)
 	fwrite (&magic, sizeof(magic), 1, f);
 	fwrite (&version, sizeof(version), 1, f);
 	fwrite (&nav.num_nodes, sizeof(nav.num_nodes), 1, f);
+	fwrite (&nav_flags, sizeof(nav_flags), 1, f);	// v2 header flags word
 	for (i = 0; i < nav.num_nodes; i++)
 	{
 		nav_node_t *n = &nav.nodes[i];
 		int			j, keep = 0;
 
-		// PLAYBOOK links are derived from the playbook file at map load, not
-		// learned -- persisting them would leave dangling maneuvers if the
-		// playbook changes (and breaks the playbook-off byte-identical graph)
+		// PLAYBOOK, TRAIN and TELEPORT links are derived at map load (playbook
+		// file / func_train + misc_teleporter geometry), not learned -- saving
+		// them would leave dangling maneuvers if the map/playbook changes (and
+		// breaks the capability-off byte-identical graph)
 		for (j = 0; j < n->num_links; j++)
-			if (n->links[j].type != NAV_LINK_PLAYBOOK)
+			if (!NAV_LINK_DERIVED (n->links[j].type))
 				keep++;
 
 		fwrite (n->origin, sizeof(n->origin), 1, f);
 		fwrite (&n->flags, sizeof(n->flags), 1, f);
 		fwrite (&keep, sizeof(keep), 1, f);
 		for (j = 0; j < n->num_links; j++)
-			if (n->links[j].type != NAV_LINK_PLAYBOOK)
+			if (!NAV_LINK_DERIVED (n->links[j].type))
 				fwrite (&n->links[j], sizeof(nav_link_t), 1, f);
 	}
 	fclose (f);
@@ -1108,6 +1537,8 @@ void Nav_Init (const char *mapname)
 	memset (link_fails, 0, sizeof(link_fails));
 	memset (nav_indegree, 0, sizeof(nav_indegree));
 	nav_dirty = false;
+	nav_frozen = false;		// Nav_Load sets it from the ONAV header if present
+	nav_flags = 0;
 	Nav_Load (mapname);
 }
 

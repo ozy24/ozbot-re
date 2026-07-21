@@ -46,7 +46,7 @@ cvar_t	*bot_playbook;	// master gate (inert when no playbook file exists)
 #define PB_MAX_ENTRIES		16
 #define PB_MAX_TICKS		600		// 15s at 40Hz
 #define PB_ENGAGE_RANGE		220.0f	// start aligning this close to the anchor node
-#define PB_ALIGN_TIMEOUT	6.0f	// seconds to satisfy the anchor preconditions
+#define PB_ALIGN_TIMEOUT	8.0f	// seconds to satisfy the anchor preconditions
 #define PB_DRIFT_MAX		56.0f	// live-vs-recorded origin divergence abort
 #define PB_COOLDOWN			1.0f	// after a completed replay (no instant re-engage)
 #define PB_MAX_LAG			2		// ticks the cursor may lag the time clock
@@ -246,7 +246,11 @@ void Bot_PlaybackReset (bot_t *b)
 static void Playbook_Abort (bot_t *b, pb_entry_t *e, const char *why)
 {
 	Bot_LogEvent (b, why);
-	if (e && e->start_node >= 0)
+	// Align misses are approach noise (tight mouth, residual speed, ladder
+	// brush) -- penalizing them deletes the only route to gated items (q2dm3
+	// MH went no_path after one abort).  Drift/stall mean the recording itself
+	// is a bad fit for this bot; those still erode the link.
+	if (e && e->start_node >= 0 && why && strcmp (why, "pb_abort_align") != 0)
 		Nav_PenalizeLink (e->start_node, e->exit_node);
 	b->pb_state = PB_FAILED;	// sticks until the goal resolves
 }
@@ -256,8 +260,9 @@ static void Playbook_Abort (bot_t *b, pb_entry_t *e, const char *why)
 Bot_PlaybackThink
 
 Returns true while the playback controller owns this frame's movement intent
-and facing.  Call order in Bot_Navigate mirrors the lift controller: before
-path following and stuck recovery; the caller freezes the goal-budget clock
+and facing.  Call order in Bot_Navigate: after lift/train, BEFORE ladder
+(playbook mouths are often at ladders with an elevated exit), and before
+path following / stuck recovery.  The caller freezes the goal-budget clock
 while we return true (align waiting must not be billed).
 =================
 */
@@ -444,13 +449,23 @@ qboolean Bot_PlaybackThink (bot_t *b)
 		return false;
 	}
 
-	// only take over near the anchor; approach normally until then
-	VectorSubtract (e->anchor, ent->s.origin, d);
-	if (VectorLength (d) > PB_ENGAGE_RANGE)
+	// only take over near the anchor; approach normally until then.
+	// Standing-start entries engage on the last steps only: earlier
+	// takeover wedges on the q2dm3 ladder south face (aborts at y≈604).
 	{
-		if (b->pb_state != PB_NONE)
-			Bot_PlaybackReset (b);
-		return false;
+		float	range = PB_ENGAGE_RANGE;
+		float	adist;
+
+		VectorSubtract (e->anchor, ent->s.origin, d);
+		adist = VectorLength (d);
+		if (e->min_speed < 60.0f)
+			range = 56.0f;
+		if (adist > range)
+		{
+			if (b->pb_state != PB_NONE)
+				Bot_PlaybackReset (b);
+			return false;
+		}
 	}
 
 	if (b->pb_state != PB_ALIGN)
@@ -466,7 +481,9 @@ qboolean Bot_PlaybackThink (bot_t *b)
 
 	// immobile during ALIGN = blocked by geometry/another body: fail fast
 	// (the controller refreshes progress_time, so normal stuck recovery is
-	// off while we own the frame -- we must police our own stalls)
+	// off while we own the frame -- we must police our own stalls).
+	// Standing seats (pressing into a ladder mouth) are deliberately still --
+	// don't treat the jam as an align failure.
 	VectorSubtract (ent->s.origin, b->lift_move_pos, d);
 	if (VectorLength (d) > 20)
 	{
@@ -475,8 +492,19 @@ qboolean Bot_PlaybackThink (bot_t *b)
 	}
 	else if (level.time - b->lift_move_time > 1.5f)
 	{
-		Playbook_Abort (b, e, "pb_abort_align");
-		return false;
+		vec3_t	ad;
+		float	ah;
+
+		VectorSubtract (e->anchor, ent->s.origin, ad);
+		ad[2] = 0;
+		ah = VectorLength (ad);
+		if (!(e->min_speed < 60.0f && ah <= e->pos_tol * 2.0f))
+		{
+			Playbook_Abort (b, e, "pb_abort_align");
+			return false;
+		}
+		// seating: keep waiting on the mouth; refresh so we don't spin-abort
+		b->lift_move_time = level.time;
 	}
 
 	if (level.time > b->pb_deadline)
@@ -543,7 +571,10 @@ qboolean Bot_PlaybackThink (bot_t *b)
 
 	if (hdist <= e->pos_tol && ent->groundentity
 		&& dyaw >= -e->yaw_tol && dyaw <= e->yaw_tol
-		&& speed >= e->min_speed && (e->max_speed <= 0 || speed <= e->max_speed))
+		&& speed >= e->min_speed && (e->max_speed <= 0 || speed <= e->max_speed)
+		// standing ladder mouths: only engage once jammed (pressing in but
+		// barely moving) -- matches the capture's fwd-into-ladder seat
+		&& (e->min_speed >= 60.0f || speed <= 25.0f))
 	{
 		// rescue-only (dwell): a descent that should fire when a bot is TRAPPED
 		// on the anchor node, not when one merely pauses there en route to an
@@ -585,17 +616,43 @@ qboolean Bot_PlaybackThink (bot_t *b)
 
 	if (e->min_speed < 60)
 	{
-		// standing start: settle onto the anchor, facing the recorded way
-		b->pb_yaw = e->anchor_yaw;
-		if (hdist > 4)
+		// standing start: walk onto the anchor, then PRESS into the recorded
+		// heading.  Ladder mouths need that jam (human holds fwd=400 at spd~0
+		// against the ladder brush); clearing move_dir left bots free to run
+		// the replay's fwd into open space and jump-abort.
 		{
-			float	mag = (hdist > e->pos_tol) ? 0.8f : 0.3f;
-			VectorNormalize (d);
-			VectorScale (d, mag, b->move_dir);
-			b->move_yaw = vectoyaw (d);
+			vec3_t	aim, fwd;
+			vec3_t	aim_ang = {0, 0, 0};
+			float	mag;
+
+			if (hdist > e->pos_tol)
+			{
+				if (e->start_node >= 0 && e->start_node < nav.num_nodes)
+					VectorSubtract (nav.nodes[e->start_node].origin, ent->s.origin, aim);
+				else
+					VectorCopy (d, aim);
+				aim[2] = 0;
+				if (VectorNormalize (aim) > 4.0f)
+				{
+					VectorScale (aim, 0.8f, b->move_dir);
+					b->move_yaw = vectoyaw (aim);
+					b->pb_yaw = b->move_yaw;
+				}
+				else
+					VectorClear (b->move_dir);
+			}
+			else
+			{
+				aim_ang[YAW] = e->anchor_yaw;
+				AngleVectors (aim_ang, fwd, NULL, NULL);
+				fwd[2] = 0;
+				VectorNormalize (fwd);
+				mag = (speed > 40.0f) ? 0.35f : 0.55f;
+				VectorScale (fwd, mag, b->move_dir);
+				b->move_yaw = e->anchor_yaw;
+				b->pb_yaw = e->anchor_yaw;
+			}
 		}
-		else
-			VectorClear (b->move_dir);
 	}
 	else
 	{

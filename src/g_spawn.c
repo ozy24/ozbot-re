@@ -111,6 +111,8 @@ void SP_misc_bigviper (edict_t *self);
 void SP_misc_strogg_ship (edict_t *self);
 void SP_misc_teleporter (edict_t *self);
 void SP_misc_teleporter_dest (edict_t *self);
+void SP_trigger_teleport (edict_t *self);
+void SP_info_teleport_destination (edict_t *self);
 void SP_misc_blackhole (edict_t *self);
 void SP_misc_eastertank (edict_t *self);
 void SP_misc_easterchick (edict_t *self);
@@ -231,6 +233,8 @@ spawn_t	spawns[] = {
 	{"misc_strogg_ship", SP_misc_strogg_ship},
 	{"misc_teleporter", SP_misc_teleporter},
 	{"misc_teleporter_dest", SP_misc_teleporter_dest},
+	{"trigger_teleport", SP_trigger_teleport},
+	{"info_teleport_destination", SP_info_teleport_destination},
 	{"misc_blackhole", SP_misc_blackhole},
 	{"misc_eastertank", SP_misc_eastertank},
 	{"misc_easterchick", SP_misc_easterchick},

@@ -15,7 +15,16 @@ NOTE: include "g_local.h" and "bot.h" before this header.
 #define OZBOT_BOT_NAV_H
 
 #define NAV_MAGIC			(('V'<<24)|('A'<<16)|('N'<<8)|'O')	// "ONAV"
-#define NAV_VERSION			1
+#define NAV_VERSION			2		// v2 adds a uint32 header flags word after the
+										// node count; v1 files (no flags word) still load
+										// (treated as flags==0 == learnable).
+
+// ONAV header flags (the uint32 after num_nodes in v2+).  FROZEN marks a
+// deliberately-baked graph (gen_nav.exe's mature-to-peak output): the runtime
+// learner will not add nodes/links to it and never re-saves it, so live play
+// on a long-running server can't grow it past its tuned sweet spot.  See
+// bot_navlearn (the global on/off) and KNOWN_ISSUES "quality ceiling".
+#define NAVHDR_FROZEN		1
 
 #define NAV_MAX_NODES		2048
 #define NAV_MAX_LINKS		12		// per node (was 8; playbook links need room on
@@ -37,6 +46,26 @@ NOTE: include "g_local.h" and "bot.h" before this header.
 									// Injected from <gamedir>/playbooks/<map>.pbk at map
 									// load, never saved to the .nav (the executor data
 									// lives in the playbook file, not the graph)
+#define NAV_LINK_TRAIN		7		// carried by a func_train (two-way; bot_train).  Like
+									// PLAT but the mover shuttles HORIZONTALLY between
+									// path_corners, so bots can't walk onto it organically
+									// (the brush is elevated / across a gap).  Seeded from
+									// the train geometry at load (Nav_SeedTrainLinks), never
+									// saved -- regenerated each map load like PLAYBOOK
+#define NAV_LINK_PUSH		8		// launched by a trigger_push jump pad / wind tunnel
+									// (one-way; bot_jumppad).  Like TELEPORT the push is
+									// AUTOMATIC on touch (no ride controller) -- just the
+									// routing edge from the pad floor to the ballistic
+									// landing spot, which the >200u learn guard refuses to
+									// learn.  Seeded from the pad geometry + a gravity
+									// integration at load (Nav_SeedPushLinks), never saved
+
+// links that are DERIVED at map load (from the playbook file / func_train /
+// misc_teleporter / trigger_push geometry) rather than learned -- Nav_Save strips
+// them and the per-map setup regenerates them, so they never go stale in a saved
+// graph.
+#define NAV_LINK_DERIVED(t)	((t) == NAV_LINK_PLAYBOOK || (t) == NAV_LINK_TRAIN \
+							 || (t) == NAV_LINK_TELEPORT || (t) == NAV_LINK_PUSH)
 
 // capability masks for filtered pathfinding (bot_navmask): bit (1 << type)
 // lets A* expand links of that type.  Masks never touch the graph itself --
@@ -46,7 +75,12 @@ NOTE: include "g_local.h" and "bot.h" before this header.
 // learner stamps water-ness on NODES (NAV_FLAG_WATER), not links, so
 // clearing the WATER bit also excludes links into water-flagged nodes.
 #define NAV_MASK(t)			(1 << (t))
-#define NAV_MASK_ALL		0xff
+#define NAV_MASK_ALL		0x1ff	// bits 0..8 -- one per NAV_LINK_* type (widen this
+									// when a new link type is added, or its links are
+									// silently dropped from every path).  PUSH (bit 8)
+									// is included so jump-pad routing is on by default,
+									// like TELEPORT; bot_jumppad gates the SEEDING, not
+									// the mask
 
 // Nav_QueryPath return codes -- the reachability oracle (plans/nav-oracle.md
 // Phase C), the re-release PathReturnCode idea over the learned graph.
@@ -137,6 +171,30 @@ void Nav_AddLinkType (int from, int to, int type);
 // called from the per-map setup in Bot_RunFrame, not from Nav_Init.  Gated on
 // bot_lift so the capability-off graph stays byte-identical to the baseline.
 void Nav_TagPlatLinks (void);
+
+// bot_train: seed NAV_LINK_TRAIN links across each func_train's ride from its
+// path_corner geometry (bots can't board a horizontal shuttle organically, so
+// nothing is ever learned to retag).  Runs in the per-map setup near
+// Nav_TagPlatLinks; needs spawned entities.  Gated on bot_train.
+void Nav_SeedTrainLinks (void);
+
+// bot_teleport: seed one-way NAV_LINK_TELEPORT links from each misc_teleporter
+// pad to its targeted misc_teleporter_dest.  The teleport is automatic on touch
+// (no ride controller), so this is purely a routing edge; the learner can't
+// capture it because the pad jumps the bot >200u (Nav_LearnStep's discontinuity
+// guard rejects that).  Runs in the per-map setup near Nav_SeedTrainLinks; needs
+// spawned entities.  Never saved (Nav_Save strips TELEPORT).  Gated on bot_teleport.
+void Nav_SeedTeleportLinks (void);
+
+// bot_jumppad: seed one-way NAV_LINK_PUSH links from each trigger_push jump pad /
+// wind tunnel to the ballistic landing spot its launch velocity throws the bot to.
+// The push is automatic on touch (no ride controller), so this is purely a routing
+// edge; the learner can't capture it (the pad flings the bot far enough that the
+// discontinuity guard rejects the "traversal").  Source = the trigger brush floor
+// center; landing = a gravity integration of movedir*speed*10 traced against world
+// geometry.  Runs in the per-map setup near Nav_SeedTeleportLinks; needs spawned
+// entities.  Never saved (Nav_Save strips PUSH).  Gated on bot_jumppad.
+void Nav_SeedPushLinks (void);
 
 // bot_navvalidate (P1): load-time hygiene pass -- drop learned fluke WALK links
 // (steep drops the bot can't re-walk, learned from a lucky fall/combat shove).
