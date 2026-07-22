@@ -120,6 +120,7 @@ SPACE = [
     # drowning it: the commit charge is added to `cost`, and score is
     # value*need/(1+cost/falloff), so a large enough charge makes the need term
     # irrelevant and silently turns these two shipped levers into no-ops.
+    Dim("bot_control",     0.0,  0.0,  8.0),   # Phase 2: control-timing slack (secs)
     Dim("bot_wpnneed",     1,    kind="bool"),
     Dim("bot_ammoneed",    1,    kind="bool"),
 ]

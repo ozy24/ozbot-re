@@ -36,6 +36,7 @@ cvar_t	*bot_losfinal;
 cvar_t	*bot_survivetest;
 cvar_t	*bot_pathcost;
 cvar_t	*bot_goalbudget;
+cvar_t	*bot_control;
 cvar_t	*bot_budgetcap;
 cvar_t	*bot_itemfail;
 cvar_t	*bot_navmask;
@@ -165,6 +166,10 @@ void Bot_Init (void)
 															// pickups +45%, ITEM +6pts, 5/5 seeds)
 	bot_pathcost     = gi.cvar ("bot_pathcost", "1", 0);	// score items by A* route cost, not straight-line distance
 	bot_goalbudget   = gi.cvar ("bot_goalbudget", "1", 0);	// goal timeout scaled to route cost, not flat 12s
+	// bot_control: seconds of slack on top of the ROUTE travel estimate when
+	// deciding whether to leave now for a control item that is still respawning.
+	// 0 = the shipped flat ITEM_PREEMPT_SECS window (byte-identical).
+	bot_control      = gi.cvar ("bot_control", "0", 0);
 	bot_budgetcap    = gi.cvar ("bot_budgetcap", "15", 0);	// max seconds to fund any one goal route
 	bot_itemfail     = gi.cvar ("bot_itemfail", "1", 0);	// escalating shared blacklist for items bots keep failing
 															// (2 = also fast-track items whose route evaporated, per
@@ -495,6 +500,7 @@ static void Bot_ResetNavState (bot_t *b)
 	b->goal_item = NULL;
 	b->steer_item = NULL;
 	b->goal_timing = false;
+	b->timing_began = 0;
 	b->goal_cost = 0;
 	b->flee      = false;
 	b->path_len  = 0;
@@ -983,6 +989,7 @@ static void Bot_GoExplore (bot_t *b)
 	b->goal_node = -1;
 	b->goal_item = NULL;
 	b->goal_timing = false;
+	b->timing_began = 0;
 	b->goal_cost = 0;
 	b->path_len  = 0;
 	b->path_idx  = 0;
@@ -1412,7 +1419,16 @@ static void Bot_Navigate (bot_t *b)
 			{
 				// pre-positioning for a respawn: stop "timing" once it's live
 				if (avail)
+				{
 					b->goal_timing = false;
+					// the wait paid off -- it spawned while we stood here
+					if (b->timing_began)
+					{
+						Bot_LogTimingWait (b, Bot_ItemName (b->goal_item),
+							level.time - b->timing_began, true);
+						b->timing_began = 0;
+					}
+				}
 				// otherwise keep navigating to the spot and wait (below)
 			}
 			else if (!avail)
@@ -1629,6 +1645,27 @@ static void Bot_Navigate (bot_t *b)
 				// home in on the item (or hold on the spot while we wait for it
 				// to respawn) until we touch it or time out
 				qboolean waiting = b->goal_timing && !Goal_ItemAvailable (b->goal_item);
+				// bot_control: cap the wait-on-spot.  Timing the route is meant to
+				// land the bot here as the item spawns, so a LONG wait means the
+				// estimate was wrong -- and a bot camped on a spawn that never pays
+				// is strictly worse than one collecting.  Bail out and let the
+				// scorer re-pick; the unpaid record is the phase's kill criterion.
+				if (waiting && bot_control->value != 0)
+				{
+					if (!b->timing_began)
+						b->timing_began = level.time;
+					else if (level.time - b->timing_began > CONTROL_WAIT_CAP)
+					{
+						Bot_LogTimingWait (b, Bot_ItemName (b->goal_item),
+							level.time - b->timing_began, false);
+						b->timing_began = 0;
+						b->goal_timing = false;
+						Bot_GoExplore (b);
+						Bot_DecisiveReplan (b, 0.2f);
+						Bot_Wander (b);
+						return;
+					}
+				}
 				Bot_SteerToPoint (b, b->goal_item->s.origin);
 				if (waiting)
 					Bot_Fidget (b, b->goal_item->s.origin);	// humanization: no statue waits

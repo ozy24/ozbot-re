@@ -354,6 +354,69 @@ void Bot_LogAirHaz (bot_t *b, const char *what, const vec3_t hit)
 
 /*
 =================
+Bot_LogTimingWait
+
+bot_control: one record per completed wait-on-spot for a respawning control item.
+`paid` is the whole diagnostic -- a timing goal that ends with the item in hand is
+control play, one that times out is a bot standing on a spawn doing nothing, which
+is strictly worse than collecting.  The phase's kill criterion is stated in terms
+of this ratio, so it is logged unconditionally with the lever (no separate cvar):
+with bot_control 0 no wait is ever started, so the off-state stays byte-identical.
+=================
+*/
+void Bot_LogTimingWait (bot_t *b, const char *item, float dur, qboolean paid)
+{
+	if (!log_fp || !b || !b->ent || !bot_control || bot_control->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"timing_wait\",\"t\":%.2f,\"bot\":%d,\"item\":\"%s\","
+		"\"dur\":%.2f,\"paid\":%s}\n",
+		level.time, b->id, item ? item : "", dur, paid ? "true" : "false");
+}
+
+/*
+=================
+Bot_LogTimingPick
+
+bot_control: fires when a respawn-timing goal is actually SELECTED, with the eta
+and the route travel estimate that justified it.  Separate from Bot_LogTimingWait
+because the two answer different questions and the first A/B needed exactly this
+distinction: zero waits can mean "the lever never picks a timing goal" OR "it
+picks them and always arrives after the spawn", and those have opposite fixes.
+=================
+*/
+/*
+=================
+Bot_LogTimingCand
+
+bot_control: a control item passed the timing gate and entered the candidate
+set.  Together with timing_pick and timing_wait this is a funnel -- gathered ->
+selected -> waited -> paid -- and the first A/B needed exactly that shape to
+tell an inert lever from an unlucky one.
+=================
+*/
+void Bot_LogTimingCand (bot_t *b, const char *item, float eta)
+{
+	if (!log_fp || !b || !b->ent || !bot_control || bot_control->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"timing_cand\",\"t\":%.2f,\"bot\":%d,\"item\":\"%s\","
+		"\"eta\":%.2f}\n",
+		level.time, b->id, item ? item : "", eta);
+}
+
+void Bot_LogTimingPick (bot_t *b, const char *item, float eta, float travel)
+{
+	if (!log_fp || !b || !b->ent || !bot_control || bot_control->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"timing_pick\",\"t\":%.2f,\"bot\":%d,\"item\":\"%s\","
+		"\"eta\":%.2f,\"travel\":%.2f}\n",
+		level.time, b->id, item ? item : "", eta, travel);
+}
+
+/*
+=================
 Bot_LogCMove
 
 bot_cmlog: one record per engagement-movement style transition, so an A/B can

@@ -32,6 +32,12 @@ float Bot_TickGain (float gain10);
 #define BOT_GOAL_BUDGET_SPEED	100.0f	// effective travel speed (cost units/sec)
 #define BOT_GOAL_BUDGET_MAX		20.0f	// cap fallback if bot_budgetcap <= 0
 
+// bot_control: longest wait-on-spot allowed for a respawning control item.
+// Timing the route is meant to land the bot there AS it spawns, so a long wait
+// means the estimate was wrong; shared because Goal_Select sets the timing goal
+// and bot_main.c enforces the cap.
+#define CONTROL_WAIT_CAP		4.0f
+
 // bot behavior mode
 #define BOT_MODE_EXPLORE	0	// wander, growing the nav graph
 #define BOT_MODE_GOAL		1	// follow an A* path to a goal node
@@ -100,6 +106,7 @@ typedef struct
 	edict_t		*steer_item;	// bot_decisive: sticky Goal_NearestItem target
 								// (explore steering hysteresis between goals)
 	qboolean	goal_timing;	// pre-positioning for an item about to respawn
+	float		timing_began;	// bot_control: when the wait-on-spot started (0 = not waiting)
 	int			path[BOT_MAX_PATH];
 	int			path_len;
 	int			path_idx;		// index of the next node to reach
@@ -284,6 +291,7 @@ extern cvar_t	*bot_claim;
 extern cvar_t	*bot_decisive;
 extern cvar_t	*bot_pathcost;
 extern cvar_t	*bot_goalbudget;
+extern cvar_t	*bot_control;		// time the ROUTE to a control item, not a flat 4s window
 extern cvar_t	*bot_budgetcap;
 extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_navmask;
@@ -562,6 +570,9 @@ void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src);
 void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur);
 void Bot_LogHear (bot_t *b, int kind, float dist);	// bot_hearlog
 void Bot_LogAirHaz (bot_t *b, const char *what, const vec3_t hit);	// bot_airhazlog
+void Bot_LogTimingWait (bot_t *b, const char *item, float dur, qboolean paid);	// bot_control
+void Bot_LogTimingPick (bot_t *b, const char *item, float eta, float travel);	// bot_control
+void Bot_LogTimingCand (bot_t *b, const char *item, float eta);	// bot_control funnel
 void Bot_LogCMove (bot_t *b, int style, float range);	// bot_cmlog
 void Bot_LogLookahead (bot_t *b, float w, float dist);	// bot_lookahead (throttled)
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog
