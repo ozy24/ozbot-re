@@ -203,6 +203,25 @@ assumed:** `bot_wpnneed`/`bot_ammoneed` are worth *more* at high commit
 Benchmark 2×2 at 6: shipped-solo **+16.1%**, cold-solo +6.6%, shipped-dm +8.4%,
 cold-dm +8.7% (6/8 maps up; q2dm6 −7% on all four — the lava map).
 
+## Hazard: the airborne residual (`bot_airhazard`, default OFF)
+
+`bot_hazard` is default-ON and still leaves environmental deaths as the MAJORITY
+on q2dm3/4/6/7 (58-71%) — because `Bot_HazardInDir` probes the **ground** ≤128u
+ahead and its brake is gated on `groundentity`, while **80-94% of those deaths are
+AIRBORNE**. `bot_airhazard` (bitmask: 1 = refuse to commit to an arc landing in
+lava, 2 = mid-air steer, 4 = treat slime as fatal too) integrates the ballistic
+arc instead, mirroring `Nav_SeedOnePush`.
+
+**It works and it does not pay.** Lava deaths −30.6%, pickups **flat (−0.3%)**;
+q2dm3 +6.6% / q2dm6 +1.8% / q2dm7 0.0% / **q2dm4 −7.5%**. The lesson:
+*dying in lava costs about the same as refusing to go near it* — respawn is fast
+and lands you near items, while braking at a ledge burns goal budget. Default
+**0**; opt-in `1` for a lava-heavy rotation without q2dm4's route-through-lava
+geometry. Two sub-results not to re-derive: **slime must not be vetoed** (it is a
+survivable A*-priced wade — vetoing it cost q2dm7 pickups for nothing), and
+**mid-air salvage (bit 2) is a hard reject** (30519 steers bought −5.2% deaths;
+Quake air-control cannot move a committed arc). Telemetry: `bot_airhazlog`.
+
 ## Diagnosis + search tooling
 
 Two tools that answer questions the headline metrics can't.
