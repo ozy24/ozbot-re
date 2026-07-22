@@ -980,6 +980,87 @@ int Nav_FindPath (int start, int goal, int *out, int max)
 	return Nav_FindPathMasked (start, goal, NAV_MASK_ALL, out, max);
 }
 
+/*
+=================
+bot_danger -- per-node combat-death heat
+
+Only COMBAT deaths are recorded.  Environmental deaths are bot_hazard's job and
+are already priced by NAV_FLAG_HAZARD / NAV_FLAG_SLIME, so folding them in here
+would double-count the same signal and make the two levers inseparable in an A/B.
+It also gives a clean property: in the solo rig combat is impossible, so no heat
+ever accumulates and solo runs stay byte-identical with the lever on.
+
+Decay is exponential with a ~60s half-life -- "hot right now" is the useful
+signal; a spot that killed someone two minutes ago is just map geometry.
+=================
+*/
+#define DANGER_HALFLIFE		60.0f	// seconds for heat to halve
+#define DANGER_MAX_TOLL		3.0f	// cap: 4x link cost, same ceiling as SLIME
+#define DANGER_MAX_DISCOUNT	0.25f	// strong bots shave at most 25% to patrol
+#define DANGER_DECAY_STEP	1.0f	// re-decay at most this often (seconds)
+
+static float	node_heat[NAV_MAX_NODES];
+static float	danger_last_decay;
+static float	danger_scale;			// per-query context, set by Bot_NavMask
+
+void Nav_DangerReset (void)
+{
+	memset (node_heat, 0, sizeof(node_heat));
+	danger_last_decay = 0;
+	danger_scale = 0;
+}
+
+void Nav_DangerRecord (vec3_t org)
+{
+	int n = Nav_NearestNode (org);
+	if (n >= 0 && n < NAV_MAX_NODES)
+		node_heat[n] += 1.0f;
+}
+
+void Nav_DangerDecay (float now)
+{
+	float	dt, f;
+	int		i;
+
+	if (now < danger_last_decay + DANGER_DECAY_STEP)
+		return;
+	dt = (danger_last_decay > 0) ? (now - danger_last_decay) : DANGER_DECAY_STEP;
+	danger_last_decay = now;
+
+	// 0.5 ^ (dt / halflife)
+	f = (float)pow (0.5, (double)(dt / DANGER_HALFLIFE));
+	for (i = 0; i < nav.num_nodes; i++)
+		node_heat[i] *= f;
+}
+
+void Nav_SetDangerScale (float scale)
+{
+	danger_scale = scale;
+}
+
+float Nav_DangerHeat (int node)
+{
+	if (node < 0 || node >= NAV_MAX_NODES)
+		return 0;
+	return node_heat[node];
+}
+
+// multiplier applied to a link's cost when hopping INTO `node`.  Positive when
+// weak (avoid), mildly negative when strong (patrol where the fights are).
+static float Nav_DangerToll (int node)
+{
+	float t;
+
+	if (danger_scale == 0.0f || node < 0 || node >= NAV_MAX_NODES)
+		return 0;
+	t = node_heat[node] * danger_scale;
+	if (t > DANGER_MAX_TOLL)
+		t = DANGER_MAX_TOLL;
+	else if (t < -DANGER_MAX_DISCOUNT)
+		t = -DANGER_MAX_DISCOUNT;
+	return t;
+}
+
 int Nav_FindPathMasked (int start, int goal, int mask, int *out, int max)
 {
 	static float	gscore[NAV_MAX_NODES];
@@ -1064,6 +1145,13 @@ int Nav_FindPathMasked (int start, int goal, int mask, int *out, int max)
 			// and pays the toll when none does (q2dm7's channel crossings)
 			if (bot_hazard->value != 0 && (nav.nodes[nb].flags & NAV_FLAG_SLIME))
 				tentative += n->links[i].cost * 3.0f;
+			// bot_danger: fights kill too.  Same shape as the SLIME toll --
+			// a capped price on entering a node that has been getting people
+			// killed, never a refusal.  danger_scale carries the bot's state
+			// (weak = avoid, strong = mild discount) and is 0 when the lever
+			// is off, which makes this whole branch a no-op.
+			if (danger_scale != 0.0f)
+				tentative += n->links[i].cost * Nav_DangerToll (nb);
 			if (tentative < gscore[nb])
 			{
 				came[nb] = cur;

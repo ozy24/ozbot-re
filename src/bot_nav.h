@@ -155,6 +155,20 @@ const char *Nav_QueryName (int code);				// NAVQ_* -> short string for logs
 void Nav_MaskNames (int mask, char *out, int outsize);	// link-type mask -> "water+plat"
 float Nav_LastPathCost (void);						// g-cost of the last successful A*
 void Nav_PenalizeLink (int from, int to);			// learn an untraversable edge
+
+//
+// bot_danger: in-match death heat per node.  Generalizes bot_hazard from "lava
+// kills" to "fights kill" -- a route-cost modulation, never a hard refusal
+// (hazard's lesson: price, don't forbid; the SLIME 4x toll is the precedent).
+// Deliberately NOT part of nav_node_t and never saved: keeping it out of the
+// .nav format leaves the file format, the FROZEN semantics and the same-seed
+// md5 gate untouched.  Persistence, if v1 ever earns it, is a SIDECAR.
+//
+void  Nav_DangerReset (void);					// map load: clear all heat
+void  Nav_DangerRecord (vec3_t org);			// a combat death happened here
+void  Nav_DangerDecay (float now);				// exponential decay (throttled)
+void  Nav_SetDangerScale (float scale);			// per-query: >0 avoid, <0 patrol
+float Nav_DangerHeat (int node);				// diagnostics
 qboolean Nav_CanWalk (vec3_t from, vec3_t to, edict_t *ignore);	// clear player-sized path?
 
 //

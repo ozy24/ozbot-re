@@ -37,6 +37,9 @@ cvar_t	*bot_survivetest;
 cvar_t	*bot_pathcost;
 cvar_t	*bot_goalbudget;
 cvar_t	*bot_control;
+cvar_t	*bot_danger;
+cvar_t	*bot_dangerlog;
+cvar_t	*bot_dangertest;
 cvar_t	*bot_budgetcap;
 cvar_t	*bot_itemfail;
 cvar_t	*bot_navmask;
@@ -170,6 +173,15 @@ void Bot_Init (void)
 	// deciding whether to leave now for a control item that is still respawning.
 	// 0 = the shipped flat ITEM_PREEMPT_SECS window (byte-identical).
 	bot_control      = gi.cvar ("bot_control", "0", 0);
+	// bot_danger: generalizes bot_hazard from "lava kills" to "fights kill".
+	// Value scales the per-node death-heat toll on route cost when weak (and a
+	// capped discount when strong, to patrol contested ground).  0 = off.
+	bot_danger       = gi.cvar ("bot_danger", "0", 0);
+	bot_dangerlog    = gi.cvar ("bot_dangerlog", "0", 0);
+	// id-parity head-to-head.  A symmetric sim CANNOT show this lever working:
+	// when every bot avoids hot ground the equilibrium just shifts and total
+	// deaths are ~zero-sum.  Even ids fear heat, odd ids are the control.
+	bot_dangertest   = gi.cvar ("bot_dangertest", "0", 0);
 	bot_budgetcap    = gi.cvar ("bot_budgetcap", "15", 0);	// max seconds to fund any one goal route
 	bot_itemfail     = gi.cvar ("bot_itemfail", "1", 0);	// escalating shared blacklist for items bots keep failing
 															// (2 = also fast-track items whose route evaporated, per
@@ -618,9 +630,50 @@ path-eligible).  Takes the bot so a future per-bot capability-parity harness
 (bot_skilltest-style) gets the right signature for free.
 =================
 */
+/*
+=================
+Bot_EnvDeathMod
+
+True for deaths bot_hazard already owns (liquids, falls, crush, trigger_hurt,
+telefrag, suicide).  bot_danger records only what is left: deaths somebody
+inflicted.
+=================
+*/
+qboolean Bot_EnvDeathMod (int mod)
+{
+	switch (mod)
+	{
+	case MOD_WATER: case MOD_SLIME: case MOD_LAVA: case MOD_CRUSH:
+	case MOD_TELEFRAG: case MOD_FALLING: case MOD_SUICIDE:
+	case MOD_EXPLOSIVE: case MOD_BARREL: case MOD_BOMB:
+	case MOD_EXIT: case MOD_SPLASH: case MOD_TRIGGER_HURT:
+		return true;
+	}
+	return false;
+}
+
 int Bot_NavMask (bot_t *b)
 {
 	int	mask = NAV_MASK_ALL;
+
+	// bot_danger: every A* call in the bot goes through this function to derive
+	// its per-bot capability mask, which makes it the one natural choke point for
+	// the other piece of per-bot routing context -- how much this bot should fear
+	// hot ground right now.  Weak bots pay the toll; strong bots get a capped
+	// discount so they patrol where the fights are.  Scale 0 when the lever is
+	// off makes the A* branch a no-op (and the off-state byte-identical).
+	{
+		float dv = 0;
+		if (b && b->ent)
+		{
+			if (bot_dangertest && bot_dangertest->value != 0)
+				dv = ((b->id % 2) == 0) ? bot_dangertest->value : 0.0f;
+			else if (bot_danger && bot_danger->value != 0)
+				dv = bot_danger->value;
+		}
+		Nav_SetDangerScale (dv == 0 ? 0
+			: (Combat_Strength (b->ent) < BOT_PURSUE_MINSTR ? dv : -dv * 0.25f));
+	}
 
 	if (bot_navmask->value == 0)
 		return mask;
@@ -1998,6 +2051,7 @@ void Bot_RunFrame (void)
 									// stale times would hold the hearing gate open
 		Bot_LogBeginLevel (level.mapname);
 		Nav_Init (level.mapname);
+		Nav_DangerReset ();		// bot_danger: heat is in-match only, never persisted
 		Goal_SeedNavNodes ();		// ensure item spots are covered + routable
 		Goal_LoadFails (level.mapname);	// P4a: restore hard-item blacklist for this map
 		Nav_TagPlatLinks ();		// bot_lift: retag learned lift columns
@@ -2118,6 +2172,17 @@ void Bot_RunFrame (void)
 					&& b->path_idx > 0 && b->path_idx < b->path_len);
 				Bot_LogHazDeath (b, b->death_mod, penalized);
 			}
+			// bot_danger: stamp heat where COMBAT kills people.  Environmental
+			// deaths are excluded on purpose -- bot_hazard already prices those
+			// via NAV_FLAG_HAZARD/SLIME, so folding them in would double-count
+			// and make the two levers inseparable in an A/B.  It also keeps the
+			// solo rig (combat impossible) byte-identical with the lever on.
+			if ((bot_danger->value != 0 || bot_dangertest->value != 0)
+				&& !Bot_EnvDeathMod (b->death_mod))
+			{
+				Nav_DangerRecord (ent->s.origin);
+				Bot_LogDanger (b, "heat", ent->s.origin);
+			}
 			b->death_mod = 0;
 			Bot_LogEvent (b, "death");
 		}
@@ -2158,6 +2223,8 @@ void Bot_RunFrame (void)
 		Bot_LogLiftTick (b);
 	}
 
+	if (bot_danger->value != 0 || bot_dangertest->value != 0)
+		Nav_DangerDecay (level.time);
 	Bot_DebugDraw ();
 	Bot_LogSJDiag ();
 	Nav_MaybeSave (bot_logged_map);

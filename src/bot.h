@@ -292,6 +292,10 @@ extern cvar_t	*bot_decisive;
 extern cvar_t	*bot_pathcost;
 extern cvar_t	*bot_goalbudget;
 extern cvar_t	*bot_control;		// time the ROUTE to a control item, not a flat 4s window
+qboolean Bot_EnvDeathMod (int mod);	// bot_danger: deaths bot_hazard already owns
+extern cvar_t	*bot_danger;		// per-node combat-death heat -> route cost (0 = off)
+extern cvar_t	*bot_dangerlog;
+extern cvar_t	*bot_dangertest;	// id-parity A/B: even ids fear hot ground, odd control
 extern cvar_t	*bot_budgetcap;
 extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_navmask;
@@ -573,6 +577,7 @@ void Bot_LogAirHaz (bot_t *b, const char *what, const vec3_t hit);	// bot_airhaz
 void Bot_LogTimingWait (bot_t *b, const char *item, float dur, qboolean paid);	// bot_control
 void Bot_LogTimingPick (bot_t *b, const char *item, float eta, float travel);	// bot_control
 void Bot_LogTimingCand (bot_t *b, const char *item, float eta);	// bot_control funnel
+void Bot_LogDanger (bot_t *b, const char *what, const vec3_t org);	// bot_dangerlog
 void Bot_LogCMove (bot_t *b, int style, float range);	// bot_cmlog
 void Bot_LogLookahead (bot_t *b, float w, float dist);	// bot_lookahead (throttled)
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog

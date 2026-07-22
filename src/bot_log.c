@@ -417,6 +417,26 @@ void Bot_LogTimingPick (bot_t *b, const char *item, float eta, float travel)
 
 /*
 =================
+Bot_LogDanger
+
+bot_dangerlog: where bot_danger stamped combat-death heat.  Clustering these
+against the resulting route changes is how you tell "the heatmap learned the
+contested rooms" from "the heatmap learned the spawn points".
+=================
+*/
+void Bot_LogDanger (bot_t *b, const char *what, const vec3_t org)
+{
+	if (!log_fp || !b || !bot_dangerlog || bot_dangerlog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"danger\",\"t\":%.2f,\"bot\":%d,\"what\":\"%s\","
+		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}\n",
+		level.time, b->id, what,
+		org ? org[0] : 0.0f, org ? org[1] : 0.0f, org ? org[2] : 0.0f);
+}
+
+/*
+=================
 Bot_LogCMove
 
 bot_cmlog: one record per engagement-movement style transition, so an A/B can
