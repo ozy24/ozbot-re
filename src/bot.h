@@ -225,6 +225,8 @@ typedef struct
 	float		pursue_began;	// level.time the chase started.  Kept separate
 								// from goal_time precisely BECAUSE goal_time is
 								// advanced by that freeze and is not a clock
+	qboolean	lkp_noise;		// this sighting came from bot_hearing, not sight
+								// (telemetry only -- the chase gates are identical)
 
 	// weapon-aware combat tactics (bot_wpntactic): 10Hz-committed preferred
 	// engagement band + style bias for the held weapon (demo-calibrated),
@@ -482,6 +484,20 @@ void Bot_NoteDeath (edict_t *self, int mod);
 void Bot_NoteNoise (edict_t *who);
 float Bot_NoiseTime (edict_t *who);
 
+// bot_hearing: a noise taxonomy on top of the weapon-fire timestamp above.
+// Each entry records WHERE the noise happened, at the time it happened -- never
+// a live handle on the noisemaker.  That distinction is the whole design: the
+// bot learns that something occurred at a spot, and can be wrong about where
+// the player went next, exactly like a human listening through a wall.
+#define NOISE_NONE		0
+#define NOISE_WEAPON	1	// unsilenced fire (the legacy Bot_NoteNoise source)
+#define NOISE_PICKUP	2	// an item being taken
+#define NOISE_PAIN		3	// someone hurt, heard by bystanders
+#define NOISE_STEP		4	// footfalls (throttled; quietest)
+void Bot_NoteNoiseEx (edict_t *who, int kind, vec3_t origin);
+extern cvar_t	*bot_hearing;	// qualifying noise seeds the pursuit LKP
+extern cvar_t	*bot_hearlog;	// per-noise diagnostic
+
 //
 // bot_goal.c -- item-driven goal selection
 //
@@ -526,6 +542,7 @@ void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// b
 // and end (why it ended + how long it ran)
 void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src);
 void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur);
+void Bot_LogHear (bot_t *b, int kind, float dist);	// bot_hearlog
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog
 // bot_aimlog: one record per shot fired -- weapon, range, target lateral speed,
 // and yaw/pitch error of the committed aim vs the enemy's true bearing.

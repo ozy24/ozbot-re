@@ -24,6 +24,9 @@ cvar_t	*bot_pursuit;		// remember where a lost enemy was and investigate,
 							// bounded by route cost + wall clock + strength
 cvar_t	*bot_pursuittest;	// id-parity A/B: even bot ids pursue, odd control
 cvar_t	*bot_pursuitcost;	// max A* g-cost of the route to the last-known spot
+cvar_t	*bot_hearing;		// qualifying noise (fire/pickup/pain/steps) seeds the
+							// pursuit last-known position, PHS- and radius-gated
+cvar_t	*bot_hearlog;		// per-noise diagnostic
 cvar_t	*bot_aimtest;	// head-to-head aim-formula A/B: even bot ids apply the
 cvar_t	*bot_aimreact;	//   bot_aim* multipliers below, odd use the stock
 cvar_t	*bot_aimturn;	//   formula -- for sweeping which aim constant
@@ -887,6 +890,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		VectorCopy (enemy->s.origin, b->lkp_pos);
 		VectorCopy (enemy->velocity, b->lkp_vel);
 		b->lkp_time = level.time;
+		b->lkp_noise = false;	// this one we actually saw
 	}
 
 	// fight-or-flight: when clearly outmatched, retreat (still firing) and let

@@ -72,6 +72,11 @@ static char		bot_logged_map[MAX_QPATH];	// map the current log/nav is for
 // when each client slot last made weapon noise (bot_fov hearing; kept out of
 // gclient_t deliberately -- no vanilla struct edits)
 static float	bot_noise_time[MAX_CLIENTS];
+// bot_hearing: the generalized registry beside the legacy weapon-fire slot
+static float	bot_noise_at[MAX_CLIENTS];		// when the last noise happened
+static int		bot_noise_kind[MAX_CLIENTS];	// NOISE_*
+static vec3_t	bot_noise_pos[MAX_CLIENTS];		// where it happened, AT THAT TIME
+static float	bot_noise_step[MAX_CLIENTS];	// footstep throttle
 
 // bot_slotlog: diagnostic (default off) -- dumps the full client-slot table
 // (inuse/connected/netname + which slots the DLL owns as bots) so client-slot
@@ -97,6 +102,18 @@ static cvar_t	*bot_slotlog;
 									// they were chasing; past it they've lost them)
 #define BOT_PURSUE_MINSTR	70.0f	// never chase below this strength
 #define BOT_PURSUE_NEARGOAL	400.0f	// an item this close outranks a chase
+
+// bot_hearing.  Radii are per noise kind (a railgun carries; a footfall does
+// not), and audibility additionally requires a PHS check -- sound in Quake 2
+// propagates through the potentially-hearable set, so a listener two sealed
+// rooms away hears nothing no matter how close the straight-line distance.
+#define BOT_NOISE_FRESH			0.5f	// only act on a noise this recent
+#define BOT_NOISE_STEP_THROTTLE	0.5f	// per-source footstep rate limit
+#define BOT_NOISE_LOUD_HOLD		0.5f	// a footfall won't overwrite a louder cue
+#define BOT_NOISE_R_WEAPON		700.0f
+#define BOT_NOISE_R_PICKUP		512.0f
+#define BOT_NOISE_R_PAIN		512.0f
+#define BOT_NOISE_R_STEP		256.0f
 #define BOT_REROUTEMID_STALL	3.5f	// bot_reroutemid: pure-nav no-advance window
 										// that triggers a mid-attempt hop penalty
 
@@ -277,6 +294,10 @@ void Bot_Init (void)
 	// the fight.  0 = byte-identical to the pre-lever bot.
 	bot_pursuit      = gi.cvar ("bot_pursuit", "1", 0);		// investigate a lost enemy's last known position
 	bot_pursuittest  = gi.cvar ("bot_pursuittest", "0", 0);	// id-parity A/B: even ids pursue, odd control
+	// noise -> pursuit cue.  Default OFF pending its own parity A/B; inert
+	// without bot_pursuit by construction (it only writes fields that layer reads).
+	bot_hearing      = gi.cvar ("bot_hearing", "0", 0);		// hear fire/pickups/pain/footsteps
+	bot_hearlog      = gi.cvar ("bot_hearlog", "0", 0);		// per-noise diagnostic
 	bot_pursuitcost  = gi.cvar ("bot_pursuitcost", "670", 0);	// max A* g-cost of the chase route
 															// (pro corpus p75 of the path a human spends while
 															// still closing on a last-known position)
@@ -449,6 +470,7 @@ static void Bot_ResetNavState (bot_t *b)
 	b->pursuing     = false;	// bot_pursuit: a respawn ends any chase outright
 	b->pursue_until = 0;
 	b->pursue_began = 0;
+	b->lkp_noise    = false;
 	b->lkp_ent      = NULL;
 	b->lkp_time     = 0;
 	VectorClear (b->lkp_pos);
@@ -636,14 +658,51 @@ are loud, and a human absolutely turns toward gunfire behind them.
 */
 void Bot_NoteNoise (edict_t *who)
 {
+	// weapon fire keeps its own dedicated slot so the Combat_FindEnemy
+	// cone-bypass consumer is byte-identical to the pre-bot_hearing bot
+	Bot_NoteNoiseEx (who, NOISE_WEAPON, who ? who->s.origin : NULL);
+}
+
+/*
+=================
+Bot_NoteNoiseEx
+
+Record a noise: what kind, and the origin AT THE MOMENT IT HAPPENED.  Storing
+the position rather than the entity is deliberate -- a listener may later walk
+to where the sound came from and find nobody there, which is the correct
+outcome.  Nothing here reads bot_hearing: the registry is written unconditionally
+(it is inert unless something consumes it) so the write path stays branch-free
+and the legacy weapon slot behaves exactly as before.
+=================
+*/
+void Bot_NoteNoiseEx (edict_t *who, int kind, vec3_t origin)
+{
 	int	i;
 
-	if (!who || !who->client)
+	if (!who || !who->client || !origin)
 		return;
 	i = who - g_edicts - 1;
 	if (i < 0 || i >= MAX_CLIENTS)
 		return;
-	bot_noise_time[i] = level.time;
+
+	if (kind == NOISE_WEAPON)
+		bot_noise_time[i] = level.time;		// legacy slot: weapon fire only
+
+	// footsteps are constant, so they are both throttled and outranked -- a
+	// footfall must never overwrite the gunshot that just told us more
+	if (kind == NOISE_STEP)
+	{
+		if (level.time - bot_noise_step[i] < BOT_NOISE_STEP_THROTTLE)
+			return;
+		bot_noise_step[i] = level.time;
+		if (bot_noise_kind[i] != NOISE_STEP
+			&& level.time - bot_noise_at[i] < BOT_NOISE_LOUD_HOLD)
+			return;
+	}
+
+	bot_noise_at[i]   = level.time;
+	bot_noise_kind[i] = kind;
+	VectorCopy (origin, bot_noise_pos[i]);
 }
 
 float Bot_NoiseTime (edict_t *who)
@@ -955,6 +1014,101 @@ static void Bot_PursueEnd (bot_t *b, const char *reason)
 
 /*
 =================
+Bot_NoiseRadius
+=================
+*/
+static float Bot_NoiseRadius (int kind)
+{
+	switch (kind)
+	{
+	case NOISE_WEAPON:	return BOT_NOISE_R_WEAPON;
+	case NOISE_PICKUP:	return BOT_NOISE_R_PICKUP;
+	case NOISE_PAIN:	return BOT_NOISE_R_PAIN;
+	case NOISE_STEP:	return BOT_NOISE_R_STEP;
+	}
+	return 0;
+}
+
+/*
+=================
+Bot_HearThink
+
+bot_hearing: turn a recent audible noise into a pursuit cue.  Runs only when
+the bot has nothing better to go on (no visible enemy, no chase already in
+flight, no fresh sighting) -- hearing supplements sight, it never overrides it.
+
+The cue is written as an ordinary last-known position with ZERO velocity: we
+know a sound happened at a spot, and nothing whatsoever about where the
+noisemaker went next.  Every pursuit gate (cost, strength, freshness, item
+priority) then applies unchanged, so hearing cannot buy a chase that sight
+could not.  Inert without bot_pursuit by construction -- it only writes fields
+that the pursuit layer reads.
+=================
+*/
+static void Bot_HearThink (bot_t *b)
+{
+	edict_t	*self = b->ent;
+	vec3_t	eyes, d;
+	int		i;
+	float	best = 0, dist;
+	int		bestn = -1;
+
+	if (!bot_hearing || bot_hearing->value == 0)
+		return;
+	if (!Combat_PursuitOn (b))
+		return;					// the pursuit layer is what consumes this
+	if (b->enemy || b->pursuing || b->flee)
+		return;
+	if (b->lkp_time && level.time - b->lkp_time <= BOT_PURSUE_FRESH)
+		return;					// a real sighting outranks anything we heard
+
+	VectorCopy (self->s.origin, eyes);
+	eyes[2] += self->viewheight;
+
+	for (i = 0; i < game.maxclients; i++)
+	{
+		edict_t	*who = &g_edicts[i + 1];
+		float	radius;
+
+		if (bot_noise_kind[i] == NOISE_NONE)
+			continue;
+		if (level.time - bot_noise_at[i] > BOT_NOISE_FRESH)
+			continue;
+		if (who == self || !who->inuse || !who->client)
+			continue;
+		if (who->deadflag || who->health <= 0 || who->client->resp.spectator)
+			continue;
+
+		radius = Bot_NoiseRadius (bot_noise_kind[i]);
+		VectorSubtract (bot_noise_pos[i], eyes, d);
+		dist = VectorLength (d);
+		if (dist > radius)
+			continue;
+		if (!gi.inPHS (eyes, bot_noise_pos[i]))
+			continue;			// sealed off: the sound never reached us
+
+		// nearest audible noise wins
+		if (bestn < 0 || dist < best)
+		{
+			best = dist;
+			bestn = i;
+		}
+	}
+
+	if (bestn < 0)
+		return;
+
+	b->lkp_ent = &g_edicts[bestn + 1];
+	VectorCopy (bot_noise_pos[bestn], b->lkp_pos);
+	VectorClear (b->lkp_vel);	// a sound has no heading
+	b->lkp_time  = level.time;
+	b->lkp_noise = true;
+	if (bot_hearlog && bot_hearlog->value != 0)
+		Bot_LogHear (b, bot_noise_kind[bestn], best);
+}
+
+/*
+=================
 Bot_PursueTry
 
 bot_pursuit: decide whether to spend travel investigating where an enemy was
@@ -1053,7 +1207,7 @@ static qboolean Bot_PursueTry (bot_t *b)
 		b->pursue_until = level.time + BOT_PURSUE_MAXSECS;
 
 	VectorSubtract (tgt, ent->s.origin, d);
-	Bot_LogPursueStart (b, cost, VectorLength (d), "sight");
+	Bot_LogPursueStart (b, cost, VectorLength (d), b->lkp_noise ? "noise" : "sight");
 	return true;
 }
 
@@ -1167,6 +1321,12 @@ static void Bot_Navigate (bot_t *b)
 	// once we've shaken the pursuer, drop it as soon as toughness is back
 	if (b->flee && !b->enemy && Combat_Strength (ent) > 80)
 		b->flee = false;
+
+	// bot_hearing feeds the same last-known-position slot the sight path writes,
+	// on the 10Hz decision cadence (a per-tick scan would be 4x the work for no
+	// extra information -- noises persist for BOT_NOISE_FRESH).
+	if (FRAMESYNC)
+		Bot_HearThink (b);
 
 	// ---- bot_pursuit ----
 	// An active chase ends the moment it stops paying; otherwise consider
@@ -1757,7 +1917,11 @@ void Bot_RunFrame (void)
 												// (before Goal_Reset; uses load-time key snapshot)
 		Bot_ClearAll ();
 		Goal_Reset ();
-		memset (bot_noise_time, 0, sizeof(bot_noise_time));	// level.time restarts;
+		memset (bot_noise_time, 0, sizeof(bot_noise_time));
+		memset (bot_noise_at, 0, sizeof(bot_noise_at));
+		memset (bot_noise_kind, 0, sizeof(bot_noise_kind));
+		memset (bot_noise_pos, 0, sizeof(bot_noise_pos));
+		memset (bot_noise_step, 0, sizeof(bot_noise_step));	// level.time restarts;
 									// stale times would hold the hearing gate open
 		Bot_LogBeginLevel (level.mapname);
 		Nav_Init (level.mapname);

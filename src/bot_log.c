@@ -309,6 +309,24 @@ void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur)
 
 /*
 =================
+Bot_LogHear
+
+bot_hearlog: one record each time a heard noise is promoted to a pursuit cue.
+Kind + distance is what says whether hearing is buying anything real or just
+re-reporting gunfights the bot could already see.
+=================
+*/
+void Bot_LogHear (bot_t *b, int kind, float dist)
+{
+	if (!log_fp || !b || !bot_hearlog || bot_hearlog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"hear\",\"t\":%.2f,\"bot\":%d,\"kind\":%d,\"dist\":%.0f}\n",
+		level.time, b->id, kind, dist);
+}
+
+/*
+=================
 Bot_LogWpnSel
 
 bot_wpnsellog: one record each time range-aware selection (bot_wpnselect) chooses

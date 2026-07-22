@@ -148,6 +148,10 @@ void P_DamageFeedback (edict_t *player)
 		else
 			l = 100;
 		gi.sound (player, CHAN_VOICE, gi.soundindex(va("*pain%i_%i.wav", l, r)), 1, ATTN_NORM, 0);
+		// ozbot: BYSTANDERS hear the cry (bot_hearing).  Deliberately separate
+		// from Bot_NotePain, which is the victim-side turn-toward-attacker
+		// reflex -- different consumer, no double-fire.
+		Bot_NoteNoiseEx (player, NOISE_PAIN, player->s.origin);
 	}
 
 	// the total alpha of the blend is always proportional to count
@@ -838,7 +842,10 @@ void G_SetClientEvent (edict_t *ent)
 	if ( ent->groundentity && xyspeed > 225)
 	{
 		if ( (int)(current_client->bobtime+bobmove) != bobcycle )
+		{
 			ent->s.event = EV_FOOTSTEP;
+			Bot_NoteNoiseEx (ent, NOISE_STEP, ent->s.origin);	// ozbot: bots hear footfalls (bot_hearing)
+		}
 	}
 }
 
