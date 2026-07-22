@@ -267,11 +267,15 @@ void Bot_Init (void)
 															// mixed (q2dm1/6 net-positive, q2dm8 regresses) -- promising
 															// but unconfirmed; needs multi-seed + q2dm8 diagnosis
 	bot_outnumberedtest = gi.cvar ("bot_outnumberedtest", "0", 0);	// id-parity A/B: even ids use it, odd control
-	// enemy last-known-position pursuit.  Default OFF pending the parity A/B.
-	// The cost/time/strength bounds are what keep this from becoming an
-	// over-investment channel: one sight loss buys at most one chase, priced in
-	// A* g-cost, and only while we're strong enough to want the fight.
-	bot_pursuit      = gi.cvar ("bot_pursuit", "0", 0);		// investigate a lost enemy's last known position
+	// enemy last-known-position pursuit.  Default ON: parity A/B is +2.7/+4.8pt
+	// kill share on q2dm1 and +0.1/+2.6pt on q2dm8 (two seed-bases x16 seeds,
+	// mean +2.55pt) with the death share DOWN in all four -- chasing bots trade
+	// better, they don't just trade more.  Symmetric economy check is flat on
+	// pickups with giveups -22%.  The cost/time/strength bounds are what keep
+	// this from becoming an over-investment channel: one sight loss buys at most
+	// one chase, priced in A* g-cost, and only while we're strong enough to want
+	// the fight.  0 = byte-identical to the pre-lever bot.
+	bot_pursuit      = gi.cvar ("bot_pursuit", "1", 0);		// investigate a lost enemy's last known position
 	bot_pursuittest  = gi.cvar ("bot_pursuittest", "0", 0);	// id-parity A/B: even ids pursue, odd control
 	bot_pursuitcost  = gi.cvar ("bot_pursuitcost", "670", 0);	// max A* g-cost of the chase route
 															// (pro corpus p75 of the path a human spends while
