@@ -327,6 +327,33 @@ void Bot_LogHear (bot_t *b, int kind, float dist)
 
 /*
 =================
+Bot_LogAirHaz
+
+bot_airhazlog: one record per bot_airhazard veto ("veto" -- refused to commit to
+an arc) or salvage ("steer" -- nudged an in-flight arc off the liquid), with the
+PREDICTED impact point.  That impact point is the diagnostic that matters: it
+says whether the guard is refusing real pools or hallucinating them, and
+clustering it against the hazclass death spots shows directly which deaths the
+lever removed.  Gated on the cvar so the off-state telemetry is byte-identical.
+=================
+*/
+void Bot_LogAirHaz (bot_t *b, const char *what, const vec3_t hit)
+{
+	if (!log_fp || !b || !b->ent || !bot_airhazlog || bot_airhazlog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"airhaz\",\"t\":%.2f,\"bot\":%d,\"what\":\"%s\","
+		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,"
+		"\"hx\":%.1f,\"hy\":%.1f,\"hz\":%.1f,\"spd\":%.0f}\n",
+		level.time, b->id, what,
+		b->ent->s.origin[0], b->ent->s.origin[1], b->ent->s.origin[2],
+		hit ? hit[0] : 0.0f, hit ? hit[1] : 0.0f, hit ? hit[2] : 0.0f,
+		(float)sqrt (b->ent->velocity[0] * b->ent->velocity[0]
+				   + b->ent->velocity[1] * b->ent->velocity[1]));
+}
+
+/*
+=================
 Bot_LogCMove
 
 bot_cmlog: one record per engagement-movement style transition, so an A/B can

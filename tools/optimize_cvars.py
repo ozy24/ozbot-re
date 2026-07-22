@@ -106,7 +106,7 @@ class Dim:
 SPACE = [
     # range widened after pass 1 pinned this dim at its 2.0 ceiling -- a boundary
     # optimum is not an optimum, it is an under-sized range
-    Dim("bot_commit",      0.8,  0.0,  8.0),
+    Dim("bot_commit",      0.8,  0.0, 64.0),
     Dim("bot_budgetcap",   15,   8,    30,  kind="int"),
     Dim("bot_stucktime",   1.0,  0.4,  2.5),
     Dim("bot_lookahead",   0.0,  0.0,  0.8),
@@ -116,6 +116,12 @@ SPACE = [
     Dim("bot_goalnode",    0,    kind="bool"),
     Dim("bot_wallslide",   0,    kind="bool"),
     Dim("bot_slimeescape", 0,    kind="bool"),
+    # default-ON need model.  Present so a high bot_commit can be checked for
+    # drowning it: the commit charge is added to `cost`, and score is
+    # value*need/(1+cost/falloff), so a large enough charge makes the need term
+    # irrelevant and silently turns these two shipped levers into no-ops.
+    Dim("bot_wpnneed",     1,    kind="bool"),
+    Dim("bot_ammoneed",    1,    kind="bool"),
 ]
 
 

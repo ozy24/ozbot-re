@@ -55,6 +55,8 @@ cvar_t	*bot_teleport;		// route through misc_teleporters (seeded TELEPORT links)
 cvar_t	*bot_jumppad;		// route through trigger_push jump pads (seeded PUSH links)
 cvar_t	*bot_ladder;		// climb CONTENTS_LADDER surfaces -- see bot_move.c
 cvar_t	*bot_slimeescape;	// submerged in slime: climb/swim out (see bot_move.c)
+cvar_t	*bot_airhazard;		// ballistic liquid guard (see bot_move.c Bot_BallisticHazard)
+cvar_t	*bot_airhazlog;
 cvar_t	*bot_liftcommit;	// once on a rising plat, commit to the ride (don't step off)
 cvar_t	*bot_liftlog;
 cvar_t	*bot_strafejump;
@@ -233,6 +235,12 @@ void Bot_Init (void)
 															// controller, 3D column arrival, level-aware homing
 	bot_ladder       = gi.cvar ("bot_ladder", "1", 0);		// the ladder capability: face + climb
 															// CONTENTS_LADDER surfaces toward a higher/lower goal
+	// bot_airhazard: the hazard brake is ground-gated and probes <=128u ahead, so
+	// it cannot see the arc a bot is already on -- and 80-94% of the residual lava
+	// deaths on q2dm3/4/6 are AIRBORNE.  Bitmask: 1 = refuse to commit to an arc
+	// that lands in lava/slime, 2 = steer mid-air off a doomed one.  Default OFF.
+	bot_airhazard    = gi.cvar ("bot_airhazard", "0", 0);
+	bot_airhazlog    = gi.cvar ("bot_airhazlog", "0", 0);	// per-veto/steer diagnostic
 	bot_slimeescape  = gi.cvar ("bot_slimeescape", "0", 0);	// submerged in slime: abandon the item goal and
 															// climb the nearest ladder / swim to the nearest dry
 															// node (q2dm7 slime deaths were 57% of all deaths)

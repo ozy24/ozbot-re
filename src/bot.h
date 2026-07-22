@@ -315,6 +315,8 @@ extern cvar_t	*bot_jumppad;		// route through trigger_push jump pads (seeded PUS
 									// to a ballistic landing; the launch is automatic on touch)
 extern cvar_t	*bot_ladder;		// the ladder capability: climb CONTENTS_LADDER surfaces
 extern cvar_t	*bot_slimeescape;	// submerged in slime: abandon the goal and climb/swim out
+extern cvar_t	*bot_airhazard;		// bitmask: 1 = veto an arc that lands in liquid, 2 = mid-air steer
+extern cvar_t	*bot_airhazlog;		// per-veto/steer diagnostic
 extern cvar_t	*bot_liftcommit;	// commit to riding a rising plat (don't step off mid-ride)
 extern cvar_t	*bot_liftlog;
 extern cvar_t	*bot_inputlog;
@@ -559,6 +561,7 @@ void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// b
 void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src);
 void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur);
 void Bot_LogHear (bot_t *b, int kind, float dist);	// bot_hearlog
+void Bot_LogAirHaz (bot_t *b, const char *what, const vec3_t hit);	// bot_airhazlog
 void Bot_LogCMove (bot_t *b, int style, float range);	// bot_cmlog
 void Bot_LogLookahead (bot_t *b, float w, float dist);	// bot_lookahead (throttled)
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog

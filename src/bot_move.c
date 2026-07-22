@@ -2028,6 +2028,110 @@ static qboolean Bot_HazardInDir (edict_t *ent, const vec3_t dir, float dist)
 
 /*
 =================
+Bot_BallisticHazard  (bot_airhazard)
+
+Integrate the arc the bot would fly if it left the ground RIGHT NOW with `vel0`,
+and report whether that arc ends in -- or passes through -- lava or slime.
+
+This exists because the shipped hazard brake is structurally blind to the way
+most remaining hazard deaths actually happen.  Bot_HazardInDir probes the GROUND
+a bounded distance ahead (<=128u, Bot_HazardProbe), and the brake around it is
+gated on `groundentity`, so it only ever sees a walk-off it can still brake.  A
+regret-mining sweep (tools/mine_regret.py, bot_hazlog) put numbers on the gap:
+with bot_hazard default-ON, environmental deaths are still 71% of all deaths on
+q2dm6 (220 lava), 62% on q2dm3, 60% on q2dm4 -- and 80-94% of those bots were
+AIRBORNE when they hit the liquid.  A bot leaving a rim at 400ups covers ~280u
+before it has fallen 200u, so the pool it dies in was always beyond the probe.
+
+The integrator mirrors Nav_SeedOnePush (bot_nav.c), which already predicts jump-
+pad landings the same way: step the parabola under sv_gravity, box-trace between
+successive points, and stop at the first descending walkable floor.  The one
+difference is what we are looking for -- liquids are not in MASK_PLAYERSOLID, so
+the box trace flies straight through a lava pool and "lands" on the floor
+underneath it.  So each step also point-samples the contents at the arc position:
+that is what actually detects the pool.
+
+Returns true (and the offending point in out_hit, if given) when the arc is
+doomed; false when it reaches a safe floor, leaves the world, or runs out of
+steps.  Cheap -- a few dozen point-content calls, only on frames where the bot is
+about to commit to an arc.
+=================
+*/
+#define AIRHAZ_DT		0.05f
+#define AIRHAZ_STEPS	60		// <=3s of flight; a real fall is well under that
+#define AIRHAZ_JUMP		270.0f	// pmove's jump impulse (pm_jumpvelocity)
+
+static const vec3_t bot_pl_mins = {-16, -16, -24};
+static const vec3_t bot_pl_maxs = { 16,  16,  32};
+
+static qboolean Bot_BallisticHazard (edict_t *ent, const vec3_t vel0, vec3_t out_hit)
+{
+	vec3_t	vel, pos, next;
+	float	grav;
+	int		i;
+
+	VectorCopy (vel0, vel);
+	VectorCopy (ent->s.origin, pos);
+	pos[2] += 1.0f;		// lift a hair off the floor so step 0 isn't startsolid
+	grav = sv_gravity ? sv_gravity->value : 800.0f;
+
+	for (i = 0; i < AIRHAZ_STEPS; i++)
+	{
+		trace_t	tr;
+		int		c;
+
+		next[0] = pos[0] + vel[0] * AIRHAZ_DT;
+		next[1] = pos[1] + vel[1] * AIRHAZ_DT;
+		next[2] = pos[2] + vel[2] * AIRHAZ_DT;
+
+		// the liquid test: MASK_PLAYERSOLID traces ignore lava/slime entirely,
+		// so sample the contents at the arc point itself
+		c = gi.pointcontents (next);
+		if (c & (CONTENTS_LAVA | CONTENTS_SLIME))
+		{
+			if (out_hit)
+				VectorCopy (next, out_hit);
+			return true;
+		}
+
+		tr = gi.trace (pos, (float *)bot_pl_mins, (float *)bot_pl_maxs, next, ent,
+			MASK_PLAYERSOLID);
+
+		if (tr.startsolid || tr.allsolid)
+		{
+			// still clipping the ledge we are leaving: advance freely rather
+			// than calling it a landing (same as the jump-pad seeder)
+			VectorCopy (next, pos);
+			vel[2] -= grav * AIRHAZ_DT;
+			continue;
+		}
+
+		if (tr.fraction < 1.0f)
+		{
+			if (tr.plane.normal[2] > 0.7f && vel[2] <= 0.0f)
+				return false;	// descending onto a walkable floor: safe arc
+
+			// wall/ceiling: kill the component into the surface and keep going,
+			// so an arc that grazes geometry still finds what it lands in
+			{
+				float d = DotProduct (vel, tr.plane.normal);
+				VectorMA (vel, -d, tr.plane.normal, vel);
+			}
+			VectorCopy (tr.endpos, pos);
+		}
+		else
+		{
+			VectorCopy (next, pos);
+		}
+
+		vel[2] -= grav * AIRHAZ_DT;
+	}
+
+	return false;	// never resolved within the step budget: not our call
+}
+
+/*
+=================
 Bot_SlimeDropAhead  (bot_slimeescape)
 
 Like Bot_HazardInDir but for SLIME, and it fires ONLY for a DROP -- the slime
@@ -2252,6 +2356,148 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 		cmd->sidemove    = b->sj_cmd_side;
 		cmd->upmove      = b->sj_cmd_up;
 		return;
+	}
+
+	// bot_airhazard (bit 1): refuse to COMMIT to an arc that ends in liquid.
+	// The bot_hazard brake below is gated on groundentity and probes at most
+	// 128u of ground ahead, so it can only stop a walk-off it can still brake --
+	// but 80-94% of the residual lava deaths on q2dm3/4/6 happen with the bot
+	// already AIRBORNE, launched from beyond that probe (see the header on
+	// Bot_BallisticHazard for the numbers).  This runs first and asks the
+	// different question: integrate where this motion actually lands.
+	//
+	// Two arcs are tested from the ground, because the bot commits to one of
+	// them: the one it flies if it jumps this frame, and the one it flies if it
+	// simply keeps running off the edge.  A doomed arc costs the jump and brakes
+	// the run; the resulting stall feeds the normal machinery (reroutemid
+	// penalizes the frozen hop) exactly like the lava brake's stall does.
+	//
+	// Deliberately NOT a veto on missing floor -- same discipline as
+	// Bot_HazardInDir: a long legit FALL link must stay executable, so only an
+	// arc that reaches actual lava/slime is refused.
+	if (bot_airhazard->value != 0 && ((int)bot_airhazard->value & 1)
+		&& b->ent->groundentity
+		&& !(b->ent->watertype & (CONTENTS_LAVA | CONTENTS_SLIME)))
+	{
+		vec3_t	vrun, vjump, hit;
+		qboolean doomed = false;
+
+		vrun[0] = b->ent->velocity[0];
+		vrun[1] = b->ent->velocity[1];
+		vrun[2] = 0;
+		VectorCopy (vrun, vjump);
+		vjump[2] = AIRHAZ_JUMP;
+
+		// only worth integrating when actually carrying speed somewhere
+		if (vrun[0] * vrun[0] + vrun[1] * vrun[1] > 40.0f * 40.0f)
+		{
+			// b->want_jump is the jump decision; cmd->upmove is not written
+			// until the tail of this function, so it is still stale here
+			if (b->want_jump && Bot_BallisticHazard (b->ent, vjump, hit))
+				doomed = true;
+			else if (Bot_BallisticHazard (b->ent, vrun, hit))
+				doomed = true;
+		}
+
+		if (doomed)
+		{
+			vec3_t	back;
+
+			Bot_LogAirHaz (b, "veto", hit);
+
+			// brake exactly like the lava momentum brake: reverse only onto
+			// ground whose own arc is safe, else zero and let friction bleed it
+			// (a blind reverse is what wrecked the first lava cut on q2dm6)
+			back[0] = -b->move_dir[0];
+			back[1] = -b->move_dir[1];
+			back[2] = 0;
+
+			if (VectorLength (back) > 0.1f)
+			{
+				vec3_t	vback;
+				VectorNormalize (back);
+				VectorScale (back, 200.0f, vback);
+				vback[2] = 0;
+				if (!Bot_BallisticHazard (b->ent, vback, NULL))
+				{
+					a[YAW] = facing_yaw;
+					AngleVectors (a, f, r, u);
+					f[2] = 0;
+					r[2] = 0;
+					VectorNormalize (f);
+					VectorNormalize (r);
+					cmd->forwardmove = (short)(DotProduct (back, f) * speed);
+					cmd->sidemove    = (short)(DotProduct (back, r) * speed);
+				}
+				else
+				{
+					cmd->forwardmove = 0;
+					cmd->sidemove = 0;
+				}
+			}
+			else
+			{
+				cmd->forwardmove = 0;
+				cmd->sidemove = 0;
+			}
+			cmd->upmove = 0;					// never launch into it
+			b->next_wander_time = level.time;	// turn away next frame
+			return;
+		}
+	}
+
+	// bot_airhazard (bit 2): already airborne on a doomed arc.  There is no
+	// ground to brake against, but Quake air-accel still gives real (small)
+	// lateral authority, so steer toward whichever sideways nudge makes the
+	// predicted landing safe.  This is the salvage half of the lever; bit 1 is
+	// the prevention half, and they are separately switchable precisely so the
+	// A/B can attribute the result to one or the other.
+	if (bot_airhazard->value != 0 && ((int)bot_airhazard->value & 2)
+		&& !b->ent->groundentity
+		&& !(b->ent->watertype & (CONTENTS_LAVA | CONTENTS_SLIME)))
+	{
+		vec3_t	vcur, hit;
+
+		VectorCopy (b->ent->velocity, vcur);
+		if (Bot_BallisticHazard (b->ent, vcur, hit))
+		{
+			static const float	kick = 220.0f;
+			vec3_t				side, best;
+			int					i;
+			qboolean			found = false;
+
+			// probe four lateral nudges on top of the current velocity and take
+			// the first whose arc clears the liquid
+			for (i = 0; i < 4 && !found; i++)
+			{
+				vec3_t	trial;
+				side[0] = (i == 0) ? kick : (i == 1) ? -kick : 0.0f;
+				side[1] = (i == 2) ? kick : (i == 3) ? -kick : 0.0f;
+				side[2] = 0;
+				VectorAdd (vcur, side, trial);
+				if (!Bot_BallisticHazard (b->ent, trial, NULL))
+				{
+					VectorCopy (side, best);
+					found = true;
+				}
+			}
+
+			if (found)
+			{
+				Bot_LogAirHaz (b, "steer", hit);
+				a[YAW] = facing_yaw;
+				AngleVectors (a, f, r, u);
+				f[2] = 0;
+				r[2] = 0;
+				VectorNormalize (f);
+				VectorNormalize (r);
+				VectorNormalize (best);
+				cmd->forwardmove = (short)(DotProduct (best, f) * speed);
+				cmd->sidemove    = (short)(DotProduct (best, r) * speed);
+				cmd->upmove      = 0;
+				return;
+			}
+		}
 	}
 
 	// bot_hazard: in EVERY mode, refuse to go airborne over LAVA (contents-
