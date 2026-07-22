@@ -182,7 +182,8 @@ See the `ozbot-re-commit-win` memory.
 
 ## Perception: sight-loss pursuit (demo-mined)
 
-`bot_pursuit` (default **1**, ON) gives the bot a memory of where an enemy was.
+`bot_pursuit` (default **0**, OFF — behavior built and bounded, benefit unproven)
+gives the bot a memory of where an enemy was.
 While a target is visible the 10Hz combat keyframe stamps its origin/velocity/time
 (the "last-known position", LKP fields on `bot_t`); on sight loss the bot may
 commit a **bounded** chase to a short velocity-extrapolated point near that spot,
@@ -203,10 +204,23 @@ Constants are mined by `tools/dm2_combat.py pursue` →
 dependency, same as the need thresholds): cost cap **670**, wall clock **3.5s**,
 extrapolation **0.3s**. The mining exploits the fact that a demo carries only
 entities in the recorder's PVS, so an opponent leaving the packet-entity set *is*
-the sight-loss event (5788 demos → 359182 sustained episodes). A/B: **+2.7/+4.8pt
-kill share q2dm1, +0.1/+2.6pt q2dm8** (2 seed-bases × 16), death share down in
-all four; pickups flat, giveups −22%. Telemetry: `pursue_start` / `pursue_end`.
-See the `ozbot-re-pursuit-win` memory.
+the sight-loss event (5788 demos → 359182 sustained episodes).
+
+**A/B status — NOT a win.** An initial 4-arm read said +2.55pt kill share; at 16
+valid paired arms it is **+0.55pt, 95% CI [−2.10, +3.20]** (indistinguishable
+from zero) and the death-share signal disappears (−0.27pt over 32 arms). The
+first read was under-powered *and* drawn from the two most favourable maps.
+Telemetry: `pursue_start` / `pursue_end`. See the `ozbot-re-pursuit-win` memory.
+
+⚠️ **Two harness lessons, both cost a wrong conclusion here:**
+1. **Power the test.** At the observed per-arm sd (~5.4pt) a +2pt effect needs
+   ~40 paired arms; 4–8 arms resolves nothing finer than ~±5pt. Arms cost ~6s —
+   there is no reason to under-power.
+2. **`score` goes NEGATIVE on suicides.** On q2dm3/4/6/7 most bots finish below
+   zero, so an even/(even+odd) kill *share* divides by ~zero (observed "shifts"
+   of +420pt on a ±100 scale). `tools/parity_frags.py` now refuses to score a
+   degenerate pool. Combat A/Bs belong on q2dm1/q2dm2/q2dm5/q2dm8; deaths are
+   event counts and stay valid everywhere.
 
 **Three levers built alongside it and NOT enabled** (all byte-identical off,
 kept as "don't re-derive this" markers):

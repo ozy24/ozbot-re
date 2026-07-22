@@ -284,15 +284,20 @@ void Bot_Init (void)
 															// mixed (q2dm1/6 net-positive, q2dm8 regresses) -- promising
 															// but unconfirmed; needs multi-seed + q2dm8 diagnosis
 	bot_outnumberedtest = gi.cvar ("bot_outnumberedtest", "0", 0);	// id-parity A/B: even ids use it, odd control
-	// enemy last-known-position pursuit.  Default ON: parity A/B is +2.7/+4.8pt
-	// kill share on q2dm1 and +0.1/+2.6pt on q2dm8 (two seed-bases x16 seeds,
-	// mean +2.55pt) with the death share DOWN in all four -- chasing bots trade
-	// better, they don't just trade more.  Symmetric economy check is flat on
-	// pickups with giveups -22%.  The cost/time/strength bounds are what keep
-	// this from becoming an over-investment channel: one sight loss buys at most
-	// one chase, priced in A* g-cost, and only while we're strong enough to want
-	// the fight.  0 = byte-identical to the pre-lever bot.
-	bot_pursuit      = gi.cvar ("bot_pursuit", "1", 0);		// investigate a lost enemy's last known position
+	// enemy last-known-position pursuit.  Default OFF: an initial 4-arm A/B read
+	// +2.55pt kill share, but that was under-powered and drawn from the two maps
+	// most favourable to it.  Re-run at 16 valid paired arms the effect is
+	// +0.55pt, 95% CI [-2.10, +3.20] -- indistinguishable from zero -- and the
+	// "deaths down" signal vanishes entirely (-0.27pt over 32 arms, 13/32
+	// positive).  The behavior is implemented and bounded; the BENEFIT is
+	// unproven, so it does not ship on.
+	//
+	// To settle it, power the test properly: ~40 paired arms for a +2pt effect
+	// at the observed sd of ~5.4 (see tools/parity_frags.py, which now refuses
+	// to score a degenerate frag pool).  The cost/time/strength bounds are what
+	// keep this from becoming an over-investment channel: one sight loss buys at
+	// most one chase, priced in A* g-cost.  0 = byte-identical to the pre-lever bot.
+	bot_pursuit      = gi.cvar ("bot_pursuit", "0", 0);		// investigate a lost enemy's last known position
 	bot_pursuittest  = gi.cvar ("bot_pursuittest", "0", 0);	// id-parity A/B: even ids pursue, odd control
 	// noise -> pursuit cue.  Default OFF pending its own parity A/B; inert
 	// without bot_pursuit by construction (it only writes fields that layer reads).
