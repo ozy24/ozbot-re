@@ -233,6 +233,10 @@ typedef struct
 								// from goal_time precisely BECAUSE goal_time is
 								// advanced by that freeze and is not a clock
 	qboolean	lkp_noise;		// this sighting came from bot_hearing, not sight
+	// bot_enemymodel: belief about the CURRENT target, from sight-legal info only
+	edict_t		*bel_ent;		// who this belief is about (NULL = none)
+	float		bel_strength;	// estimated health+armor
+	float		bel_time;		// last time the estimate was refreshed
 								// (telemetry only -- the chase gates are identical)
 
 	// engagement movement style (bot_combatmove)
@@ -271,6 +275,7 @@ void Bot_Shutdown (void);		// called from ShutdownGame()
 void Bot_RunFrame (void);		// called from the top of G_RunFrame()
 qboolean Bot_ServerCommand (void);	// handle "sv bot_*"; returns true if consumed
 qboolean Bot_IsClient (edict_t *ent);	// true for DLL-driven bots (no net client)
+bot_t *Bot_ForEdict (edict_t *ent);	// the bot behind a client edict, or NULL
 void G_UnicastClient (edict_t *ent, qboolean reliable);	// gi.unicast, skips bots
 // true if some OTHER active bot already has 'it' as its current goal_item
 qboolean Bot_ItemClaimed (edict_t *it, bot_t *self);
@@ -296,6 +301,12 @@ qboolean Bot_EnvDeathMod (int mod);	// bot_danger: deaths bot_hazard already own
 extern cvar_t	*bot_danger;		// per-node combat-death heat -> route cost (0 = off)
 extern cvar_t	*bot_dangerlog;
 extern cvar_t	*bot_dangertest;	// id-parity A/B: even ids fear hot ground, odd control
+extern cvar_t	*bot_enemymodel;	// estimate enemy strength from sight-legal info
+extern cvar_t	*bot_enemymodeltest;
+extern cvar_t	*bot_belieflog;
+void Bot_BeliefDamage (edict_t *attacker, edict_t *targ, int amount);
+float Bot_BeliefStrength (bot_t *b, edict_t *enemy);
+void Bot_BeliefReset (bot_t *b);
 extern cvar_t	*bot_budgetcap;
 extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_navmask;
@@ -578,6 +589,7 @@ void Bot_LogTimingWait (bot_t *b, const char *item, float dur, qboolean paid);	/
 void Bot_LogTimingPick (bot_t *b, const char *item, float eta, float travel);	// bot_control
 void Bot_LogTimingCand (bot_t *b, const char *item, float eta);	// bot_control funnel
 void Bot_LogDanger (bot_t *b, const char *what, const vec3_t org);	// bot_dangerlog
+void Bot_LogBelief (bot_t *b, float est, float truth, float mine);	// bot_belieflog
 void Bot_LogCMove (bot_t *b, int style, float range);	// bot_cmlog
 void Bot_LogLookahead (bot_t *b, float w, float dist);	// bot_lookahead (throttled)
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog

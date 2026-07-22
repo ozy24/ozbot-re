@@ -682,6 +682,95 @@ float Combat_Strength (edict_t *e)
 
 /*
 =================
+bot_enemymodel -- believed enemy strength, from sight-legal information only
+
+The bot ALREADY conditions its flee decision on the differential (the
+Combat_Strength(enemy) read below) -- but that read is omniscient: it returns the
+opponent's true health and armor, which no real player can see.  This replaces it
+with a belief the bot could legitimately hold:
+
+  * baseline: a freshly-seen opponent is assumed spawn-fresh (BELIEF_SPAWN).
+  * the one honest signal: damage THIS bot landed, reported from the
+    attacker-known path in T_Damage (Bot_BeliefDamage).
+  * reset when they die (they respawn fresh).
+  * decay back toward the baseline once they have been out of sight long enough
+    to have healed up -- an old estimate is worse than no estimate.
+
+Deliberately NOT modelled: armor/health pickups we did not see, and other bots'
+damage.  Those are exactly the things a player has to guess at, and guessing them
+is the point of the experiment.
+=================
+*/
+#define BELIEF_SPAWN	100.0f	// a spawn-fresh opponent (health 100, no armor)
+#define BELIEF_STALE	8.0f	// seconds unseen before the belief decays out
+
+void Bot_BeliefReset (bot_t *b)
+{
+	b->bel_ent = NULL;
+	b->bel_strength = 0;
+	b->bel_time = 0;
+}
+
+/*
+=================
+Bot_BeliefDamage
+
+Called from T_Damage's attacker-known path: `attacker` just took `amount` off
+`targ` across health+armor.  If the attacker is a bot believing something about
+that target, decrement the belief.  This is the only channel by which a belief
+ever gets better than the spawn baseline.
+=================
+*/
+void Bot_BeliefDamage (edict_t *attacker, edict_t *targ, int amount)
+{
+	bot_t	*b;
+
+	if (!bot_enemymodel || (bot_enemymodel->value == 0
+			&& (!bot_enemymodeltest || bot_enemymodeltest->value == 0)))
+		return;
+	if (!attacker || !targ || attacker == targ || amount <= 0)
+		return;
+	b = Bot_ForEdict (attacker);
+	if (!b)
+		return;
+	if (b->bel_ent != targ)
+	{
+		b->bel_ent = targ;
+		b->bel_strength = BELIEF_SPAWN;
+	}
+	b->bel_strength -= amount;
+	if (b->bel_strength < 1.0f)
+		b->bel_strength = 1.0f;		// they are alive, so not zero
+	b->bel_time = level.time;
+}
+
+/*
+=================
+Bot_BeliefStrength
+
+The believed strength of `enemy`, for the fight-or-flight comparison.  Falls back
+to the spawn baseline when we hold no fresh belief -- which is what a player
+assumes about someone they have just laid eyes on.
+=================
+*/
+float Bot_BeliefStrength (bot_t *b, edict_t *enemy)
+{
+	if (!enemy)
+		return 0;
+	if (b->bel_ent != enemy || b->bel_time == 0
+		|| level.time - b->bel_time > BELIEF_STALE)
+	{
+		// stale or about somebody else: assume spawn-fresh, and start a new
+		// belief so subsequent hits refine it
+		b->bel_ent = enemy;
+		b->bel_strength = BELIEF_SPAWN;
+		b->bel_time = level.time;
+	}
+	return b->bel_strength;
+}
+
+/*
+=================
 Combat_ProjectileSpeed
 
 Muzzle speed of the current weapon's projectile, or 0 for hitscan weapons
@@ -961,7 +1050,16 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		else
 		{
 			float mine   = Combat_Strength (self);
-			float theirs = Combat_Strength (enemy);
+			// bot_enemymodel: the shipped read here is OMNISCIENT -- it returns
+			// the opponent's true health+armor.  With the lever on, use a belief
+			// built only from what this bot could legitimately know.
+			qboolean believe = (bot_enemymodeltest->value != 0)
+				? ((b->id & 1) == 0)
+				: (bot_enemymodel->value != 0);
+			float theirs = believe ? Bot_BeliefStrength (b, enemy)
+								   : Combat_Strength (enemy);
+			if (believe)
+				Bot_LogBelief (b, theirs, Combat_Strength (enemy), mine);
 			qboolean survive = Bot_Survives (b);
 			if (b->flee)
 			{

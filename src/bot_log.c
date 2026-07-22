@@ -437,6 +437,26 @@ void Bot_LogDanger (bot_t *b, const char *what, const vec3_t org)
 
 /*
 =================
+Bot_LogBelief
+
+bot_belieflog: the estimated enemy strength AND the sim's ground truth, side by
+side, every time the flee comparison consults the belief.  The plan's rule is
+that a bad estimator invalidates the whole behaviour A/B, so the estimator gets
+validated offline from these records BEFORE the behaviour result is believed.
+=================
+*/
+void Bot_LogBelief (bot_t *b, float est, float truth, float mine)
+{
+	if (!log_fp || !b || !bot_belieflog || bot_belieflog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"belief\",\"t\":%.2f,\"bot\":%d,"
+		"\"est\":%.1f,\"truth\":%.1f,\"mine\":%.1f}\n",
+		level.time, b->id, est, truth, mine);
+}
+
+/*
+=================
 Bot_LogCMove
 
 bot_cmlog: one record per engagement-movement style transition, so an A/B can

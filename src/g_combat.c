@@ -493,7 +493,14 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 
 
 		targ->health = targ->health - take;
-			
+
+		// bot_enemymodel: the ONE piece of an opponent's health a real player
+		// legitimately knows is the damage they themselves landed.  Report it
+		// here (attacker-known path only); the belief layer subtracts it from
+		// its estimate.  take+asave is what the hit actually cost them across
+		// health and armor, which is what a player infers from a clean hit.
+		Bot_BeliefDamage (attacker, targ, take + asave);
+
 		if (targ->health <= 0)
 		{
 			if ((targ->svflags & SVF_MONSTER) || (client))

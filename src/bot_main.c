@@ -40,6 +40,9 @@ cvar_t	*bot_control;
 cvar_t	*bot_danger;
 cvar_t	*bot_dangerlog;
 cvar_t	*bot_dangertest;
+cvar_t	*bot_enemymodel;
+cvar_t	*bot_enemymodeltest;
+cvar_t	*bot_belieflog;
 cvar_t	*bot_budgetcap;
 cvar_t	*bot_itemfail;
 cvar_t	*bot_navmask;
@@ -182,6 +185,12 @@ void Bot_Init (void)
 	// when every bot avoids hot ground the equilibrium just shifts and total
 	// deaths are ~zero-sum.  Even ids fear heat, odd ids are the control.
 	bot_dangertest   = gi.cvar ("bot_dangertest", "0", 0);
+	// bot_enemymodel: replace the OMNISCIENT Combat_Strength(enemy) read in the
+	// flee comparison with a belief built only from sight-legal information --
+	// damage this bot itself landed, plus a spawn baseline, decaying to unknown.
+	bot_enemymodel     = gi.cvar ("bot_enemymodel", "0", 0);
+	bot_enemymodeltest = gi.cvar ("bot_enemymodeltest", "0", 0);
+	bot_belieflog      = gi.cvar ("bot_belieflog", "0", 0);
 	bot_budgetcap    = gi.cvar ("bot_budgetcap", "15", 0);	// max seconds to fund any one goal route
 	bot_itemfail     = gi.cvar ("bot_itemfail", "1", 0);	// escalating shared blacklist for items bots keep failing
 															// (2 = also fast-track items whose route evaporated, per
@@ -470,6 +479,26 @@ connection (ClientConnect is called from the DLL), so gi.unicast to them
 spams "PF_Unicast to a free/zombie client" in q2pro.
 =================
 */
+/*
+=================
+Bot_ForEdict
+
+The bot_t behind a client edict, or NULL.  Needed by the belief layer, which is
+called from the shared T_Damage path and only has the attacker edict.
+=================
+*/
+bot_t *Bot_ForEdict (edict_t *ent)
+{
+	int	i;
+
+	if (!ent || !ent->client || !ent->inuse)
+		return NULL;
+	i = ent - g_edicts - 1;
+	if (i < 0 || i >= game.maxclients)
+		return NULL;
+	return (bots[i].inuse && bots[i].ent == ent) ? &bots[i] : NULL;
+}
+
 qboolean Bot_IsClient (edict_t *ent)
 {
 	int	i;
@@ -549,6 +578,12 @@ static void Bot_ResetNavState (bot_t *b)
 		b->enemy = NULL;
 	b->threat_ent = NULL;
 	b->threat_time = 0;
+	// bot_enemymodel: a belief about who we were fighting does not survive our
+	// own death -- and whoever it was about has almost certainly changed state
+	// by the time we are back.  Gated so a cvars-off build is RNG/behaviour
+	// identical to stock.
+	if (bot_enemymodel->value != 0 || bot_enemymodeltest->value != 0)
+		Bot_BeliefReset (b);
 	b->aim_err[YAW] = b->aim_err[PITCH] = 0;
 	b->aim_sweep_sign = 0;
 	if (b->ent)
