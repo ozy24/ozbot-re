@@ -18,6 +18,9 @@ Usage:
     python dm2_combat.py tactics [mapname] [--limit N] -> per-weapon engagement
                                                           range + style (decodes
                                                           opponent positions)
+    python dm2_combat.py pursue [mapname] [--limit N] [--dump K]
+                                                       -> sight-loss/chase behavior
+                                                          + combat-move cadence
     python dm2_combat.py one <demo.dm2>                -> single-demo debug dump
 
 The `need` subcommand mines the human "resource need" curves the bot's goal
@@ -401,14 +404,40 @@ def _record_engage(info, frame_idx, last_origin, last_velocity, weapon_idx, orig
     info["engage"].append((frame_idx, weapon_idx, dist, adv, speed))
 
 
-def parse_combat(data, entities=False):
+def _record_track(info, frame_idx, last_origin, last_velocity, last_viewangles,
+                  weapon_idx, stats, origins, opps):
+    """Per-frame recorder state + WHICH opponents are present in the packet-entity
+    set this frame.  A demo only carries entities inside the recorder's PVS, so an
+    opponent dropping out of that set IS the sight-loss event -- this presence
+    timeline is what the `pursue` scan segments into sight-loss episodes.  Presence
+    is exact: the delta protocol never re-sends an unchanged entity, but it always
+    writes an explicit U_REMOVE when one leaves (handled in _parse_packetentities),
+    so `origins` membership tracks visibility rather than last-changed."""
+    if last_origin is None:
+        return
+    rx, ry, rz = last_origin[0] / 8.0, last_origin[1] / 8.0, last_origin[2] / 8.0
+    vx, vy, vz = last_velocity if last_velocity is not None else (0.0, 0.0, 0.0)
+    yaw = last_viewangles[1] if last_viewangles is not None else 0.0
+    info["self"].append((frame_idx, rx, ry, rz, vx, vy, vz, yaw, weapon_idx,
+                         stats[STAT_HEALTH], stats[STAT_ARMOR], stats[STAT_AMMO]))
+    for en in opps:
+        o = origins.get(en)
+        if o is not None:
+            info["opp"].append((frame_idx, en, o[0], o[1], o[2]))
+
+
+def parse_combat(data, entities=False, track=False):
     """Decode the recording player's per-frame state + pickups + kills.  With
     entities=True, also decode the packet-entities section for opponent origins
     (engagement RANGE / STYLE and kill-range) -- the `tactics` scan; scan/need
-    call with entities=False, which is byte-for-byte the prior behavior."""
+    call with entities=False, which is byte-for-byte the prior behavior.
+    track=True additionally logs the per-frame recorder/opponent PRESENCE
+    timeline (the `pursue` scan); it implies entities and is otherwise inert."""
+    if track:
+        entities = True
     info = {"map": None, "playernum": None, "names": {}, "items": {}, "models": {},
             "samples": [], "pickups": [], "kills": [], "engage": [], "killrange": [],
-            "aim": []}
+            "aim": [], "self": [], "opp": []}
     aim_state = {"prev": {}}     # opp entnum -> (frame_idx, origin) for velocity
     m = re.search(rb"maps/([A-Za-z0-9_]+)\.bsp", data)
     if m:
@@ -532,6 +561,10 @@ def parse_combat(data, entities=False):
                                             last_viewangles, last_weapon,
                                             stats[STAT_AMMO], origins, opps,
                                             aim_state)
+                                if track:
+                                    _record_track(info, frame_idx, last_origin,
+                                                  last_velocity, last_viewangles,
+                                                  last_weapon, stats, origins, opps)
                         except (IndexError, ValueError):
                             pass
                     # snapshot this frame's state as the "before" for the next frame
@@ -1078,6 +1111,430 @@ def aim(mapname, limit):
     return out
 
 
+# ---- `pursue`: sight-loss / chase behavior + combat-movement cadence ----
+
+# episode-detection constants (all in demo frames @ 10Hz unless noted)
+PU_LOSS_GAP = 3          # opponent absent >=0.3s => a sight loss
+PU_ENGAGE_DIST = 1200.0  # opponent must be this near at loss to count as a fight
+PU_WINDOW = 15           # 1.5s classification window after the loss
+PU_STATIC_PATH = 40.0    # moved less than this over the window => neither class
+PU_DOT = 0.5             # path-weighted mean dot => "pursued"
+PU_ABANDON_S = 10.0      # no re-sight within this => abandoned
+PU_FIRE_LOOKBACK = 20    # 2.0s: recorder fired this recently => engaged
+PU_FACE_CONE = 30.0      # or was facing the opponent this tightly at loss
+PU_DEATH_GUARD = 10      # +-1.0s: opponent died => not a sight loss, a kill
+PU_EXTRAP_CLAMP = 200.0  # the bot clamps its extrapolation to this (plan spec)
+PU_EXTRAP_TS = [i / 10.0 for i in range(0, 16)]     # 0.0 .. 1.5s
+PU_RESIGHT_FRESH = 3.0   # only short gaps calibrate the extrapolation window
+PU_SUSTAINED_S = 1.0     # a >=1s absence is a real break, not PVS flicker
+PU_REACH = 100.0         # within this of the LKP = the chase arrived
+
+# combat-movement (Feature 3) mining constants
+CM_MIN_SPEED = 100.0     # recorder must be moving to have a strafe direction
+CM_LAT_DEAD = 60.0       # |lateral speed| below this is not a committed strafe
+CM_HIGH_DZ = 64.0        # height advantage threshold
+CM_LEVEL_DZ = 32.0
+CM_AIM_CONE = 30.0       # facing the opponent this tightly = really fighting
+CM_AIM_LO, CM_AIM_HI = 150.0, 900.0    # ...and inside a combat range band
+
+
+def _wrap180(a):
+    a %= 360.0
+    return a - 360.0 if a > 180.0 else a
+
+
+def _pu_episodes(info, ep_out, cm_out, demo_name):
+    """Segment one demo's presence timeline into sight-loss episodes and
+    accumulate the combat-movement cadence samples.  Appends to ep_out/cm_out."""
+    self_rows = {r[0]: r for r in info["self"]}
+    if len(self_rows) < 50:
+        return
+    pres = defaultdict(dict)          # opp entnum -> {frame: (x,y,z)}
+    by_frame = defaultdict(list)      # frame -> [(entnum, (x,y,z))]
+    for (f, en, x, y, z) in info["opp"]:
+        pres[en][f] = (x, y, z)
+        by_frame[f].append((en, (x, y, z)))
+
+    # frames on which the recorder fired: ammo for the HELD weapon dropped while
+    # that same weapon stayed out (a switch also changes the stat, hence the guard)
+    fired = set()
+    prev = None
+    for r in info["self"]:
+        if prev is not None and r[0] == prev[0] + 1 and r[8] == prev[8] \
+                and r[11] < prev[11]:
+            fired.add(r[0])
+        prev = r
+
+    # frames on which each client NAME died (an opponent's death is not sight loss)
+    died = defaultdict(list)
+    for (f, victim, attacker, weapon) in info["kills"]:
+        died[victim.lower()].append(f)
+    ent_name = {cn + 1: nm.lower() for cn, nm in info["names"].items()}
+
+    # ---------- combat-movement cadence (visible engagements only) ----------
+    last_sign = 0
+    last_flip = None
+    for r in info["self"]:
+        f, rx, ry, rz, vx, vy, vz = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
+        near = None
+        for en, o in by_frame.get(f, ()):
+            d = math.hypot(o[0] - rx, o[1] - ry)
+            if near is None or d < near[0]:
+                near = (d, o)
+        if near is None or near[0] > PU_ENGAGE_DIST:
+            last_sign, last_flip = 0, None      # fight over; don't span the gap
+            continue
+        dist, o = near
+        speed = math.hypot(vx, vy)
+        dz = rz - o[2]
+        bucket = ("high" if dz >= CM_HIGH_DZ else
+                  "low" if dz <= -CM_HIGH_DZ else
+                  "level" if abs(dz) <= CM_LEVEL_DZ else None)
+        if bucket:
+            cm_out["speed"][bucket].append(speed)
+            # "aimed" = actually fighting (in a combat range band AND looking at
+            # them), not merely co-present on a vertical map.  The unfiltered
+            # bucket above is dominated by travel, which is what makes the raw
+            # high/low split look symmetric.
+            if CM_AIM_LO <= dist <= CM_AIM_HI:
+                bear = math.degrees(math.atan2(o[1] - ry, o[0] - rx))
+                if abs(_wrap180(r[7] - bear)) <= CM_AIM_CONE:
+                    cm_out["speed_aimed"][bucket].append(speed)
+        if dist < 1e-3 or speed < CM_MIN_SPEED:
+            continue
+        # lateral = recorder velocity perpendicular to the horizontal line of sight
+        hx, hy = (o[0] - rx) / dist, (o[1] - ry) / dist
+        lat = vx * (-hy) + vy * hx
+        if abs(lat) < CM_LAT_DEAD:
+            continue
+        sign = 1 if lat > 0 else -1
+        if last_sign and sign != last_sign and last_flip is not None:
+            iv = (f - last_flip) * 0.1
+            if 0.1 <= iv <= 8.0:
+                cm_out["reversal_s"].append(iv)
+        if sign != last_sign:
+            last_flip = f
+        last_sign = sign
+
+    # ---------- sight-loss episodes ----------
+    for en, seen in pres.items():
+        fl = sorted(seen)
+        if len(fl) < 10:
+            continue
+        # (loss frame, re-sight frame or None) pairs
+        pairs = [(fl[i], fl[i + 1]) for i in range(len(fl) - 1)
+                 if fl[i + 1] - fl[i] >= PU_LOSS_GAP]
+        if fl[-1] + PU_WINDOW + 20 in self_rows:      # vanished, demo continues
+            pairs.append((fl[-1], None))
+
+        for f_a, f_b in pairs:
+            ra = self_rows.get(f_a)
+            if ra is None:
+                continue
+            lkp = seen[f_a]
+            rx, ry, rz = ra[1], ra[2], ra[3]
+            dist0 = math.hypot(lkp[0] - rx, lkp[1] - ry)
+            if dist0 > PU_ENGAGE_DIST:
+                continue
+            nm = ent_name.get(en)
+            if nm and any(abs(df - f_a) <= PU_DEATH_GUARD for df in died.get(nm, ())):
+                continue                       # they died, they didn't slip away
+
+            # engagement signal: fired recently, or squarely facing them at loss
+            fired_recent = any(f in fired for f in range(f_a - PU_FIRE_LOOKBACK, f_a + 1))
+            bear = math.degrees(math.atan2(lkp[1] - ry, lkp[0] - rx))
+            facing = abs(_wrap180(ra[7] - bear)) <= PU_FACE_CONE
+            if not (fired_recent or facing):
+                continue
+
+            # opponent velocity at the moment of loss (finite difference, <=0.3s)
+            lvel = (0.0, 0.0, 0.0)
+            for back in (1, 2, 3):
+                pf = f_a - back
+                if pf in seen:
+                    dt = back * 0.1
+                    po = seen[pf]
+                    lvel = ((lkp[0] - po[0]) / dt, (lkp[1] - po[1]) / dt,
+                            (lkp[2] - po[2]) / dt)
+                    break
+
+            # (a) pursue vs disengage over the next 1.5s
+            path = wdot = 0.0
+            px, py = rx, ry
+            for f in range(f_a + 1, f_a + 1 + PU_WINDOW):
+                r = self_rows.get(f)
+                if r is None:
+                    break
+                sx, sy = r[1] - px, r[2] - py
+                sl = math.hypot(sx, sy)
+                tx, ty = lkp[0] - px, lkp[1] - py
+                tl = math.hypot(tx, ty)
+                if sl > 1e-3 and tl > 1e-3:
+                    wdot += (sx * tx + sy * ty) / tl
+                path += sl
+                px, py = r[1], r[2]
+            if path < 1e-3:
+                continue
+            score = wdot / path
+            cls = ("static" if path < PU_STATIC_PATH else
+                   "pursued" if score > PU_DOT else "disengaged")
+
+            # (b) gap to re-sight, (c) path walked while the gap lasted
+            cap = f_a + int(PU_ABANDON_S * 10)
+            end = min(f_b, cap) if f_b is not None else cap
+            resight = f_b is not None and f_b <= cap
+            gap = (f_b - f_a) * 0.1 if resight else PU_ABANDON_S
+            # invest = total path over the gap; reach = the path actually spent
+            # getting to the LKP (the direct analogue of the bot's A* g-cost cap
+            # on the route to the LKP node -- `invest` alone is dominated by the
+            # 10s abandon cap, since a pro who gives up keeps running the map)
+            invest = 0.0
+            reach = None
+            close_path, mind = 0.0, dist0
+            px, py = rx, ry
+            for f in range(f_a + 1, end + 1):
+                r = self_rows.get(f)
+                if r is None:
+                    break
+                invest += math.hypot(r[1] - px, r[2] - py)
+                px, py = r[1], r[2]
+                d = math.hypot(lkp[0] - px, lkp[1] - py)
+                if reach is None and d <= PU_REACH:
+                    reach = invest
+                if d < mind:                    # still closing on the LKP
+                    mind, close_path = d, invest
+
+            ep = {
+                "demo": demo_name, "map": info.get("map"), "frame": f_a,
+                "dist_at_loss": round(dist0, 1), "cls": cls,
+                "score": round(score, 3), "path_1p5s": round(path, 1),
+                "gap_s": round(gap, 1), "resight": resight,
+                "sustained": (not resight) or gap >= PU_SUSTAINED_S,
+                "invest": round(invest, 1),
+                "reach": round(reach, 1) if reach is not None else None,
+                # path spent while still CLOSING on the LKP (up to the closest
+                # approach).  Pros commit toward a last-known position but seldom
+                # walk onto the exact spot, so `reach` only fires on a minority of
+                # chases -- this is the well-powered analogue of the bot's A*
+                # cost cap on the route to the LKP node.
+                "close_path": round(close_path, 1),
+                "closed_frac": round((dist0 - mind) / dist0, 3) if dist0 > 1 else 0.0,
+                "health": ra[9], "armor": ra[10],
+                "fired_recent": fired_recent, "facing": facing,
+                "lkp": [round(v, 1) for v in lkp],
+                "lvel": [round(v, 1) for v in lvel],
+            }
+            if resight:
+                ro = seen[f_b]
+                ep["reappear"] = [round(v, 1) for v in ro]
+                if gap <= PU_RESIGHT_FRESH:
+                    offs = []
+                    for T in PU_EXTRAP_TS:
+                        ex = [lkp[i] + lvel[i] * T for i in range(3)]
+                        vl = math.sqrt(sum((ex[i] - lkp[i]) ** 2 for i in range(3)))
+                        if vl > PU_EXTRAP_CLAMP:            # bot clamps the guess
+                            k = PU_EXTRAP_CLAMP / vl
+                            ex = [lkp[i] + (ex[i] - lkp[i]) * k for i in range(3)]
+                        offs.append(math.sqrt(sum((ro[i] - ex[i]) ** 2
+                                                  for i in range(3))))
+                    ep["extrap_off"] = [round(v, 1) for v in offs]
+            ep["pos"] = [round(rx, 1), round(ry, 1), round(rz, 1)]
+            ep_out.append(ep)
+
+
+def pursue(mapname, limit, dump=0):
+    """Mine pro sight-loss behavior (do they chase, how far, for how long, and
+    where does the opponent actually reappear) plus the combat-movement cadence
+    that calibrates the engagement-movement styles.  Writes
+    demos/derived/combat_pursuit/pursuit.json."""
+    import datetime
+
+    eps = []
+    cm = {"reversal_s": [],
+          "speed": {"high": [], "level": [], "low": []},
+          "speed_aimed": {"high": [], "level": [], "low": []}}
+    dumps = []
+    maps = Counter()
+    demos_ok = demos_bad = 0
+
+    for name, data in iter_zip_demos(mapname, limit):
+        try:
+            info = parse_combat(data, track=True)
+        except Exception:
+            demos_bad += 1
+            continue
+        if not info["self"] or not info["opp"]:
+            demos_bad += 1
+            continue
+        demos_ok += 1
+        if info["map"]:
+            maps[info["map"]] += 1
+        try:
+            _pu_episodes(info, eps, cm, name)
+        except Exception:
+            pass
+
+    n = len(eps)
+    by_cls = Counter(e["cls"] for e in eps)
+    moved = [e for e in eps if e["cls"] != "static"]
+    pursued = [e for e in eps if e["cls"] == "pursued"]
+    diseng = [e for e in eps if e["cls"] == "disengaged"]
+    pursue_rate = (len(pursued) / len(moved)) if moved else 0.0
+
+    # SUSTAINED = the opponent was gone >=1s.  A 0.3-0.6s dropout is PVS flicker
+    # around a doorway, not a tactical sight loss, and those short episodes both
+    # dominate the raw counts and make the pursue-rate meaningless (you cannot
+    # "decide to chase" someone who is already back).  Every constant the bot
+    # takes from this scan is derived from the sustained subset.
+    sus = [e for e in eps if e["sustained"]]
+    sus_moved = [e for e in sus if e["cls"] != "static"]
+    sus_pursued = [e for e in sus if e["cls"] == "pursued"]
+    sus_diseng = [e for e in sus if e["cls"] == "disengaged"]
+    sus_rate = (len(sus_pursued) / len(sus_moved)) if sus_moved else 0.0
+
+    resights = [e for e in sus_pursued if e["resight"]]
+    gaps = [e["gap_s"] for e in resights]
+    invest = [e["invest"] for e in sus_pursued]
+    reached = [e["reach"] for e in sus_pursued if e["reach"] is not None]
+    reach_rate = (len(reached) / len(sus_pursued)) if sus_pursued else 0.0
+    closep = [e["close_path"] for e in sus_pursued if e["close_path"] > 0]
+    closef = [e["closed_frac"] for e in sus_pursued]
+    strength = lambda e: e["health"] + e["armor"]
+
+    def weak_pct(xs):
+        return round(100.0 * sum(1 for e in xs if strength(e) < 70) / len(xs), 1) \
+            if xs else 0.0
+
+    # extrapolation window that minimizes the MEDIAN reappearance offset
+    extrap = []
+    fresh = [e for e in eps if "extrap_off" in e]
+    for i, T in enumerate(PU_EXTRAP_TS):
+        offs = [e["extrap_off"][i] for e in fresh]
+        extrap.append({"t": T, "median_off": round(_pctile(offs, 0.5), 1),
+                       "p25_off": round(_pctile(offs, 0.25), 1)})
+    best_t = min(extrap, key=lambda d: d["median_off"])["t"] if fresh else None
+
+    enough = len(sus) >= 200
+    out = {
+        "generated": datetime.datetime.now(datetime.timezone.utc)
+            .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "corpus": {"demos_parsed": demos_ok, "demos_skipped": demos_bad,
+                   "maps": dict(maps.most_common())},
+        "params": {
+            "loss_gap_s": PU_LOSS_GAP / 10.0, "engage_dist": PU_ENGAGE_DIST,
+            "classify_window_s": PU_WINDOW / 10.0, "pursue_dot": PU_DOT,
+            "static_path": PU_STATIC_PATH, "abandon_s": PU_ABANDON_S,
+            "extrap_clamp": PU_EXTRAP_CLAMP,
+        },
+        "method": ("a demo carries only entities in the recorder's PVS, so an "
+                   "opponent leaving the packet-entity set is the sight-loss "
+                   "event; episodes are gated on engagement (recent fire or "
+                   "facing) and exclude opponent deaths"),
+        "episodes": {
+            "n_all": n, "by_class_all": dict(by_cls),
+            "pursue_rate_all": round(pursue_rate, 3),
+            "n": len(sus), "sufficient": enough,
+            "by_class": dict(Counter(e["cls"] for e in sus)),
+            "pursue_rate": round(sus_rate, 3),
+            "dist_at_loss": _summ([e["dist_at_loss"] for e in sus]),
+            "gap_to_resight_s": _summ(gaps),
+            "chase_investment": _summ(invest),
+            "reach_path": _summ(reached), "reach_rate": round(reach_rate, 3),
+            "close_path": _summ(closep), "closed_frac": _summ(closef),
+            "resight_rate": round(len(resights) / len(sus_pursued), 3)
+                            if sus_pursued else 0.0,
+        },
+        "strength_at_loss": {
+            "pursued": _summ([strength(e) for e in sus_pursued]),
+            "disengaged": _summ([strength(e) for e in sus_diseng]),
+            "pursued_health": _summ([e["health"] for e in sus_pursued]),
+            "disengaged_health": _summ([e["health"] for e in sus_diseng]),
+            "pursued_weak_pct": weak_pct(sus_pursued),
+            "disengaged_weak_pct": weak_pct(sus_diseng),
+            "note": ("if pursued/disengaged strength distributions coincide, the "
+                     "corpus does NOT support gating pursuit on strength"),
+        },
+        "extrapolation": {"curve": extrap, "best_t": best_t, "n": len(fresh)},
+        "combat_move": {
+            "strafe_reversal_s": _summ(cm["reversal_s"]),
+            "speed_by_height": {k: _summ(v) for k, v in cm["speed"].items()},
+            "speed_by_height_aimed":
+                {k: _summ(v) for k, v in cm["speed_aimed"].items()},
+        },
+        "calibration": {
+            "bot_pursuitcost": round(_pctile(closep, 0.75)) if enough and closep else 700.0,
+            "pursuit_secs": round(_pctile(gaps, 0.75), 1) if enough else 4.5,
+            "extrapolate_secs": best_t if enough else 0.6,
+            "cm_until_s": round(_pctile(cm["reversal_s"], 0.5), 2)
+                          if cm["reversal_s"] else 2.0,
+            "note": ("priors (700/4.5/0.6/2.0) are substituted verbatim when "
+                     "fewer than 200 clean episodes are mined"),
+        },
+    }
+
+    outdir = os.path.join(ROOT, "demos", "derived", "combat_pursuit")
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, "pursuit.json")
+    with open(outpath, "w") as f:
+        json.dump(out, f, indent=2)
+
+    # ---- console summary ----
+    print(f"\n=== {mapname or 'ALL MAPS'} sight-loss/pursuit: {demos_ok} demos "
+          f"parsed, {demos_bad} skipped ===")
+    print(f"maps: {dict(maps.most_common(6))}{' ...' if len(maps) > 6 else ''}\n")
+    print(f"all sight losses (>=0.3s absence)  n={n}  classes={dict(by_cls)}  "
+          f"pursue-rate={pursue_rate*100:.1f}%")
+    print(f"SUSTAINED (>=1.0s, the real breaks) n={len(sus)} "
+          f"({'SUFFICIENT' if enough else 'INSUFFICIENT (<200) -> use priors'})")
+    print(f"  classes: {out['episodes']['by_class']}   pursue-rate (of moving)="
+          f"{sus_rate*100:.1f}%   re-sight rate={out['episodes']['resight_rate']*100:.1f}%"
+          f"   reach-LKP rate={reach_rate*100:.1f}%")
+    for tag, s in (("dist at loss", out["episodes"]["dist_at_loss"]),
+                   ("gap to re-sight s", out["episodes"]["gap_to_resight_s"]),
+                   ("chase investment u", out["episodes"]["chase_investment"]),
+                   ("path to reach LKP u", out["episodes"]["reach_path"]),
+                   ("path while closing u", out["episodes"]["close_path"]),
+                   ("frac of gap closed", out["episodes"]["closed_frac"])):
+        print(f"  {tag:20s} n={s['n']:6d}  p25={s['p25']:6.1f} p50={s['p50']:6.1f} "
+              f"p75={s['p75']:6.1f} p90={s['p90']:6.1f}")
+    print("\n-- strength (health+armor) at sight loss --")
+    for tag in ("pursued", "disengaged"):
+        s = out["strength_at_loss"][tag]
+        print(f"  {tag:12s} n={s['n']:6d}  p25={s['p25']:5.0f} p50={s['p50']:5.0f} "
+              f"p75={s['p75']:5.0f}  mean={s['mean']:5.1f}  "
+              f"weak(<70)={out['strength_at_loss'][tag + '_weak_pct']:.1f}%")
+    print(f"\n-- reappearance offset vs extrapolation window (n={len(fresh)}) --")
+    print("   " + "  ".join(f"{d['t']:.1f}s:{d['median_off']:.0f}" for d in extrap))
+    print(f"   best window = {best_t}s")
+    print("\n-- combat movement --")
+    s = out["combat_move"]["strafe_reversal_s"]
+    print(f"  strafe reversal interval  n={s['n']:6d}  p25={s['p25']:.2f} "
+          f"p50={s['p50']:.2f} p75={s['p75']:.2f}s")
+    for k in ("high", "level", "low"):
+        s = out["combat_move"]["speed_by_height"][k]
+        a = out["combat_move"]["speed_by_height_aimed"][k]
+        print(f"  speed dz={k:5s}  co-present n={s['n']:7d} p50={s['p50']:5.0f}"
+              f"   |  AIMED n={a['n']:7d} p50={a['p50']:5.0f} mean={a['mean']:5.0f}")
+    print("\n-- calibration -> C constants --")
+    for k, v in out["calibration"].items():
+        if k != "note":
+            print(f"  {k:20s} {v}")
+    if dump and sus:
+        # spread the sample across the corpus, not the first demo's episodes
+        stride = max(1, len(sus) // dump)
+        print(f"\n-- sample sustained episodes (hand spot-check) --")
+        for e in sus[::stride][:dump]:
+            print(f"  {e['demo'][:30]:30s} f={e['frame']:5d} {e['cls']:10s} "
+                  f"score={e['score']:+.2f} dist={e['dist_at_loss']:6.0f} "
+                  f"gap={e['gap_s']:4.1f}s reach={str(e['reach']):>7s} "
+                  f"hp={e['health']:3d}/{e['armor']:3d} "
+                  f"{'fire' if e['fired_recent'] else '    '}"
+                  f"{'/face' if e['facing'] else ''}\n"
+                  f"{'':34s}pos={e['pos']} -> lkp={e['lkp']} vel={e['lvel']}")
+    print(f"\n-> wrote {outpath}")
+    return out
+
+
 def one(path):
     data = open(path, "rb").read()
     info = parse_combat(data)
@@ -1248,26 +1705,28 @@ def timing(mapname, limit):
 
 
 if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "scan"
-    if cmd == "one":
-        one(sys.argv[2])
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", nargs="?", default="scan",
+                    choices=["scan", "need", "timing", "tactics", "aim", "pursue", "one"])
+    ap.add_argument("mapname", nargs="?", default=None,
+                    help="map token filter (or the .dm2 path for `one`)")
+    ap.add_argument("--limit", type=int, default=None, help="max demos to read")
+    ap.add_argument("--dump", type=int, default=0,
+                    help="pursue: print N sample episodes for hand spot-checking")
+    a = ap.parse_args()
+    if a.cmd == "one":
+        one(a.mapname)
+    elif a.cmd == "need":
+        result = need(a.mapname, a.limit)
+    elif a.cmd == "timing":
+        result = timing(a.mapname, a.limit)
+    elif a.cmd == "tactics":
+        result = tactics(a.mapname, a.limit)
+    elif a.cmd == "aim":
+        result = aim(a.mapname, a.limit)
+    elif a.cmd == "pursue":
+        result = pursue(a.mapname, a.limit, a.dump)
     else:
-        mapname = None
-        limit = None
-        rest = sys.argv[2:]
-        args = [a for a in rest if not a.startswith("--limit")]
-        if args:
-            mapname = args[0]
-        for a in rest:
-            if a.startswith("--limit"):
-                limit = int(a.split("=", 1)[1]) if "=" in a else int(rest[rest.index(a) + 1])
-        if cmd == "need":
-            result = need(mapname, limit)
-        elif cmd == "timing":
-            result = timing(mapname, limit)
-        elif cmd == "tactics":
-            result = tactics(mapname, limit)
-        elif cmd == "aim":
-            result = aim(mapname, limit)
-        else:
-            result = scan(mapname, limit)
+        result = scan(a.mapname, a.limit)
