@@ -107,6 +107,11 @@ MINOR_ITEMS = {"Armor Shard", "Small Health"}
 
 # g_local.h MOD_*: deaths no health pickup could have prevented
 ENV_MODS = {17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 31}
+MOD_NAME = {17: "water", 18: "slime", 19: "lava", 20: "crush", 21: "telefrag",
+            22: "falling", 23: "suicide", 25: "explosive", 26: "barrel",
+            27: "bomb", 28: "exit", 29: "splash", 31: "trigger_hurt"}
+# the subset bot_hazard is supposed to be preventing
+HAZ_MODS = {17, 18, 19, 22, 31}
 
 CLASSES = ["ran_past_fight", "passed_item", "route_backtrack",
            "death_near_health", "goal_churn"]
@@ -510,6 +515,7 @@ def mine(paths):
     mine_goal_churn(goals, incidents)
 
     span = max(r["t"] for r in ticks) - min(r["t"] for r in ticks)
+    causes = death_causes(hazclass)
     bots = len(ticks_by_bot)
     botmins = max(1e-9, bots * span / 60.0)
 
@@ -526,8 +532,46 @@ def mine(paths):
         "deaths": len(deaths),
         "goal_item_events": len(goals),
         "malformed_lines": bad,
+        "death_causes": causes,
         "counters": dict(counters),
         "incidents": incidents,
+    }
+
+
+def death_causes(hazclass):
+    """Where deaths actually come from, and how the hazard ones are shaped.
+
+    Cheap, but it turned out to be the highest-value thing the hazclass records
+    give: bot_hazard is default-ON and yet 58-71% of all deaths on q2dm3/4/6/7
+    are still lava/slime.  The airborne/onground and penalized splits say which
+    residual it is -- an airborne death is a trajectory the ground-probe steer
+    veto never sees, and `penalized=false` means no route existed to erode.
+    """
+    if not hazclass:
+        return None
+    by_mod = defaultdict(int)
+    haz = defaultdict(int)
+    for h in hazclass:
+        mod = h.get("mod", 0)
+        by_mod[mod] += 1
+        if mod not in HAZ_MODS:
+            continue
+        haz["all"] += 1
+        haz["airborne" if not h.get("onground") else "onground"] += 1
+        haz["penalized" if h.get("penalized") else "unpenalized"] += 1
+        if h.get("path_len", 0) == 0:
+            haz["no_route"] += 1
+        if h.get("enemy", -1) >= 0:
+            haz["while_fighting"] += 1
+    total = sum(by_mod.values())
+    env = sum(v for k, v in by_mod.items() if k in ENV_MODS)
+    return {
+        "deaths": total,
+        "environmental": env,
+        "environmental_pct": round(100.0 * env / total, 1) if total else 0.0,
+        "by_mod": {MOD_NAME.get(k, f"combat({k})"): v
+                   for k, v in sorted(by_mod.items(), key=lambda kv: -kv[1])},
+        "hazard_shape": dict(haz),
     }
 
 
@@ -560,6 +604,18 @@ def report(res, top):
               f"{(n / res['pickups'] if res['pickups'] else 0):>12.2f}")
     print("(passed_item `incidents` excludes the +2 trinkets -- Armor Shard, "
           "Small Health; `raw` is every pass)")
+    dc = res.get("death_causes")
+    if dc:
+        print(f"\ndeath causes: {dc['environmental']}/{dc['deaths']} "
+              f"({dc['environmental_pct']}%) environmental -- " +
+              ", ".join(f"{k} {v}" for k, v in list(dc["by_mod"].items())[:6]))
+        hs = dc["hazard_shape"]
+        if hs.get("all"):
+            print(f"   hazard deaths ({hs['all']}): "
+                  f"{hs.get('airborne', 0)} airborne / {hs.get('onground', 0)} "
+                  f"on ground, {hs.get('unpenalized', 0)} with no route to "
+                  f"penalize, {hs.get('no_route', 0)} with no route at all, "
+                  f"{hs.get('while_fighting', 0)} while fighting")
     cl = res["counters"].get("deaths_classified", 0)
     if cl:
         print(f"death_near_health: {res['counters'].get('death_env_excluded', 0)} "
