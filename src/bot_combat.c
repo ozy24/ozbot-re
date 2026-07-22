@@ -20,6 +20,10 @@ cvar_t	*bot_outnumbered;	// break off + retreat when 2+ enemies are actively
 							// the nearest target; outnumbered deaths were 2.8x
 							// over-represented in the death telemetry
 cvar_t	*bot_outnumberedtest;	// id-parity A/B: even bot ids use it, odd control
+cvar_t	*bot_pursuit;		// remember where a lost enemy was and investigate,
+							// bounded by route cost + wall clock + strength
+cvar_t	*bot_pursuittest;	// id-parity A/B: even bot ids pursue, odd control
+cvar_t	*bot_pursuitcost;	// max A* g-cost of the route to the last-known spot
 cvar_t	*bot_aimtest;	// head-to-head aim-formula A/B: even bot ids apply the
 cvar_t	*bot_aimreact;	//   bot_aim* multipliers below, odd use the stock
 cvar_t	*bot_aimturn;	//   formula -- for sweeping which aim constant
@@ -485,6 +489,24 @@ static qboolean Combat_Tactic (bot_t *b)
 
 /*
 =================
+Combat_PursuitOn
+
+Whether this bot runs enemy last-known-position pursuit this frame
+(bot_pursuit).  bot_pursuittest gives the id-parity head-to-head (even ids get
+it, odd are the control); otherwise bot_pursuit.  Gated by Bot_Humanized so it
+travels with the humanization profile, exactly like Combat_Tactic.
+=================
+*/
+qboolean Combat_PursuitOn (bot_t *b)
+{
+	qboolean on = (bot_pursuittest && bot_pursuittest->value != 0)
+		? ((b->id & 1) == 0)
+		: (bot_pursuit && bot_pursuit->value != 0);
+	return on && Bot_Humanized (b);
+}
+
+/*
+=================
 Combat_WpnSelectOn
 
 Whether this bot runs range-aware firing-weapon selection this frame
@@ -522,6 +544,20 @@ static qboolean Combat_BlasterTransit (bot_t *b)
 		? ((b->id & 1) == 0)
 		: (bot_blastertransit && bot_blastertransit->value != 0);
 	return on && Bot_Humanized (b) && Combat_BlasterOnly (b->ent);
+}
+
+/*
+=================
+Combat_BlasterTransitOn
+
+Public read-only view of the same predicate, so the pursuit layer in bot_main.c
+can yield to a blaster-only bot's trip to a real weapon (fetching a gun beats
+investigating a spot when all we could do on arrival is chip at them).
+=================
+*/
+qboolean Combat_BlasterTransitOn (bot_t *b)
+{
+	return Combat_BlasterTransit (b);
 }
 
 /*
@@ -839,6 +875,18 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 			b->aim_bearing_prev = (VectorLength (bd) > 1)
 				? vectoyaw (bd) : b->aim[YAW];
 		}
+	}
+
+	// bot_pursuit: while we can see this enemy, stamp where they are.  Nothing
+	// acts on it here -- if sight is lost, Bot_Navigate decides whether the
+	// chase is affordable.  Recording only (no RNG, no movement effect), and
+	// gated so an off build never writes these fields.
+	if (Combat_PursuitOn (b))
+	{
+		b->lkp_ent = enemy;
+		VectorCopy (enemy->s.origin, b->lkp_pos);
+		VectorCopy (enemy->velocity, b->lkp_vel);
+		b->lkp_time = level.time;
 	}
 
 	// fight-or-flight: when clearly outmatched, retreat (still firing) and let

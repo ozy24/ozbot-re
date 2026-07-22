@@ -265,6 +265,48 @@ void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent)
 		level.time, b->id, weapon, range, intent);
 }
 
+// Either the master lever or the parity harness is live.  Both arms of a
+// bot_pursuittest A/B must log or the treatment arm is undiagnosable; with both
+// cvars at 0 nothing is written, so the off-state stays byte-identical.
+static qboolean PursueLogOn (void)
+{
+	return (bot_pursuit && bot_pursuit->value != 0)
+		|| (bot_pursuittest && bot_pursuittest->value != 0);
+}
+
+/*
+=================
+Bot_LogPursueStart / Bot_LogPursueEnd
+
+bot_pursuit telemetry.  `cost` is the A* g-cost of the committed chase route
+(what bot_pursuitcost bounds) and `dist` the straight-line distance to the spot,
+so the pair sizes how much travel a chase actually diverts from the item
+economy; `src` is what cued it.  The end record's reason/dur distribution is the
+diagnostic that says whether chases are paying: mostly "reacquired" means the
+lever is finding fights, mostly "timeout"/"arrived" means it is buying walks.
+Gated on the cvar so off-state telemetry is byte-identical.
+=================
+*/
+void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src)
+{
+	if (!log_fp || !b || !PursueLogOn ())
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"pursue_start\",\"t\":%.2f,\"bot\":%d,\"cost\":%.0f,"
+		"\"dist\":%.0f,\"src\":\"%s\"}\n",
+		level.time, b->id, cost, dist, src);
+}
+
+void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur)
+{
+	if (!log_fp || !b || !PursueLogOn ())
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"pursue_end\",\"t\":%.2f,\"bot\":%d,\"reason\":\"%s\","
+		"\"dur\":%.2f}\n",
+		level.time, b->id, reason, dur);
+}
+
 /*
 =================
 Bot_LogWpnSel

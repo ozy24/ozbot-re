@@ -206,6 +206,26 @@ typedef struct
 	vec3_t		dodge_rkt_dir;		// bot_dodge: world-space step-away direction
 	qboolean	flee;			// outmatched: retreat and fetch health/armor
 
+	// enemy last-known-position pursuit (bot_pursuit).  While an enemy is
+	// visible the combat keyframe stamps where they were; when sight is lost the
+	// bot may spend a BOUNDED amount of travel investigating that spot before
+	// returning to the item economy.  The bound (A* cost + wall clock + strength)
+	// is the whole point: an unbounded chase is the reachable != completable
+	// over-investment trap in a new costume.
+	edict_t		*lkp_ent;		// whose last-known position this is (NULL = none)
+	vec3_t		lkp_pos;		// their origin at the last sighting
+	vec3_t		lkp_vel;		// ...and their velocity then (extrapolation seed)
+	float		lkp_time;		// level.time of that sighting (0 = none/consumed)
+	qboolean	pursuing;		// this GOAL leg is a chase, not an item route
+	float		pursue_until;	// wall-clock cap on the current chase.  Advances
+								// with goal_time whenever a traversal controller
+								// (lift/train/playbook/ladder) owns the frame, so
+								// a chase is not billed for a lift queue it is
+								// standing in -- same freeze the goal budget gets
+	float		pursue_began;	// level.time the chase started.  Kept separate
+								// from goal_time precisely BECAUSE goal_time is
+								// advanced by that freeze and is not a clock
+
 	// weapon-aware combat tactics (bot_wpntactic): 10Hz-committed preferred
 	// engagement band + style bias for the held weapon (demo-calibrated),
 	// consumed by the per-tick movement blend so range/style vary by weapon
@@ -426,6 +446,14 @@ extern cvar_t	*bot_flee;
 extern cvar_t	*bot_fleetest;
 extern cvar_t	*bot_outnumbered;		// retreat from a 2+ enemy crossfire (bot_combat.c)
 extern cvar_t	*bot_outnumberedtest;	// id-parity A/B for bot_outnumbered
+// enemy last-known-position pursuit: investigate where a lost enemy was
+extern cvar_t	*bot_pursuit;		// master switch (0 = off, byte-identical)
+extern cvar_t	*bot_pursuittest;	// id-parity A/B (even ids pursue, odd control)
+extern cvar_t	*bot_pursuitcost;	// max A* g-cost of the route to the LKP
+// whether this bot runs LKP pursuit this frame (cvar + parity + humanization)
+qboolean Combat_PursuitOn (bot_t *b);
+// true while a blaster-only bot is travelling to a real weapon (bot_blastertransit)
+qboolean Combat_BlasterTransitOn (bot_t *b);
 extern cvar_t	*bot_aimtest;
 extern cvar_t	*bot_aimreact;
 extern cvar_t	*bot_aimturn;
@@ -494,6 +522,10 @@ void Bot_LogEvent (bot_t *b, const char *event);	// spawn/death/etc.
 void Bot_LogHazDeath (bot_t *b, int mod, qboolean penalized);	// bot_hazlog: per-death classification
 void Bot_LogFire (edict_t *who);				// weapon discharge (timing invariants)
 void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// bot_wpnlog
+// bot_pursuit: chase start (route cost / straight-line distance / what cued it)
+// and end (why it ended + how long it ran)
+void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src);
+void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur);
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog
 // bot_aimlog: one record per shot fired -- weapon, range, target lateral speed,
 // and yaw/pitch error of the committed aim vs the enemy's true bearing.

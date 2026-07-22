@@ -82,6 +82,21 @@ static cvar_t	*bot_slotlog;
 
 #define BOT_GRAPH_READY		24		// nodes needed before goal-seeking starts
 #define BOT_GOAL_TIMEOUT	12.0f	// abandon a goal not reached within this
+
+// bot_pursuit constants.  Mined from the pro demo corpus by
+// tools/dm2_combat.py pursue (sight loss = an opponent leaving the recorder's
+// packet-entity set), then baked here -- there is no runtime dependency on the
+// JSON, exactly like the bot_ammoneed/bot_wpnneed thresholds.
+#define BOT_PURSUE_FRESH	1.5f	// an older last-known position is stale
+#define BOT_PURSUE_EXTRAP	0.3f	// seconds of velocity extrapolation past the
+									// sighting (minimizes the pro corpus' median
+									// reappearance offset)
+#define BOT_PURSUE_EXTRAP_MAX	200.0f	// ...clamped to this much lead
+#define BOT_PURSUE_MAXSECS	3.5f	// hard wall-clock cap on any one chase (p75
+									// of the gap before a pro re-sights someone
+									// they were chasing; past it they've lost them)
+#define BOT_PURSUE_MINSTR	70.0f	// never chase below this strength
+#define BOT_PURSUE_NEARGOAL	400.0f	// an item this close outranks a chase
 #define BOT_REROUTEMID_STALL	3.5f	// bot_reroutemid: pure-nav no-advance window
 										// that triggers a mid-attempt hop penalty
 
@@ -252,6 +267,15 @@ void Bot_Init (void)
 															// mixed (q2dm1/6 net-positive, q2dm8 regresses) -- promising
 															// but unconfirmed; needs multi-seed + q2dm8 diagnosis
 	bot_outnumberedtest = gi.cvar ("bot_outnumberedtest", "0", 0);	// id-parity A/B: even ids use it, odd control
+	// enemy last-known-position pursuit.  Default OFF pending the parity A/B.
+	// The cost/time/strength bounds are what keep this from becoming an
+	// over-investment channel: one sight loss buys at most one chase, priced in
+	// A* g-cost, and only while we're strong enough to want the fight.
+	bot_pursuit      = gi.cvar ("bot_pursuit", "0", 0);		// investigate a lost enemy's last known position
+	bot_pursuittest  = gi.cvar ("bot_pursuittest", "0", 0);	// id-parity A/B: even ids pursue, odd control
+	bot_pursuitcost  = gi.cvar ("bot_pursuitcost", "670", 0);	// max A* g-cost of the chase route
+															// (pro corpus p75 of the path a human spends while
+															// still closing on a last-known position)
 	bot_aimtest      = gi.cvar ("bot_aimtest", "0", 0);		// head-to-head: even ids apply the bot_aim* multipliers
 	bot_aimreact     = gi.cvar ("bot_aimreact", "1", 0);	//   reaction-delay multiplier
 	bot_aimturn      = gi.cvar ("bot_aimturn", "1", 0);		//   turn-rate multiplier
@@ -418,6 +442,13 @@ static void Bot_ResetNavState (bot_t *b)
 	b->path_idx  = 0;
 	b->replan_time  = level.time + 1.0;
 	b->progress_time = level.time;
+	b->pursuing     = false;	// bot_pursuit: a respawn ends any chase outright
+	b->pursue_until = 0;
+	b->pursue_began = 0;
+	b->lkp_ent      = NULL;
+	b->lkp_time     = 0;
+	VectorClear (b->lkp_pos);
+	VectorClear (b->lkp_vel);
 	Bot_LiftReset (b);
 	Bot_TrainReset (b);
 	Bot_LadderReset (b);
@@ -862,6 +893,14 @@ static void Bot_GoExplore (bot_t *b)
 	b->reroute_last_idx = 0;
 	b->reroute_idx_time = level.time;
 	b->steer_item    = NULL;	// fresh explore leg: no stale steering target
+	// bot_pursuit: every goal teardown ends any chase riding on that goal leg.
+	// The sighting is dropped with it so a chase can never be resumed from a
+	// stale last-known position after the bot has moved on to something else.
+	b->pursuing     = false;
+	b->pursue_until = 0;
+	b->pursue_began = 0;
+	b->lkp_ent      = NULL;
+	b->lkp_time     = 0;
 	Bot_LiftReset (b);
 	Bot_TrainReset (b);
 	Bot_LadderReset (b);
@@ -886,6 +925,132 @@ static void Bot_DecisiveReplan (bot_t *b, float delay)
 {
 	if (bot_decisive->value != 0)
 		b->replan_time = level.time + delay;
+}
+
+/*
+=================
+Bot_PursueEnd
+
+bot_pursuit: tear down an active chase and hand the frame back to the item
+economy.  Deliberately does NOT blacklist anything -- no item was involved, so
+the goal-failure ladder must stay out of this.  Invalidating lkp_time is what
+enforces "one sight loss buys one chase": without it a bot that timed out at a
+last-known position would immediately re-commit to the same stale spot.
+=================
+*/
+static void Bot_PursueEnd (bot_t *b, const char *reason)
+{
+	if (!b->pursuing)
+		return;
+	Bot_LogPursueEnd (b, reason, level.time - b->pursue_began);
+	b->lkp_ent  = NULL;
+	b->lkp_time = 0;			// consumed: this sighting cannot fund another chase
+	Bot_GoExplore (b);			// clears pursuing/pursue_until with the goal leg
+	Bot_DecisiveReplan (b, 0.2f);
+}
+
+/*
+=================
+Bot_PursueTry
+
+bot_pursuit: decide whether to spend travel investigating where an enemy was
+last seen, and commit the chase through the ordinary GOAL machinery (path,
+steering, stuck recovery and reroute all then apply unchanged -- the only
+difference from an item route is goal_item == NULL and the pursue_until clock).
+
+Every gate here is a bound on over-investment.  Returns true if a chase started.
+=================
+*/
+static qboolean Bot_PursueTry (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	edict_t	*foe = b->lkp_ent;
+	vec3_t	tgt, lead, d;
+	float	len, cost;
+	int		start, goal, len_path;
+
+	if (!Combat_PursuitOn (b))
+		return false;
+	if (b->pursuing || b->enemy || b->flee)
+		return false;			// already chasing / can see them / running away
+	if (!b->lkp_time || level.time - b->lkp_time > BOT_PURSUE_FRESH)
+		return false;			// no sighting, or too stale to be worth walking to
+	if (!foe || !foe->inuse || !foe->client || foe->deadflag || foe->health <= 0
+		|| foe->client->resp.spectator)
+		return false;			// they died or left: nothing to find
+	if (Combat_Strength (ent) < BOT_PURSUE_MINSTR)
+		return false;			// too weak to want the fight we'd be walking into
+	if (Combat_BlasterTransitOn (b))
+		return false;			// blaster-only: fetching a real weapon outranks a chase
+	if (b->goal_timing)
+		return false;			// camped on a respawn timing: don't break the wait
+
+	// an item we're already nearly on top of beats a chase -- finishing the
+	// cheap thing first is the same logic bot_commit applies to goal selection
+	if (b->goal_item && Goal_ItemAvailable (b->goal_item))
+	{
+		VectorSubtract (b->goal_item->s.origin, ent->s.origin, d);
+		if (VectorLength (d) < BOT_PURSUE_NEARGOAL)
+			return false;
+	}
+
+	// aim at where they were going, not where they were: a short velocity
+	// extrapolation, clamped so a fast mover can't fling the target point into
+	// somewhere they never went
+	VectorScale (b->lkp_vel, BOT_PURSUE_EXTRAP, lead);
+	len = VectorLength (lead);
+	if (len > BOT_PURSUE_EXTRAP_MAX)
+		VectorScale (lead, BOT_PURSUE_EXTRAP_MAX / len, lead);
+	VectorAdd (b->lkp_pos, lead, tgt);
+
+	goal = Nav_NearestGoalNode (tgt);
+	if (goal < 0)
+		goal = Nav_NearestGoalNode (b->lkp_pos);	// extrapolated spot is off-graph
+	if (goal < 0)
+		return false;
+
+	start = Nav_NearestNode (ent->s.origin);
+	if (start < 0 || goal == start)
+		return false;			// already there: nothing to walk to
+
+	len_path = Nav_FindPathMasked (start, goal, Bot_NavMask (b), b->path, BOT_MAX_PATH);
+	if (len_path <= 1)
+		return false;			// no route
+	cost = Nav_LastPathCost ();
+	if (bot_pursuitcost->value > 0 && cost > bot_pursuitcost->value)
+		return false;			// too expensive: the item economy is worth more
+
+	// commit exactly like the ordinary goal-commit block below
+	b->path_len = len_path;
+	b->path_idx = 0;
+	b->goal_node = goal;
+	b->goal_item = NULL;		// a chase owns no item: never blacklists on exit
+	b->mode = BOT_MODE_GOAL;
+	b->replan_time   = level.time + 0.5f;
+	b->progress_time = level.time;
+	b->goal_time     = level.time;
+	b->goal_cost     = cost;
+	b->goal_best     = 99999;
+	b->reroute_fired = false;
+	b->reroute_last_idx = 0;
+	b->reroute_idx_time = level.time;
+	Bot_LiftReset (b);
+	Bot_TrainReset (b);
+	Bot_LadderReset (b);
+	Bot_StrafeReset (b);
+	Bot_PlaybackReset (b);
+
+	b->pursuing = true;
+	b->pursue_began = level.time;
+	// the wall clock scales with the route (a long chase is allowed longer) but
+	// is capped hard -- a chase that outlives the cap has lost them
+	b->pursue_until = level.time + 2.0f + cost / BOT_GOAL_BUDGET_SPEED;
+	if (b->pursue_until > level.time + BOT_PURSUE_MAXSECS)
+		b->pursue_until = level.time + BOT_PURSUE_MAXSECS;
+
+	VectorSubtract (tgt, ent->s.origin, d);
+	Bot_LogPursueStart (b, cost, VectorLength (d), "sight");
+	return true;
 }
 
 /*
@@ -999,6 +1164,26 @@ static void Bot_Navigate (bot_t *b)
 	if (b->flee && !b->enemy && Combat_Strength (ent) > 80)
 		b->flee = false;
 
+	// ---- bot_pursuit ----
+	// An active chase ends the moment it stops paying; otherwise consider
+	// starting one.  Both paths fall through: a torn-down chase leaves the bot
+	// in EXPLORE and lands in the wander/goal-selection section below, and a
+	// freshly committed chase is followed by the GOAL block this same frame.
+	if (b->pursuing)
+	{
+		if (b->enemy)
+			Bot_PursueEnd (b, "reacquired");	// found them: combat owns it now
+		else if (b->flee)
+			Bot_PursueEnd (b, "flee");
+		else if (!b->lkp_ent || !b->lkp_ent->inuse || b->lkp_ent->deadflag
+			|| b->lkp_ent->health <= 0)
+			Bot_PursueEnd (b, "target_died");
+		else if (level.time > b->pursue_until)
+			Bot_PursueEnd (b, "timeout");
+	}
+	else
+		Bot_PursueTry (b);
+
 	if (b->mode == BOT_MODE_GOAL && b->goal_node >= 0 && b->goal_node < nav.num_nodes)
 	{
 		// note: a fleeing bot deliberately does NOT abandon its current goal --
@@ -1073,7 +1258,11 @@ static void Bot_Navigate (bot_t *b)
 			}
 		}
 
-		// give up on a goal we can't reach so we don't loop on it forever
+		// give up on a goal we can't reach so we don't loop on it forever.
+		// A chase is exempt: pursue_until above is its (shorter) clock, and
+		// routing a pursuit through the item-giveup ladder would log phantom
+		// giveups and penalize links over a goal that was never an item.
+		if (!b->pursuing)
 		{
 			float budget = BOT_GOAL_TIMEOUT;
 			if (bot_goalbudget->value != 0 && b->goal_cost > 0)
@@ -1152,6 +1341,7 @@ static void Bot_Navigate (bot_t *b)
 			{
 				b->progress_time = level.time;
 				b->goal_time += FRAMETIME;
+				b->pursue_until += FRAMETIME;	// chase clock freezes too
 				if (b->sj_state != SJ_NONE)
 					Bot_StrafeReset (b);	// the lift owns the frame now
 				return;
@@ -1167,6 +1357,7 @@ static void Bot_Navigate (bot_t *b)
 			{
 				b->progress_time = level.time;
 				b->goal_time += FRAMETIME;
+				b->pursue_until += FRAMETIME;	// chase clock freezes too
 				if (b->sj_state != SJ_NONE)
 					Bot_StrafeReset (b);	// the train owns the frame now
 				return;
@@ -1185,6 +1376,7 @@ static void Bot_Navigate (bot_t *b)
 		{
 			b->progress_time = level.time;
 			b->goal_time += FRAMETIME;
+			b->pursue_until += FRAMETIME;	// chase clock freezes too
 			if (b->sj_state != SJ_NONE)
 				Bot_StrafeReset (b);	// the replay owns the frame now
 			if (b->on_ladder)
@@ -1201,6 +1393,7 @@ static void Bot_Navigate (bot_t *b)
 			{
 				b->progress_time = level.time;
 				b->goal_time += FRAMETIME;
+				b->pursue_until += FRAMETIME;	// chase clock freezes too
 				if (b->sj_state != SJ_NONE)
 					Bot_StrafeReset (b);	// the ladder owns the frame now
 				return;
@@ -1239,6 +1432,13 @@ static void Bot_Navigate (bot_t *b)
 				Bot_SteerToPoint (b, b->goal_item->s.origin);
 				if (waiting)
 					Bot_Fidget (b, b->goal_item->s.origin);	// humanization: no statue waits
+				return;
+			}
+			// chase reached the last-known position without finding them
+			if (b->pursuing)
+			{
+				Bot_PursueEnd (b, "arrived");
+				Bot_Wander (b);
 				return;
 			}
 			// roam node reached
