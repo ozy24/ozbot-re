@@ -203,6 +203,48 @@ assumed:** `bot_wpnneed`/`bot_ammoneed` are worth *more* at high commit
 Benchmark 2×2 at 6: shipped-solo **+16.1%**, cold-solo +6.6%, shipped-dm +8.4%,
 cold-dm +8.7% (6/8 maps up; q2dm6 −7% on all four — the lava map).
 
+## Enemy belief (`bot_enemymodel`, default OFF) — a free humanness lever
+
+⚠️ **The flee gate already reads `Combat_Strength(ENEMY)` — omnisciently.** The bot
+sees its opponent's true health and armor, which no player can. `bot_enemymodel`
+replaces that with a sight-legal belief: spawn-fresh baseline, minus damage *this
+bot itself landed* (hooked in `T_Damage`'s attacker-known path), reset on our own
+death, decaying after 8s unseen.
+
+**Estimator validated before the behaviour A/B** (`bot_belieflog` logs estimate
+AND ground truth): |error| p50 **7**, 91.3% agreement with the ground-truth flee
+decision, biased **+10.5** toward thinking enemies are healthier (it never learns
+about damage others did). A/B at **40 paired arms**: kill-share **+0.14pt, CI
+[−1.25, +1.53]**, deaths bias-corrected −2.4pt. Rejected as a strength win —
+**but the null is the point: removing the bot's omniscience costs nothing
+measurable**, so this is a free humanness option whenever that work resumes.
+
+## Where item goals actually fail (measured 2026-07-22)
+
+Of 1063 item goals on q2dm1 dm: 630 pickups (59%), **173 died mid-route**, **113
+gave up mid-route** (median 345u from the item, 43% of the way along the path),
+84 lost to contention, and only **~9 (0.8%) failed on the last leg** (giveup
+within 80u). **Final-approach precision is no longer the bottleneck** — that was
+the historical framing (`ozbot-item-completion-bottleneck`) and this build has
+moved past it. Route abandonment and death dominate. Any future work aimed at
+"last-leg precision" should re-measure this split first.
+
+## Danger heatmap (`bot_danger`, default OFF — rejected)
+
+Per-nav-node **combat**-death heat (~60s decay) as a capped route-cost toll, the
+same shape as the SLIME 4× toll. Weak bots pay it, strong bots get a capped 25%
+discount to patrol contested ground. `bot_dangertest` is the id-parity arm.
+**Rejected**: symmetric read shows no death reduction (deaths +0.3/+1.2/+0.7% at
+0.5/1/2, pickups flat), and the properly-powered parity read at **24 arms** gives
+kill-share **+0.09pt, CI [−1.54, +1.72]** with deaths slightly *up*. Likely
+mechanism: heat is a **lagging** indicator, and detouring around it costs position.
+
+Two design points worth reusing even though the lever lost: heat is kept **out of
+`nav_node_t` and never saved** (so the .nav format, FROZEN semantics and the md5
+gate are untouched), and recording **only combat deaths** means solo accumulates
+no heat and stays byte-identical with the lever ON — a free correctness check.
+⚠️ An 8-arm read of this said −0.90pt and was pure noise (per-arm sd ~4pt).
+
 ## Item timing (`bot_control`, default OFF) — and a dead-code bug
 
 ⚠️ **`Item_RespawnEta` was broken for the entire life of the project.** It gated on
@@ -266,6 +308,17 @@ while making real path progress — hence the revisit-based `route_backtrack`), 
 `death_near_health` is meaningless without MOD classification because most deaths
 on q2dm3/4/6/7 are lava/slime. Blind spot to remember: tick telemetry carries no
 ammo counts, so ammo need is unscorable (those passes are counted separately).
+
+**`tools/mine_selfplay.py` — bot mines its OWN traversals into playbooks.
+Built, works, REJECTED.** Structural reason worth remembering: self-play can only
+capture traversals the bot **already completes**, so it unlocks nothing and only
+adds align/abort overhead — once a valid standstill anchor is required, the
+genuinely hard items (Railgun, Slugs, SSG) yield **zero** takes. A/B: solo −6.8%,
+dm −12.6%, abort rate 31–71%. Two reusable gotchas: mine **per-worker** logs
+(the merge does not offset `slot`), and a yaw *threshold* metric reads 0.00 for a
+bot because `bot_turnrate` slews the view — use cumulative deg/s.
+**Playbook takes must anchor from a STANDSTILL** (speed 0-80): anchoring mid-run
+cost −52.9% solo pickups.
 
 **`tools/optimize_cvars.py` — joint CEM search over the tunable cvar vector.**
 Every constant here was tuned coordinate-wise; this searches them jointly, using
