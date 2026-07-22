@@ -164,7 +164,9 @@ value by pro kill-rank, `Weapon_KillRankWeight` in `bot_goal.c`) are
 folder's own `demos/` copy, then update the constants here. There
 is no runtime dependency on the JSON. `bot_healthneed` exists but is
 **default-OFF** (health-seeking is asymmetric-negative, same as `bot_survive`).
-See the `ozbot-re-resource-need-win` memory for the A/B results.
+See the `ozbot-re-resource-need-win` memory for the A/B results. The same
+mine → bake → no-runtime-JSON pattern produced the sight-loss pursuit constants
+(`tools/dm2_combat.py pursue`; see "Perception" below).
 
 `bot_commit` (default **0.8**, ON) is the goal scorer's travel-cost commitment
 discount: a re-rank pass in `Goal_Select` (`bot_goal.c`) after the `bot_pathcost`
@@ -177,6 +179,52 @@ near-cheapest. Attacks "reachable != completable" — it steers **selection only
 to arbitrate), **+7-12% pickups on cold-solo / shipped-dm / cold-dm**. `bot_commit
 0` = pre-lever pick, byte-identical. Keeper telemetry: the `goal_commit` event.
 See the `ozbot-re-commit-win` memory.
+
+## Perception: sight-loss pursuit (demo-mined)
+
+`bot_pursuit` (default **1**, ON) gives the bot a memory of where an enemy was.
+While a target is visible the 10Hz combat keyframe stamps its origin/velocity/time
+(the "last-known position", LKP fields on `bot_t`); on sight loss the bot may
+commit a **bounded** chase to a short velocity-extrapolated point near that spot,
+routed through the ordinary GOAL machinery (`Bot_PursueTry` in `bot_main.c`).
+Re-acquisition is then free via `Combat_FindEnemy`; arrival/timeout hands the
+frame back to the item economy.
+
+The bounds are the feature — an unbounded chase is just "reachable !=
+completable" in a new costume. A chase requires: route affordable
+(`bot_pursuitcost`, A* g-cost), `Combat_Strength >= 70`, not fleeing, not
+blaster-only, no closer available item, and a hard wall clock. **One sight loss
+buys exactly one chase.** A chase owns no item, so it never blacklists and never
+enters the item-giveup ladder; its clock freezes alongside the goal budget
+whenever a traversal controller (lift/train/playbook/ladder) owns the frame.
+
+Constants are mined by `tools/dm2_combat.py pursue` →
+`demos/derived/combat_pursuit/pursuit.json` and **baked in** (no runtime JSON
+dependency, same as the need thresholds): cost cap **670**, wall clock **3.5s**,
+extrapolation **0.3s**. The mining exploits the fact that a demo carries only
+entities in the recorder's PVS, so an opponent leaving the packet-entity set *is*
+the sight-loss event (5788 demos → 359182 sustained episodes). A/B: **+2.7/+4.8pt
+kill share q2dm1, +0.1/+2.6pt q2dm8** (2 seed-bases × 16), death share down in
+all four; pickups flat, giveups −22%. Telemetry: `pursue_start` / `pursue_end`.
+See the `ozbot-re-pursuit-win` memory.
+
+**Three levers built alongside it and NOT enabled** (all byte-identical off,
+kept as "don't re-derive this" markers):
+- `bot_hearing` — noise taxonomy (fire/pickup/pain/footsteps, radius + `inPHS`
+  gated) feeding the same LKP slot. Rejected: mean **−2.33pt** over 4 seed-bases
+  × 2 maps, deaths up. A noise carries no heading, so the bot walks into a fight
+  it cannot see. Sight-driven pursuit wins *because* it knows a velocity.
+- `bot_combatmove` — engagement movement styles (bitmask). The stand-ground style
+  was **pre-gated out by the corpus** (aimed movement speed is flat across height
+  advantage: p50 300/301/300); the committed circle-strafe style A/B'd at
+  **−1.36pt**. The corpus explains it: pro strafe-reversal cadence is p50 0.6s,
+  which shipped `bot_hop` already produces (0.7s legs) — commitment only costs
+  unpredictability.
+- `bot_lookahead` — corner-cut steering blend (value = max weight, try 0.4).
+  **Nav-dependent**, so not default-ON: shipped-solo pickups **+4.5%** (5/8 maps)
+  but cold-solo **−6.6%** (1/8). Dense curated navs make the off-graph cut safe;
+  sparse self-learned graphs put it outside the channel the learner validated.
+  Worth enabling on a server running curated shipped navs.
 
 ## Playbooks (the new capability)
 
