@@ -206,11 +206,24 @@ extrapolation **0.3s**. The mining exploits the fact that a demo carries only
 entities in the recorder's PVS, so an opponent leaving the packet-entity set *is*
 the sight-loss event (5788 demos → 359182 sustained episodes).
 
-**A/B status — NOT a win.** An initial 4-arm read said +2.55pt kill share; at 16
-valid paired arms it is **+0.55pt, 95% CI [−2.10, +3.20]** (indistinguishable
-from zero) and the death-share signal disappears (−0.27pt over 32 arms). The
-first read was under-powered *and* drawn from the two most favourable maps.
-Telemetry: `pursue_start` / `pursue_end`. See the `ozbot-re-pursuit-win` memory.
+**A/B status — a real effect, but not the one the parity harness measures.**
+Kill share is flat: **+0.55pt, 95% CI [−2.10, +3.20]** at 16 valid paired arms
+(an initial 4-arm read said +2.55pt and was under-powered *and* drawn from the
+two most favourable maps). The benchmark ON-vs-OFF pair shows what it actually
+does, consistently across both nav baselines:
+
+| | pickups | frags | deaths | K/D |
+|---|---|---|---|---|
+| shipped-dm | **−3.5%** | +9.8% | +7.9% | 0.521 vs 0.513 |
+| cold-dm | **−3.6%** | +5.4% | +4.2% | 0.543 vs 0.537 |
+
+It **converts item-collection time into combat, symmetrically** — everyone kills
+more and dies more, so K/D and kill *share* barely move. That is precisely the
+quantity the parity axis measures, so the parity harness is structurally blind to
+this lever. Default OFF because it costs the project's north-star metric
+(pickups, 7/8 maps down) without making a bot better at fighting; turn it on if
+you want higher combat intensity. Telemetry: `pursue_start` / `pursue_end`. See
+the `ozbot-re-pursuit` memory.
 
 ⚠️ **Two harness lessons, both cost a wrong conclusion here:**
 1. **Power the test.** At the observed per-arm sd (~5.4pt) a +2pt effect needs
