@@ -2068,7 +2068,18 @@ static qboolean Bot_BallisticHazard (edict_t *ent, const vec3_t vel0, vec3_t out
 {
 	vec3_t	vel, pos, next;
 	float	grav;
-	int		i;
+	int		i, fatal;
+
+	// Lava only by default.  Bot_HazardInDir makes the same distinction and says
+	// why: "slime is a survivable, A*-priced wade -- vetoing it broke q2dm7's
+	// legitimate channel crossings".  The first cut of this guard ignored that and
+	// vetoed slime arcs too; the A/B showed exactly the predicted shape -- on
+	// q2dm7 (the slime map) it cost pickups for almost no death reduction
+	// (-16% hazard deaths, -3% pickups), while the lava maps carried the win.
+	// bit 4 restores the strict behavior for anyone who wants to measure it.
+	fatal = CONTENTS_LAVA;
+	if ((int)bot_airhazard->value & 4)
+		fatal |= CONTENTS_SLIME;
 
 	VectorCopy (vel0, vel);
 	VectorCopy (ent->s.origin, pos);
@@ -2087,7 +2098,7 @@ static qboolean Bot_BallisticHazard (edict_t *ent, const vec3_t vel0, vec3_t out
 		// the liquid test: MASK_PLAYERSOLID traces ignore lava/slime entirely,
 		// so sample the contents at the arc point itself
 		c = gi.pointcontents (next);
-		if (c & (CONTENTS_LAVA | CONTENTS_SLIME))
+		if (c & fatal)
 		{
 			if (out_hit)
 				VectorCopy (next, out_hit);
