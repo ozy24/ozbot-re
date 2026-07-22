@@ -174,10 +174,21 @@ void Bot_Init (void)
 	bot_reachlog     = gi.cvar ("bot_reachlog", "1", 0);	// map-load item reachability sweep (oracle diagnostics)
 	bot_goalnode     = gi.cvar ("bot_goalnode", "0", 0);	// resolve item goal nodes to CONNECTED nodes (skip
 															// in-degree-0 orphans that shadow real coverage)
-	bot_commit       = gi.cvar ("bot_commit", "0.8", 0);	// travel-cost commitment discount (default-ON): penalize
+	bot_commit       = gi.cvar ("bot_commit", "6", 0);	// travel-cost commitment discount (default-ON): penalize
 															// the detour past the cheapest reachable item so far/hard
 															// items only win when idle or themselves close. Net +pickups
-															// (strong in deathmatch contention; 0 = pre-lever, bit-exact)
+															// (strong in deathmatch contention; 0 = pre-lever, bit-exact).
+															// RETUNED 0.8 -> 6 by the joint search (tools/optimize_cvars.py):
+															// 0.8 was a coordinate-wise pick and badly under-set.  Measured
+															// over 8 maps x {solo,dm} x 2 seed banks, avg vs 0.8:
+															//   3: +7.8% pickups / +4.7% value   6: +11.4% / +5.6%
+															//   8: +12.7% / +6.3%              64: +16.4% / +7.4%
+															// No interior optimum -- it rises monotonically toward the
+															// degenerate limit (strictly-cheapest-first).  But value rises
+															// only ~7% while COUNT rises 16%, i.e. average pickup quality
+															// falls the whole way (28.9 -> 26.6 per item).  6 takes the
+															// bulk of the real gain and stays clear of the limit, where
+															// Item_BaseValue and the need model would be decorative.
 	bot_navlearn     = gi.cvar ("bot_navlearn", "1", 0);	// runtime nav learning + autosave master switch;
 															// FROZEN-flagged graphs ignore it and never grow/save
 	bot_navvalidate  = gi.cvar ("bot_navvalidate", "0", 0);	// P1: at load, drop learned fluke WALK links (steep,

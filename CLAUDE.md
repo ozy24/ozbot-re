@@ -168,7 +168,8 @@ See the `ozbot-re-resource-need-win` memory for the A/B results. The same
 mine → bake → no-runtime-JSON pattern produced the sight-loss pursuit constants
 (`tools/dm2_combat.py pursue`; see "Perception" below).
 
-`bot_commit` (default **0.8**, ON) is the goal scorer's travel-cost commitment
+`bot_commit` (default **6**, ON — retuned from 0.8, see below) is the goal
+scorer's travel-cost commitment
 discount: a re-rank pass in `Goal_Select` (`bot_goal.c`) after the `bot_pathcost`
 A*-cost pick, charging each reachable candidate the **marginal detour past the
 cheapest reachable option** (`cost += bot_commit * max(0, pcost - mincost)`), so a
@@ -179,6 +180,77 @@ near-cheapest. Attacks "reachable != completable" — it steers **selection only
 to arbitrate), **+7-12% pickups on cold-solo / shipped-dm / cold-dm**. `bot_commit
 0` = pre-lever pick, byte-identical. Keeper telemetry: the `goal_commit` event.
 See the `ozbot-re-commit-win` memory.
+
+**Retuned 0.8 → 6** by the joint search (`tools/optimize_cvars.py`); 0.8 was a
+coordinate-wise pick made with everything else held fixed and was badly
+under-set. Averaged over 8 maps × {solo,dm} × 2 seed banks, vs 0.8:
+
+| bot_commit | pickups | value collected | value per pickup |
+|---|---|---|---|
+| 3 | +7.8% | +4.7% | 28.1 |
+| **6** | **+11.4%** | **+5.6%** | **27.4** |
+| 8 | +12.7% | +6.3% | 27.2 |
+| 64 | +16.4% | +7.4% | 26.6 |
+
+There is **no interior optimum** — the metric rises monotonically toward the
+degenerate limit (`commit → ∞` = strictly-cheapest-first, value and need
+ignored). The two columns disagree on purpose: raw pickups rise 16% while
+*value* rises only ~7%, so average pickup quality falls the whole way. 6 takes
+the bulk of the real gain while staying clear of the limit where
+`Item_BaseValue` and the need model would become decorative. **Checked, not
+assumed:** `bot_wpnneed`/`bot_ammoneed` are worth *more* at high commit
+(+4450 value at 8 vs +2536 at 0.8), so the retune does not drown the need model.
+Benchmark 2×2 at 6: shipped-solo **+16.1%**, cold-solo +6.6%, shipped-dm +8.4%,
+cold-dm +8.7% (6/8 maps up; q2dm6 −7% on all four — the lava map).
+
+## Diagnosis + search tooling
+
+Two tools that answer questions the headline metrics can't.
+
+**`tools/mine_regret.py` — counterfactual regret taxonomy.** Runs over ordinary
+run telemetry (no DLL change, works on historical logs) and ranks the moments
+where a *counterfactual was obviously better*, per map, with replayable
+timestamps. Classes: `ran_past_fight`, `passed_item`, `route_backtrack`,
+`death_near_health`, `goal_churn`. Pickups/ITEM%/frags cannot see "dumb"; this
+is how hazard/decisive/outnumbered-style work gets its next target.
+
+    py tools/mine_regret.py engine/ozbotre/logs/parallel_q2dm1_*.jsonl --top 6
+    py tools/mine_regret.py <logs...> --json baselines/regret_baseline.json
+
+Run it with `--cvar bot_hazlog 1` (log-only, off-state byte-identical) or the
+death classes stay unclassified — and the **death-cause readout is the highest-
+value thing it produces**. Two definition lessons are baked into the tool and
+worth not re-learning: a heading-reversal test for ping-pong is ~all false
+positives (q2dm1 corridors are full of legitimate hairpins that reverse heading
+while making real path progress — hence the revisit-based `route_backtrack`), and
+`death_near_health` is meaningless without MOD classification because most deaths
+on q2dm3/4/6/7 are lava/slime. Blind spot to remember: tick telemetry carries no
+ammo counts, so ammo need is unscorable (those passes are counted separately).
+
+**`tools/optimize_cvars.py` — joint CEM search over the tunable cvar vector.**
+Every constant here was tuned coordinate-wise; this searches them jointly, using
+the fastsim rig as the black-box fitness function it already is.
+
+    py tools/optimize_cvars.py --iters 10 --pop 20      # ~70 min, 200 evals
+    py tools/optimize_cvars.py --eval-only "bot_commit=6" --train-maps q2dm1,q2dm8
+    py tools/optimize_cvars.py --report-only baselines/optimize_trace.jsonl
+
+Rules the tool encodes, all learned the hard way:
+- **Overfit guard is the point**: holdout is disjoint maps AND disjoint seeds
+  (train q2dm1/q2dm8 @700, holdout q2dm2/q2dm5 @900). A training win that does
+  not transfer is the expected outcome, not a surprise.
+- **Aim/accuracy cvars are excluded from the space.** In a symmetric self-play
+  sim, degrading everyone's aim raises pickups by cutting the death rate — the
+  optimizer will happily exploit that while making no bot better at anything.
+- `detail` carries `pickups_by_item`, because raw pickups score a +2 Armor Shard
+  like a Rocket Launcher. **Always check composition before believing a win.**
+- **A boundary optimum is not an optimum, it is an under-sized range.** Pass 1
+  pinned `bot_commit` at its ceiling twice before the range was widened enough to
+  show the curve had no interior peak at all.
+- **Do not read CEM marginals as attribution.** The search "converged" on
+  `bot_navvalidate`/`bot_slimeescape` (Bernoulli p→0.9) that a single-knob
+  ablation showed were worth ~0. Ablate the winner knob-by-knob; in the pass that
+  produced the retune, *all* of the +6.8% holdout win was `bot_commit` alone.
 
 ## Perception: sight-loss pursuit (demo-mined)
 

@@ -1,0 +1,100 @@
+{
+ "best": {
+  "bot_commit": "2",
+  "bot_budgetcap": "10",
+  "bot_stucktime": "1.231",
+  "bot_lookahead": "0.209",
+  "bot_healthneed": "0",
+  "bot_navvalidate": "1",
+  "bot_failpersist": "0",
+  "bot_goalnode": "0",
+  "bot_wallslide": "0",
+  "bot_slimeescape": "1"
+ },
+ "best_score": 1932,
+ "baseline_score": 1578,
+ "detail": {
+  "q2dm1-solo": {
+   "pickups": 219,
+   "item_completion": 83.0,
+   "frags": 0,
+   "deaths": 0
+  },
+  "q2dm1-dm": {
+   "pickups": 743,
+   "item_completion": 60.8,
+   "frags": 148,
+   "deaths": 152
+  },
+  "q2dm8-solo": {
+   "pickups": 191,
+   "item_completion": 74.9,
+   "frags": 0,
+   "deaths": 23
+  },
+  "q2dm8-dm": {
+   "pickups": 779,
+   "item_completion": 56.1,
+   "frags": 224,
+   "deaths": 271
+  }
+ },
+ "holdout": {
+  "baseline": 1251,
+  "candidate": 1336,
+  "delta": 85,
+  "pct": 6.79,
+  "baseline_detail": {
+   "q2dm2-solo": {
+    "pickups": 67,
+    "item_completion": 60.9,
+    "frags": 0,
+    "deaths": 6
+   },
+   "q2dm2-dm": {
+    "pickups": 500,
+    "item_completion": 55.1,
+    "frags": 165,
+    "deaths": 192
+   },
+   "q2dm5-solo": {
+    "pickups": 81,
+    "item_completion": 70.4,
+    "frags": 0,
+    "deaths": 0
+   },
+   "q2dm5-dm": {
+    "pickups": 603,
+    "item_completion": 68.6,
+    "frags": 101,
+    "deaths": 117
+   }
+  },
+  "candidate_detail": {
+   "q2dm2-solo": {
+    "pickups": 74,
+    "item_completion": 60.2,
+    "frags": 0,
+    "deaths": 3
+   },
+   "q2dm2-dm": {
+    "pickups": 573,
+    "item_completion": 56.1,
+    "frags": 144,
+    "deaths": 177
+   },
+   "q2dm5-solo": {
+    "pickups": 91,
+    "item_completion": 71.7,
+    "frags": 0,
+    "deaths": 0
+   },
+   "q2dm5-dm": {
+    "pickups": 598,
+    "item_completion": 66.1,
+    "frags": 98,
+    "deaths": 122
+   }
+  }
+ }
+}
