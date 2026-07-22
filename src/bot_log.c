@@ -327,6 +327,24 @@ void Bot_LogHear (bot_t *b, int kind, float dist)
 
 /*
 =================
+Bot_LogCMove
+
+bot_cmlog: one record per engagement-movement style transition, so an A/B can
+confirm the style is actually engaging (and at what ranges) rather than being
+gated out by its own eligibility test.
+=================
+*/
+void Bot_LogCMove (bot_t *b, int style, float range)
+{
+	if (!log_fp || !b || !bot_cmlog || bot_cmlog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"cmove\",\"t\":%.2f,\"bot\":%d,\"style\":%d,\"range\":%.0f}\n",
+		level.time, b->id, style, range);
+}
+
+/*
+=================
 Bot_LogWpnSel
 
 bot_wpnsellog: one record each time range-aware selection (bot_wpnselect) chooses

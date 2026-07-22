@@ -296,6 +296,13 @@ void Bot_Init (void)
 	bot_pursuittest  = gi.cvar ("bot_pursuittest", "0", 0);	// id-parity A/B: even ids pursue, odd control
 	// noise -> pursuit cue.  Default OFF pending its own parity A/B; inert
 	// without bot_pursuit by construction (it only writes fields that layer reads).
+	// engagement movement styles (bitmask).  Default OFF pending the per-style
+	// parity A/B.  Only CM_CIRCLE (1) is built -- the stand-ground style was
+	// pre-gated out by the pro corpus (aimed movement speed is flat across
+	// height advantage, so pros do not plant when they hold high ground).
+	bot_combatmove     = gi.cvar ("bot_combatmove", "0", 0);		// 1 = committed circle-strafe
+	bot_combatmovetest = gi.cvar ("bot_combatmovetest", "0", 0);	// id-parity A/B: even ids get it
+	bot_cmlog          = gi.cvar ("bot_cmlog", "0", 0);				// style-transition diagnostic
 	bot_hearing      = gi.cvar ("bot_hearing", "0", 0);		// hear fire/pickups/pain/footsteps
 	bot_hearlog      = gi.cvar ("bot_hearlog", "0", 0);		// per-noise diagnostic
 	bot_pursuitcost  = gi.cvar ("bot_pursuitcost", "670", 0);	// max A* g-cost of the chase route
@@ -471,6 +478,8 @@ static void Bot_ResetNavState (bot_t *b)
 	b->pursue_until = 0;
 	b->pursue_began = 0;
 	b->lkp_noise    = false;
+	b->cm_style     = CM_NONE;	// bot_combatmove: no stale style across a respawn
+	b->cm_until     = 0;
 	b->lkp_ent      = NULL;
 	b->lkp_time     = 0;
 	VectorClear (b->lkp_pos);

@@ -27,6 +27,17 @@ cvar_t	*bot_pursuitcost;	// max A* g-cost of the route to the last-known spot
 cvar_t	*bot_hearing;		// qualifying noise (fire/pickup/pain/steps) seeds the
 							// pursuit last-known position, PHS- and radius-gated
 cvar_t	*bot_hearlog;		// per-noise diagnostic
+cvar_t	*bot_combatmove;		// engagement movement styles (bitmask; see bot.h)
+cvar_t	*bot_combatmovetest;	// id-parity A/B: even bot ids get styles, odd control
+cvar_t	*bot_cmlog;				// style-transition diagnostic
+
+// bot_combatmove tuning.  The hold comes from the pro corpus' strafe-reversal
+// cadence (tools/dm2_combat.py pursue: p50 0.6s between lateral sign flips).
+#define BOT_CM_HOLD		0.6f	// minimum time a chosen style (and orbit
+								// direction) is committed for
+#define BOT_CM_LO		200.0f	// orbiting only makes sense at fighting range:
+#define BOT_CM_HI		650.0f	// too close is a brawl, too far is a transit
+#define BOT_CM_LEVEL	64.0f	// and only on ground roughly level with them
 cvar_t	*bot_aimtest;	// head-to-head aim-formula A/B: even bot ids apply the
 cvar_t	*bot_aimreact;	//   bot_aim* multipliers below, odd use the stock
 cvar_t	*bot_aimturn;	//   formula -- for sweeping which aim constant
@@ -551,6 +562,39 @@ static qboolean Combat_BlasterTransit (bot_t *b)
 
 /*
 =================
+Combat_MoveStyleOn
+
+Whether this bot runs engagement movement styles this frame (bot_combatmove).
+Same parity/humanization gating as the other combat-feel levers.
+=================
+*/
+static qboolean Combat_MoveStyleOn (bot_t *b)
+{
+	qboolean on = (bot_combatmovetest && bot_combatmovetest->value != 0)
+		? ((b->id & 1) == 0)
+		: (bot_combatmove && bot_combatmove->value != 0);
+	return on && Bot_Humanized (b);
+}
+
+/*
+=================
+Combat_StyleMask
+
+Which styles are enabled.  Under the parity harness the cvar itself may be 0,
+so the test arm falls back to "every built style" -- otherwise bot_combatmovetest
+would select a treatment arm with nothing in it.
+=================
+*/
+static int Combat_StyleMask (void)
+{
+	int m = bot_combatmove ? (int)bot_combatmove->value : 0;
+	if (!m && bot_combatmovetest && bot_combatmovetest->value != 0)
+		m = CM_CIRCLE;
+	return m;
+}
+
+/*
+=================
 Combat_BlasterTransitOn
 
 Public read-only view of the same predicate, so the pursuit layer in bot_main.c
@@ -991,6 +1035,39 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->eng_intent = ENG_HOLD;
 	}
 
+	// bot_combatmove: pick an engagement movement style for this keyframe.
+	// Chosen after the eng_* commit so it can defer to the weapon's own
+	// preferred band, and held for BOT_CM_HOLD so the style (and with it the
+	// orbit direction) cannot flicker frame to frame.
+	if (Combat_MoveStyleOn (b))
+	{
+		if (level.time >= b->cm_until)
+		{
+			int	want = CM_NONE;
+
+			// circle: committed orbit at fighting range on level ground.  Not
+			// while fleeing (that wants a straight line out) and not while
+			// blaster-only (that wants to travel to a real weapon).
+			if ((Combat_StyleMask () & CM_CIRCLE)
+				&& !b->flee
+				&& range >= BOT_CM_LO && range <= BOT_CM_HI
+				&& (b->eng_hi <= 0.0f || (range >= b->eng_lo && range <= b->eng_hi))
+				&& self->groundentity
+				&& fabs (self->s.origin[2] - enemy->s.origin[2]) < BOT_CM_LEVEL)
+				want = CM_CIRCLE;
+
+			if (want != b->cm_style && bot_cmlog && bot_cmlog->value != 0)
+				Bot_LogCMove (b, want, range);
+			b->cm_style = want;
+			b->cm_until = level.time + BOT_CM_HOLD;
+		}
+	}
+	else
+	{
+		b->cm_style = CM_NONE;
+		b->cm_until = 0;
+	}
+
 	// bot_wpnlog: record the engagement range/weapon/intent at 10Hz (gated, so
 	// off-state telemetry is unchanged).  Logged regardless of bot_wpntactic so
 	// the baseline (tactic off) range distribution is measurable for the A/B.
@@ -1279,7 +1356,16 @@ aim_held:
 
 		if (level.time >= b->dodge_until)
 		{
-			b->dodge_dir = (random () < 0.5f) ? -1 : 1;
+			int	newdir = (random () < 0.5f) ? -1 : 1;
+
+			// bot_combatmove CM_CIRCLE: hold the orbit direction instead of
+			// re-rolling it, so a circle is a committed arc rather than a
+			// coin flip every leg.  The random() above is still consumed --
+			// only its USE is suppressed -- so the shared RNG stream stays
+			// aligned with the off-state and the parity control arm is not
+			// perturbed by the treatment arm's decisions.
+			if (b->cm_style != CM_CIRCLE)
+				b->dodge_dir = newdir;
 			if (rhythm)
 			{
 				// strafe legs from the human reversal-interval distribution

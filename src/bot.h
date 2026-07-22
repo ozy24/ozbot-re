@@ -228,6 +228,10 @@ typedef struct
 	qboolean	lkp_noise;		// this sighting came from bot_hearing, not sight
 								// (telemetry only -- the chase gates are identical)
 
+	// engagement movement style (bot_combatmove)
+	int			cm_style;		// CM_* currently applied (CM_NONE = stock blend)
+	float		cm_until;		// style hysteresis: hold it until at least here
+
 	// weapon-aware combat tactics (bot_wpntactic): 10Hz-committed preferred
 	// engagement band + style bias for the held weapon (demo-calibrated),
 	// consumed by the per-tick movement blend so range/style vary by weapon
@@ -498,6 +502,17 @@ void Bot_NoteNoiseEx (edict_t *who, int kind, vec3_t origin);
 extern cvar_t	*bot_hearing;	// qualifying noise seeds the pursuit LKP
 extern cvar_t	*bot_hearlog;	// per-noise diagnostic
 
+// engagement movement styles (bot_combatmove), a BITMASK so each style can be
+// A/B'd in isolation.  Only CM_CIRCLE is built: the "stand ground on a height
+// advantage" style was pre-gated OUT by the pro corpus, which shows movement
+// speed while aimed at an opponent is flat across height buckets (p50 300 high
+// / 301 level / 300 low) -- pros do not plant when they hold high ground.
+#define CM_NONE		0
+#define CM_CIRCLE	1	// commit to an orbit direction instead of re-rolling it
+extern cvar_t	*bot_combatmove;		// bitmask of enabled styles
+extern cvar_t	*bot_combatmovetest;	// id-parity A/B (even ids get it)
+extern cvar_t	*bot_cmlog;				// style-transition diagnostic
+
 //
 // bot_goal.c -- item-driven goal selection
 //
@@ -543,6 +558,7 @@ void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// b
 void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src);
 void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur);
 void Bot_LogHear (bot_t *b, int kind, float dist);	// bot_hearlog
+void Bot_LogCMove (bot_t *b, int style, float range);	// bot_cmlog
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog
 // bot_aimlog: one record per shot fired -- weapon, range, target lateral speed,
 // and yaw/pitch error of the committed aim vs the enemy's true bearing.
