@@ -340,6 +340,7 @@ void Bot_RolloutRecover (bot_t *b);
 // humanization: micro-steps while holding a spot (waiting on a respawn)
 void Bot_Fidget (bot_t *b, vec3_t anchor);
 extern cvar_t	*bot_fidget;
+extern cvar_t	*bot_lookahead;	// corner-cut steering blend weight (0 = off)
 
 // exposed by p_client.c (already file-scope globals there, just not prototyped
 // anywhere) -- reused as the trace/passent plumbing for Bot_RolloutRecover's
@@ -559,6 +560,7 @@ void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src);
 void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur);
 void Bot_LogHear (bot_t *b, int kind, float dist);	// bot_hearlog
 void Bot_LogCMove (bot_t *b, int style, float range);	// bot_cmlog
+void Bot_LogLookahead (bot_t *b, float w, float dist);	// bot_lookahead (throttled)
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog
 // bot_aimlog: one record per shot fired -- weapon, range, target lateral speed,
 // and yaw/pitch error of the committed aim vs the enemy's true bearing.

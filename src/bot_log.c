@@ -345,6 +345,31 @@ void Bot_LogCMove (bot_t *b, int style, float range)
 
 /*
 =================
+Bot_LogLookahead
+
+bot_lookahead: corner cuts fire constantly, so this is throttled to ~1/s per
+bot -- enough to confirm the blend is engaging and at what weights, without the
+record volume swamping the telemetry it shares a file with.
+=================
+*/
+void Bot_LogLookahead (bot_t *b, float w, float dist)
+{
+	static float	next_log[MAX_CLIENTS];
+	int				i;
+
+	if (!log_fp || !b || !bot_lookahead || bot_lookahead->value == 0)
+		return;
+	i = b->id % MAX_CLIENTS;
+	if (level.time < next_log[i])
+		return;
+	next_log[i] = level.time + 1.0f;
+	fprintf (log_fp,
+		"{\"type\":\"la_cut\",\"t\":%.2f,\"bot\":%d,\"w\":%.2f,\"dist\":%.0f}\n",
+		level.time, b->id, w, dist);
+}
+
+/*
+=================
 Bot_LogWpnSel
 
 bot_wpnsellog: one record each time range-aware selection (bot_wpnselect) chooses

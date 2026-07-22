@@ -17,6 +17,7 @@ looking/shooting somewhere else.
 cvar_t	*bot_fidget;	// humanization: locomotion texture -- idle fidget at
 						// deliberate holds, fast turn-away instead of wall
 						// dithering, travel hops (plans/humanization.md Ph 5)
+cvar_t	*bot_lookahead;	// corner-cut steering blend (see Bot_FollowPath)
 
 /*
 =================
@@ -1842,6 +1843,69 @@ qboolean Bot_FollowPath (bot_t *b)
 
 	node = b->path[b->path_idx];
 	VectorCopy (nav.nodes[node].origin, target);
+
+	// bot_lookahead: on a shallow plain-ground corner, steer at a point blended
+	// toward the node AFTER next so the bot rounds the bend instead of running
+	// at the corner node and turning on the spot.
+	//
+	// BLEND, NEVER SKIP.  path_idx is deliberately left alone: it is what
+	// Nav_PenalizeLink attributes a failed hop to, what the overshoot advance
+	// above reads, and what every traversal controller uses to see the upcoming
+	// link.  Skipping a node would silently corrupt all three -- a compiled-nav
+	// engine can cut corners freely, but a graph that LEARNS from which hop
+	// failed cannot.  A missed 48u arrival radius is caught by the overshoot
+	// advance, and failing that by normal stuck/reroutemid with correct
+	// attribution.
+	if (bot_lookahead && bot_lookahead->value > 0
+		&& b->path_idx + 1 < b->path_len && ent->groundentity)
+	{
+		int		nxt = b->path[b->path_idx + 1];
+		vec3_t	tonext, tohere, mid;
+		float	w = bot_lookahead->value;
+		float	hd, cosang;
+
+		VectorSubtract (target, ent->s.origin, tohere);
+		tohere[2] = 0;
+		hd = VectorLength (tohere);
+
+		VectorSubtract (nav.nodes[nxt].origin, target, tonext);
+		tonext[2] = 0;
+
+		// special traversals are sacred: a jump/plat/teleport/push/ladder/
+		// playbook anchor must be hit squarely, so only cut WALK->WALK.  Water
+		// and hazard nodes are excluded outright -- the cut point is not on the
+		// graph and nothing has vetted it for lava or a drop into slime.
+		if (hd > 1.0f && VectorLength (tonext) > 1.0f && hd < 160.0f
+			&& (b->path_idx == 0
+				|| Bot_LinkType (b->path[b->path_idx - 1], node) == NAV_LINK_WALK)
+			&& Bot_LinkType (node, nxt) == NAV_LINK_WALK
+			&& !(nav.nodes[node].flags & (NAV_FLAG_WATER | NAV_FLAG_HAZARD | NAV_FLAG_SLIME))
+			&& !(nav.nodes[nxt].flags & (NAV_FLAG_WATER | NAV_FLAG_HAZARD | NAV_FLAG_SLIME)))
+		{
+			vec3_t	a, c;
+			VectorCopy (tohere, a);
+			VectorCopy (tonext, c);
+			VectorNormalize (a);
+			VectorNormalize (c);
+			cosang = DotProduct (a, c);
+			if (cosang > 0.707f)		// bend shallower than ~45 deg
+			{
+				trace_t	tr;
+				// scale the cut with how straight the corner is: a nearly
+				// straight run gets the full weight, a 45 deg bend almost none
+				w *= (cosang - 0.707f) / 0.293f;
+				VectorMA (target, w, tonext, mid);
+				// the cut leaves the graph, so it must be verified against the
+				// world with the real player hull -- not a point trace
+				tr = gi.trace (ent->s.origin, ent->mins, ent->maxs, mid, ent, MASK_PLAYERSOLID);
+				if (tr.fraction >= 0.99f)
+				{
+					VectorCopy (mid, target);
+					Bot_LogLookahead (b, w, hd);
+				}
+			}
+		}
+	}
 
 	Bot_SetMoveToward (b, target);
 

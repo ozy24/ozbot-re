@@ -300,6 +300,9 @@ void Bot_Init (void)
 	// parity A/B.  Only CM_CIRCLE (1) is built -- the stand-ground style was
 	// pre-gated out by the pro corpus (aimed movement speed is flat across
 	// height advantage, so pros do not plant when they hold high ground).
+	// corner-cut steering: blend the movement target toward the node after next
+	// on shallow plain-ground bends.  Value IS the max blend weight (0 = off).
+	bot_lookahead    = gi.cvar ("bot_lookahead", "0", 0);	// 0.4 is the tested weight
 	bot_combatmove     = gi.cvar ("bot_combatmove", "0", 0);		// 1 = committed circle-strafe
 	bot_combatmovetest = gi.cvar ("bot_combatmovetest", "0", 0);	// id-parity A/B: even ids get it
 	bot_cmlog          = gi.cvar ("bot_cmlog", "0", 0);				// style-transition diagnostic
