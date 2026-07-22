@@ -203,6 +203,27 @@ assumed:** `bot_wpnneed`/`bot_ammoneed` are worth *more* at high commit
 Benchmark 2×2 at 6: shipped-solo **+16.1%**, cold-solo +6.6%, shipped-dm +8.4%,
 cold-dm +8.7% (6/8 maps up; q2dm6 −7% on all four — the lava map).
 
+## Item timing (`bot_control`, default OFF) — and a dead-code bug
+
+⚠️ **`Item_RespawnEta` was broken for the entire life of the project.** It gated on
+`it->flags & FL_RESPAWN`, but `Touch_Item` **clears** that flag on pickup — there
+it means "this is a world item, don't free the edict", not "this item respawns".
+So it returned 99999 for every respawning item and the whole `goal_timing` /
+`ITEM_PREEMPT_SECS` pre-positioning path **never once fired**. The correct
+predicate is the pending `DoRespawn` think; it is gated on `bot_control` so the
+off-state still reproduces shipped behaviour byte-for-byte.
+
+`bot_control` (seconds of slack) makes a control item a candidate when
+`eta <= route_travel_estimate + slack` — timing the ROUTE rather than a flat 4s
+window. **Rejected**: control-item collection **+5%** and 83% of waits paid, but
+total pickups **−2%** with total value flat, i.e. it reallocates collection rather
+than adding any. Telemetry funnel: `timing_cand` → `timing_pick` → `timing_wait`.
+
+**Method note worth keeping:** the first A/B was perfectly inert and a plain A/B
+would have concluded "the idea doesn't work". The funnel is what distinguished
+"never picks a timing goal" from "picks them and arrives late". When a lever can
+be inert for structural reasons, instrument the funnel, not just the outcome.
+
 ## Hazard: the airborne residual (`bot_airhazard`, default OFF)
 
 `bot_hazard` is default-ON and still leaves environmental deaths as the MAJORITY
