@@ -89,6 +89,11 @@ CANON_MOD = "ozbotre"                                # the live gamedir
 # native Linux pair when engine/q2reproded exists, else the Windows pair (Wine off
 # Windows) -- see rig_platform.py
 EXE_NAME, DLL_NAME = rp.rig_platform.repro_names()
+# humanness row: the shipped-dm run on this map is scored against the ladder MVD
+# 40Hz reference (tools/humanness.py human-mvd all); skipped if the cache is absent
+HUMAN_MAP = "q2dm1"
+HUMAN_REF = os.path.join(REPO, "demos", "derived", "humanness", "human_mvd_all.json")
+SNAP_RATE = 90.0 / 0.025       # deg/s: a >90 deg turn within one 40Hz tick
 REQUIRED_CVARS = [["sv_fps", "40"]]                  # 40Hz body -- mandatory on this rig
 
 ALL_MAPS = ["q2dm1", "q2dm2", "q2dm3", "q2dm4", "q2dm5", "q2dm6", "q2dm7", "q2dm8"]
@@ -165,6 +170,32 @@ def compute_metrics(path):
         "deaths_even": deaths_even,
         "deaths_odd": deaths_odd,
         "pickups_by_item": dict(sorted(pickups_by_item.items(), key=lambda kv: -kv[1])),
+    }
+
+
+def humanness_summary(log_path):
+    """Score a 40Hz bot log against the MVD human reference.  Returns
+    {mean_ks, features, microflips_bot/human, snap_pct} or None."""
+    if not os.path.isfile(HUMAN_REF):
+        return None
+    import humanness as hn
+    with open(HUMAN_REF) as f:
+        human = json.load(f)
+    bot = hn.run_bot(log_path, out=None)
+    ks = {}
+    for name, _desc in hn.SAMPLE_FEATURES + hn.FINE_FEATURES:
+        h, b = human["samples"].get(name, []), bot["samples"].get(name, [])
+        if len(h) >= 100 and len(b) >= 100:
+            ks[name] = round(hn.ks_distance(h, b), 4)
+    yr = bot["samples"].get("yaw_rate", [])
+    return {
+        "mean_ks": round(sum(ks.values()) / len(ks), 4) if ks else None,
+        "features": ks,
+        "microflips_bot": round(bot["scalars"].get("yaw_microflips_per_s", 0.0), 3),
+        "microflips_human": round(human["scalars"].get("yaw_microflips_per_s", 0.0), 3),
+        # from the per-bot capped yaw_rate samples: a trend metric, not a census
+        "snap_pct": round(100.0 * sum(1 for v in yr if v > SNAP_RATE) / len(yr), 2) if yr else None,
+        "reference": human.get("desc"),
     }
 
 
@@ -517,6 +548,28 @@ def write_stats_md(history):
         lines.append(f"| **mean** | | | **{_shift(_mean_shift(latest))}** | | |")
         lines.append("")
 
+    # --- humanness vs the ladder MVD 40Hz reference ---
+    hrecs = [r for r in history if r.get("humanness")]
+    if hrecs:
+        lines.append(f"### Humanness ({HUMAN_MAP} shipped-dm vs ladder MVD humans, 40Hz)")
+        lines.append("")
+        lines.append("Mean two-sample KS over the movement/view features (lower = more human), "
+                     "fast yaw reversals within 100ms (`microflips`), and the share of ticks "
+                     "turning >90° in one 25ms tick (`snaps`). Reference: "
+                     "`tools/humanness.py human-mvd all`.")
+        lines.append("")
+        lines.append("| Date | Note | mean KS | microflips/s (human) | snaps |")
+        lines.append("|---|---|---:|---:|---:|")
+        for rec in hrecs:
+            h = rec["humanness"]
+            note = (rec.get("note", "") or "").replace("|", "/")
+            if len(note) > 40:
+                note = note[:37] + "..."
+            lines.append(f"| {rec.get('date','?')[:10]} | {note} | {h.get('mean_ks')} | "
+                         f"{h.get('microflips_bot')} ({h.get('microflips_human')}) | "
+                         f"{h.get('snap_pct')}% |")
+        lines.append("")
+
     header = "| Date | Note | " + " | ".join(maps) + " | mean |"
     sep = "|---|---|" + "|".join(["---:"] * (len(maps) + 1)) + "|"
 
@@ -684,6 +737,7 @@ def main(argv):
         return 0
 
     results = {m: {} for m in maps}
+    humanness = None
     t0 = time.time()
     for vname, navdir, bots in VARIANTS:
         if not glob.glob(os.path.join(navdir, "*.nav")):
@@ -696,6 +750,13 @@ def main(argv):
             log(f"running {m} [{vname}] ({args.instances}x{args.seconds:.0f}s game, "
                 f"{bots} bot{'s' if bots != 1 else ''}, seed {args.seed})...")
             met = run_map(engine, exe, m, args, bots)
+            if met and vname == V_SHIPPED_DM and m == HUMAN_MAP:
+                humanness = humanness_summary(
+                    os.path.join(engine, BENCH_MOD, "logs", f"bench_{m}.jsonl"))
+                if humanness:
+                    log(f"  {m} [humanness vs MVD 40Hz]: mean KS {humanness['mean_ks']}  "
+                        f"microflips {humanness['microflips_bot']}/s (human "
+                        f"{humanness['microflips_human']})  snaps {humanness['snap_pct']}%")
             if met:
                 extra = "" if is_solo else f"  frags {met['frags']}"
                 log(f"  {m} [{vname}]: {'COLLECT' if is_solo else 'ITEM'} "
@@ -735,6 +796,7 @@ def main(argv):
                      "cvars": REQUIRED_CVARS + (args.cvar or [])},
         "maps": results,   # nested: {map: {shipped-solo, cold-solo, shipped-dm, cold-dm}}
         "parity": parity,  # nested: {map: {treatment_share, control_share, shift, kills_hi, ...}}
+        "humanness": humanness,  # shipped-dm HUMAN_MAP vs the MVD 40Hz reference (or None)
         "parity_rig": {"instances": args.instances, "seconds": args.seconds, "bots": PARITY_BOTS,
                        "skill": args.skill, "seed": args.seed, "repro": True, "paired_control": True,
                        "treatment_cvar": ["bot_skilltest", "1"], "control_cvar": ["bot_skilltest", "0"],

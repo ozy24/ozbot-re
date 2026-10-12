@@ -71,6 +71,14 @@ Even ids get high skill (0.9), odd ids low (0.1). The raw even/odd kill split ca
 | q2dm8 | 65.1% | 47.3% | +17.7pt | 190 | 102 |
 | **mean** | | | **+19.1pt** | | |
 
+### Humanness (q2dm1 shipped-dm vs ladder MVD humans, 40Hz)
+
+Mean two-sample KS over the movement/view features (lower = more human), fast yaw reversals within 100ms (`microflips`), and the share of ticks turning >90° in one 25ms tick (`snaps`). Reference: `tools/humanness.py human-mvd all`.
+
+| Date | Note | mean KS | microflips/s (human) | snaps |
+|---|---|---:|---:|---:|
+| 2026-10-12 | 2026-10 campaign baseline: native Lin... | 0.1657 | 0.886 (0.085) | 1.89% |
+
 ## Solo nav-collection over time (shipped)
 
 | Date | Note | q2dm1 | q2dm2 | q2dm3 | q2dm4 | q2dm5 | q2dm6 | q2dm7 | q2dm8 | mean |
