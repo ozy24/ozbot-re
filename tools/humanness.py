@@ -6,18 +6,25 @@ from human ones?  (plans/humanization.md Phase 0)
 Extracts the SAME feature set from two sources:
   - human: protocol-34 .dm2 demos (demos/sorted/<map>/*.dm2), via dm2parse's
     views/healths/sframes extension -- the recorder's own POV at 10Hz
+  - human-mvd: the DM Duel Ladder's multi-view demos (demos/mvd/*.mvd2.gz,
+    fetched by fetch_ladder_mvd.py, read by mvd2parse.py) -- BOTH duellists'
+    full state at the 40Hz server tick, the same rate as an ozbot-re server
   - bot:   telemetry JSONL (a run_parallel merged log or any bot log), using
-    the tick records' origin/yaw/pitch
+    the tick records' origin/yaw/pitch (one record per server frame, so 40Hz
+    on a `sv_fps 40` server)
 
-Both sources are reduced to identical 10Hz series (velocity by origin
-differencing on BOTH sides, so the estimator is like-for-like by construction)
-and compared per feature with KS and Wasserstein-1 distances.  The ranked
-report is the humanization roadmap; the exported quantiles parameterize the
-behavior phases.
+Both sides of a comparison are reduced to series at the SAME step (velocity by
+origin differencing on both sides, so the estimator is like-for-like by
+construction) and compared per feature with KS and Wasserstein-1 distances.
+Never compare a 40Hz cache against a 10Hz one: per-step rates (yaw_rate,
+pitch_rate) depend on the sampling step.  `--decimate 4` reduces a 40Hz source
+to 10Hz for comparison against the .dm2 set.  The ranked report is the
+humanization roadmap; the exported quantiles parameterize the behavior phases.
 
 Usage:
     py humanness.py human q2dm1 [--limit N] [--out human_q2dm1.json]
-    py humanness.py bot <merged.jsonl> [--out bot.json]
+    py humanness.py human-mvd <map|all> [--decimate N] [--out F]
+    py humanness.py bot <merged.jsonl> [--decimate N] [--out bot.json]
     py humanness.py report <human.json> <bot.json>
     py humanness.py compare q2dm1 <merged.jsonl> [--limit N]   # all three
 
@@ -34,19 +41,26 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dm2parse
+import mvd2parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMOS_SORTED = os.path.join(ROOT, "demos", "sorted")
 OUT_DIR = os.path.join(ROOT, "demos", "derived", "humanness")
+DEMOS_MVD = os.path.join(ROOT, "demos", "mvd")
 
-DT = 0.1                    # both sources are 10Hz
-TELEPORT_2D = 100.0         # units/frame horizontal jump = respawn/teleport
+DT = 0.1                    # .dm2 step; 40Hz sources pass dt=0.025
+TELEPORT_2D = 100.0         # units per 0.1s horizontal jump = respawn/teleport
 MOVING_2D = 100.0           # u/s: clearly translating (offset feature gate)
 STILL_2D = 20.0             # u/s: standing still
 JUMP_VZ_HI = 180.0          # u/s: rising fast enough to be a jump onset ...
 JUMP_VZ_LO = 100.0          # u/s: ... coming from below this (not already rising)
 STRAFE_MIN = 60.0           # u/s side speed on both sides of a reversal
 PER_SOURCE_CAP = 400        # max samples per feature per demo/bot (long-file bias cap)
+PER_PLAYER_CAP = 2000       # MVD: max samples per feature per human (one regular
+                            # appears in most ladder matches; keep him from
+                            # being the reference on his own)
+FLIP_MIN_RATE = 20.0        # deg/s: |yaw rate| on both sides of a micro-flip
+FLIP_WINDOW = 0.1           # s: a yaw-rate reversal this soon is a micro-correction
 
 SAMPLE_FEATURES = [
     # name, description
@@ -60,6 +74,13 @@ SAMPLE_FEATURES = [
     ("still_episode", "s per standing-still episode"),
 ]
 
+# Only measurable below a 0.1s step (MVD / 40Hz bot logs).  Absent from 10Hz
+# caches, so the .dm2 report is unchanged.
+FINE_FEATURES = [
+    ("yaw_accel", "|yaw rate change| per s (deg/s^2), consecutive 40Hz steps"),
+    ("yaw_flip_interval", "s between yaw-rate sign reversals (>20 deg/s both sides)"),
+]
+
 
 def wrap180(d):
     while d > 180.0:
@@ -69,10 +90,14 @@ def wrap180(d):
     return d
 
 
-def extract_features(pos, yaw, pitch, alive, contig):
+def extract_features(pos, yaw, pitch, alive, contig, dt=DT):
     """The shared reducer.  pos: [(x,y,z)]; yaw/pitch: [deg]; alive: [bool];
-    contig[i]: step i->i+1 is a genuine consecutive 10Hz step.  Returns
-    (samples: name->list, scalars: name->(value, weight))."""
+    contig[i]: step i->i+1 is a genuine consecutive step of `dt` seconds.
+    Returns (samples: name->list, scalars: name->(value, weight)).  With the
+    default dt=0.1 the output is exactly the original 10Hz reducer's."""
+    DT = dt
+    teleport = TELEPORT_2D * dt / 0.1       # per-step distance gate
+    lagstep = max(1, int(round(0.1 / dt)))  # autocorr lags stay in 0.1s units
     n = len(pos)
     S = defaultdict(list)
     if n < 10:
@@ -92,7 +117,7 @@ def extract_features(pos, yaw, pitch, alive, contig):
         dx = pos[i + 1][0] - pos[i][0]
         dy = pos[i + 1][1] - pos[i][1]
         dz = pos[i + 1][2] - pos[i][2]
-        if dx * dx + dy * dy > TELEPORT_2D * TELEPORT_2D:
+        if dx * dx + dy * dy > teleport * teleport:
             continue                    # respawn/teleport
         # NOTE: no |dyaw| cutoff here -- respawn/teleport view snaps are already
         # excluded by the alive mask (health<=0 spans the death) and the origin
@@ -174,15 +199,44 @@ def extract_features(pos, yaw, pitch, alive, contig):
         for lag in (1, 2, 3):
             num = den = cnt = 0.0
             mean = (sum(dyaw[i] for i in range(n - 1) if ok[i]) / total_ok) if total_ok else 0.0
-            for i in range(n - 1 - lag):
-                if all(ok[i + k] for k in range(lag + 1)):
-                    num += (dyaw[i] - mean) * (dyaw[i + lag] - mean)
+            ls = lag * lagstep
+            for i in range(n - 1 - ls):
+                if all(ok[i + k] for k in range(ls + 1)):
+                    num += (dyaw[i] - mean) * (dyaw[i + ls] - mean)
                     cnt += 1
             for i in range(n - 1):
                 if ok[i]:
                     den += (dyaw[i] - mean) ** 2
             if den > 0 and cnt > 50:
                 scalars[f"yaw_autocorr_lag{lag}"] = (num / den, cnt)
+
+    # ---- sub-0.1s view texture (40Hz sources only) ----
+    if dt < 0.1:
+        flips = 0
+        last_flip_t = None          # step index of the last yaw-rate reversal
+        last_sign = 0
+        for i in range(n - 1):
+            if not ok[i]:
+                last_flip_t = None
+                last_sign = 0
+                continue
+            if i > 0 and ok[i - 1]:
+                S["yaw_accel"].append(abs(dyaw[i] - dyaw[i - 1]) / (DT * DT))
+            rate = dyaw[i] / DT
+            sign = 1 if rate > FLIP_MIN_RATE else (-1 if rate < -FLIP_MIN_RATE else 0)
+            if sign != 0:
+                if last_sign != 0 and sign != last_sign:
+                    if last_flip_t is not None:
+                        gap = (i - last_flip_t) * DT
+                        S["yaw_flip_interval"].append(gap)
+                        if gap <= FLIP_WINDOW:
+                            flips += 1
+                    last_flip_t = i
+                elif last_flip_t is None:
+                    last_flip_t = i
+                last_sign = sign
+        if alive_secs > 5:
+            scalars["yaw_microflips_per_s"] = (flips / alive_secs, alive_secs)
 
     return S, scalars
 
@@ -263,7 +317,19 @@ def run_human(mapname, limit=None, out=None, jobs=None):
 # bot side
 # -------------------------------------------------------------------------
 
-def run_bot(logpath, out=None):
+def decimate_rows(pos, yaw, pitch, alive, contig, k):
+    """Keep every k-th sample; a decimated step is contiguous only if all k
+    underlying steps were."""
+    if k <= 1:
+        return pos, yaw, pitch, alive, contig
+    idx = list(range(0, len(pos), k))
+    c2 = [all(contig[j] for j in range(idx[m], idx[m + 1]))
+          for m in range(len(idx) - 1)]
+    return ([pos[i] for i in idx], [yaw[i] for i in idx],
+            [pitch[i] for i in idx], [alive[i] for i in idx], c2)
+
+
+def run_bot(logpath, out=None, decimate=1):
     ticks = defaultdict(list)          # bot id -> [(t,x,y,z,yaw,pitch,dead)]
     with open(logpath, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -281,6 +347,13 @@ def run_bot(logpath, out=None):
         sys.exit(f"no tick records with a pitch field in {logpath} "
                  "(needs a DLL built after the humanization telemetry change)")
 
+    # The tick log is one record per server frame: 0.1s at 10Hz, 0.025s at
+    # sv_fps 40.  `t` is printed to 2 decimals, so 40Hz steps read 0.02/0.03;
+    # detect the step from the median and accept +/- half a step.
+    steps = sorted(b[0] - a[0] for rows in ticks.values()
+                   for a, b in zip(sorted(rows)[:200], sorted(rows)[1:200]))
+    med = steps[len(steps) // 2] if steps else DT
+    dt = 0.025 if med < 0.0625 else DT
     results = []
     for bot, rows in sorted(ticks.items()):
         rows.sort(key=lambda r: r[0])
@@ -288,12 +361,114 @@ def run_bot(logpath, out=None):
         yaw = [r[4] for r in rows]
         pitch = [r[5] for r in rows]
         alive = [not r[6] for r in rows]
-        contig = [abs(rows[i + 1][0] - rows[i][0] - DT) < 0.05
+        contig = [abs(rows[i + 1][0] - rows[i][0] - dt) < dt / 2
                   for i in range(len(rows) - 1)]
-        S, scalars = extract_features(pos, yaw, pitch, alive, contig)
+        pos, yaw, pitch, alive, contig = decimate_rows(
+            pos, yaw, pitch, alive, contig, decimate)
+        S, scalars = extract_features(pos, yaw, pitch, alive, contig,
+                                      dt=dt * decimate)
         results.append({"samples": cap_samples(S), "scalars": scalars})
-    return finalize("bot", f"{os.path.basename(logpath)} x {len(results)} bots",
+    hz = round(1.0 / (dt * decimate))
+    return finalize("bot", f"{os.path.basename(logpath)} x {len(results)} bots @{hz}Hz",
                     results, out)
+
+
+# -------------------------------------------------------------------------
+# human side, ladder MVDs (both duellists, 40Hz)
+# -------------------------------------------------------------------------
+
+def mvd_worker(args):
+    path, decimate = args
+    try:
+        d = mvd2parse.parse(path)
+    except Exception:
+        return []
+    h = d["header"] or {}
+    tick = h.get("tick_rate") or 40
+    fr = d["frames"]
+    nf = len(fr)
+    contig_all = [fr[i + 1][0] == fr[i][0] + 1 for i in range(nf - 1)]
+    out = []
+    for slot, lst in d["players"].items():
+        # a duellist is in normal movement for most of the match; spectators
+        # and queued players sit in PM_SPECTATOR/freeze the whole time
+        playing = sum(1 for s in lst
+                      if s is not None and s.pm_type == mvd2parse.PM_NORMAL)
+        if playing < nf // 2:
+            continue
+        pos, yaw, pitch, alive = [], [], [], []
+        for s in lst:
+            if s is None:
+                pos.append((0.0, 0.0, 0.0)); yaw.append(0.0); pitch.append(0.0)
+                alive.append(False)
+                continue
+            pos.append(s.origin)
+            yaw.append(s.viewangles[1])
+            pitch.append(wrap180(s.viewangles[0]))
+            alive.append(s.health > 0 and s.pm_type == mvd2parse.PM_NORMAL
+                         and not s.spectator)
+        pos, yaw, pitch, alive, contig = decimate_rows(
+            pos, yaw, pitch, alive, contig_all, decimate)
+        S, scalars = extract_features(pos, yaw, pitch, alive, contig,
+                                      dt=decimate / tick)
+        out.append({"map": h.get("map"), "player": d["names"].get(slot, f"slot{slot}"),
+                    "samples": cap_samples(S), "scalars": scalars})
+    return out
+
+
+def merge_by_player(results):
+    """One result per human: samples capped at PER_PLAYER_CAP per feature,
+    scalars re-weighted so every player carries equal weight."""
+    by = defaultdict(list)
+    for r in results:
+        by[r["player"]].append(r)
+    merged = []
+    for name, rs in sorted(by.items()):
+        S = defaultdict(list)
+        sc = defaultdict(lambda: [0.0, 0.0])
+        for r in rs:
+            for k, v in r["samples"].items():
+                S[k].extend(v)
+            for k, (val, w) in r["scalars"].items():
+                sc[k][0] += val * w
+                sc[k][1] += w
+        capped = {}
+        for k, v in S.items():
+            if len(v) > PER_PLAYER_CAP:
+                step = len(v) / PER_PLAYER_CAP
+                v = [v[int(i * step)] for i in range(PER_PLAYER_CAP)]
+            capped[k] = v
+        merged.append({"player": name, "matches": len(rs), "samples": capped,
+                       "scalars": {k: (v[0] / v[1], 1.0)
+                                   for k, v in sc.items() if v[1] > 0}})
+    return merged
+
+
+def run_human_mvd(mapname, decimate=1, out=None, jobs=None):
+    files = sorted(glob.glob(os.path.join(DEMOS_MVD, "*.mvd2.gz")))
+    if not files:
+        sys.exit(f"no demos under {DEMOS_MVD} (run tools/fetch_ladder_mvd.py)")
+    results = []
+    work = [(f, decimate) for f in files]
+    try:
+        import concurrent.futures as cf
+        with cf.ProcessPoolExecutor(max_workers=jobs) as ex:
+            for rs in ex.map(mvd_worker, work):
+                results.extend(rs)
+    except (ImportError, OSError):
+        for w in work:
+            results.extend(mvd_worker(w))
+    if mapname != "all":
+        results = [r for r in results if (r["map"] or "").lower() == mapname.lower()]
+    if not results:
+        sys.exit(f"no MVD duellists on {mapname}")
+    nmatch = len(results)
+    merged = merge_by_player(results)
+    hz = round(40 / decimate)
+    print(f"[human-mvd] {nmatch} duellist-matches, {len(merged)} players: " +
+          ", ".join(f"{m['player']}x{m['matches']}" for m in merged))
+    return finalize("human", f"ladder MVD {mapname} x {nmatch} duellist-matches "
+                    f"/ {len(merged)} players @{hz}Hz", merged, out)
 
 
 # -------------------------------------------------------------------------
@@ -361,7 +536,7 @@ def report(human, bot, out_json=None):
     print(f"human: {human['desc']}   bot: {bot['desc']}\n")
 
     rows = []
-    for name, desc in SAMPLE_FEATURES:
+    for name, desc in SAMPLE_FEATURES + FINE_FEATURES:
         h = human["samples"].get(name, [])
         b = bot["samples"].get(name, [])
         if len(h) < 100 or len(b) < 100:
@@ -426,8 +601,16 @@ def main():
         run_human(mapname, limit=opt("--limit", None, int),
                   out=opt("--out", os.path.join(OUT_DIR, f"human_{mapname}.json")),
                   jobs=opt("--jobs", None, int))
+    elif cmd == "human-mvd":
+        mapname = args[1]
+        dec = opt("--decimate", 1, int)
+        suffix = "" if dec == 1 else f"_{round(40 / dec)}hz"
+        run_human_mvd(mapname, decimate=dec,
+                      out=opt("--out", os.path.join(OUT_DIR, f"human_mvd_{mapname}{suffix}.json")),
+                      jobs=opt("--jobs", None, int))
     elif cmd == "bot":
-        run_bot(args[1], out=opt("--out", os.path.join(OUT_DIR, "bot.json")))
+        run_bot(args[1], out=opt("--out", os.path.join(OUT_DIR, "bot.json")),
+                decimate=opt("--decimate", 1, int))
     elif cmd == "report":
         with open(args[1]) as f:
             human = json.load(f)
