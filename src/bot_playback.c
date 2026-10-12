@@ -42,6 +42,7 @@ different maneuver).
 #include "bot_nav.h"
 
 cvar_t	*bot_playbook;	// master gate (inert when no playbook file exists)
+cvar_t	*bot_pbalign;	// standing-start ALIGN settle fix (0 = pre-fix, byte-identical)
 
 #define PB_MAX_ENTRIES		16
 #define PB_MAX_TICKS		600		// 15s at 40Hz
@@ -625,7 +626,30 @@ qboolean Bot_PlaybackThink (bot_t *b)
 			vec3_t	aim_ang = {0, 0, 0};
 			float	mag;
 
-			if (hdist > e->pos_tol)
+			// bot_pbalign: the pre-fix branch below limit-cycles on the
+			// pos_tol boundary when the bot sits on the far side of the anchor
+			// along its heading -- inside, the press carries it back out;
+			// outside, it turns ~180 to walk back in.  The view flipped every
+			// 2-3 ticks and the engage gate (position + facing + speed<=25,
+			// held for the dwell) could never pass: measured 41 of 177 q2dm1
+			// align attempts burning the full 8s timeout, 20% of align ticks a
+			// >90 deg single-tick snap.  Fix: inside 2x pos_tol face the
+			// recorded heading and walk (backpedal/strafe -- movement is
+			// decoupled from facing) onto the anchor itself; press only once
+			// centred.
+			if (bot_pbalign->value != 0 && hdist <= 2.0f * e->pos_tol
+				&& hdist > 0.5f * e->pos_tol)
+			{
+				VectorCopy (d, aim);
+				aim[2] = 0;
+				if (VectorNormalize (aim) > 1.0f)
+					VectorScale (aim, (hdist > 12.0f) ? 0.6f : 0.35f, b->move_dir);
+				else
+					VectorClear (b->move_dir);
+				b->move_yaw = e->anchor_yaw;
+				b->pb_yaw = e->anchor_yaw;
+			}
+			else if (hdist > e->pos_tol)
 			{
 				if (e->start_node >= 0 && e->start_node < nav.num_nodes)
 					VectorSubtract (nav.nodes[e->start_node].origin, ent->s.origin, aim);

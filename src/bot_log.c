@@ -672,7 +672,7 @@ pruned it mid-attempt).
 =================
 */
 void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fighting,
-	const char *navq)
+	const char *navq, float budget)
 {
 	edict_t	*ent;
 
@@ -684,12 +684,17 @@ void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fightin
 		"{\"type\":\"event\",\"event\":\"giveup\",\"t\":%.2f,\"bot\":%d,"
 		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,"
 		"\"gdist\":%.0f,\"gvdist\":%.0f,\"atnode\":%d,\"fighting\":%d,"
-		"\"pidx\":%d,\"plen\":%d,\"gbest\":%.0f,\"navq\":\"%s\"}\n",
+		"\"pidx\":%d,\"plen\":%d,\"gbest\":%.0f,\"navq\":\"%s\","
+		"\"budget\":%.2f,\"elapsed\":%.2f,\"frozen\":%.2f,\"fight\":%.2f,"
+		"\"noprog\":%.2f,\"cost\":%.0f,\"rerouted\":%d}\n",
 		level.time, b->id,
 		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
 		gdist, gvdist, atnode, fighting,
 		b->path_idx, b->path_len, b->goal_best,
-		navq ? navq : "");
+		navq ? navq : "",
+		budget, level.time - b->goal_start, b->goal_time - b->goal_start,
+		b->goal_fight, level.time - b->goal_best_time, b->goal_cost,
+		b->reroute_fired ? 1 : 0);
 }
 
 /*

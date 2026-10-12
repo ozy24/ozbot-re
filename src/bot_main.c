@@ -317,6 +317,7 @@ void Bot_Init (void)
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
+	bot_pbalign      = gi.cvar ("bot_pbalign", "0", 0);		// playbook ALIGN settle fix + slewed facing (0 = pre-fix)
 	bot_playbook     = gi.cvar ("bot_playbook", "1", 0);	// recorded maneuvers as nav links (Phase R4;
 															// inert unless playbooks/<map>.pbk exists)
 	bot_cmdlog       = gi.cvar ("bot_cmdlog", "0", 0);		// log BOT usercmds in the input-log schema
@@ -1325,6 +1326,9 @@ static qboolean Bot_PursueTry (bot_t *b)
 	b->goal_time     = level.time;
 	b->goal_cost     = cost;
 	b->goal_best     = 99999;
+	b->goal_start    = level.time;
+	b->goal_fight    = 0;
+	b->goal_best_time = level.time;
 	b->reroute_fired = false;
 	b->reroute_last_idx = 0;
 	b->reroute_idx_time = level.time;
@@ -1499,8 +1503,12 @@ static void Bot_Navigate (bot_t *b)
 			VectorSubtract (nav.nodes[b->goal_node].origin, ent->s.origin, gd);
 			gd[2] = 0;
 			ghd = VectorLength (gd);
+			if (ghd < b->goal_best - 8.0f)
+				b->goal_best_time = level.time;
 			if (ghd < b->goal_best)
 				b->goal_best = ghd;
+			if (b->enemy)
+				b->goal_fight += FRAMETIME;
 		}
 
 		// resolve item state: grabbed/taken, or still waiting on a respawn
@@ -1601,7 +1609,7 @@ static void Bot_Navigate (bot_t *b)
 					NAV_MASK_ALL, NULL, NULL);
 			Bot_LogGiveup (b, (float)sqrt(d[0]*d[0] + d[1]*d[1]), d[2],
 				atnode, b->enemy ? 1 : 0,
-				b->goal_item ? Nav_QueryName (navq) : "");
+				b->goal_item ? Nav_QueryName (navq) : "", budget);
 			// execution-failure reroute (bot_reroute): we stalled mid-route
 			// (not at the goal node) while a route still existed (navq ok) and
 			// were not in a fight -- the "graph claims a route the bot can't
@@ -1896,6 +1904,9 @@ static void Bot_Navigate (bot_t *b)
 				b->goal_time     = level.time;
 				b->goal_cost     = Nav_LastPathCost ();
 				b->goal_best     = 99999;
+				b->goal_start    = level.time;
+				b->goal_fight    = 0;
+				b->goal_best_time = level.time;
 				b->reroute_fired = false;	// new attempt: allow one mid-reroute
 				b->reroute_last_idx = 0;
 				b->reroute_idx_time = level.time;
@@ -1964,6 +1975,12 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 	{
 		facing_yaw = b->pb_yaw;
 		facing_pitch = b->pb_pitch;
+		// bot_pbalign: ALIGN only steers onto the anchor, so turn the view
+		// like a player instead of snapping it.  REPLAY must stay exact --
+		// the recorded yaw IS the maneuver.
+		if (bot_pbalign->value != 0 && b->pb_state == PB_ALIGN)
+			facing_yaw = Bot_SlewAngle (ent->client->ps.viewangles[YAW],
+				b->pb_yaw, 0.5f, 45.0f);
 	}
 	else if (!Combat_Aim (b, cmd, &facing_yaw, &facing_pitch))
 	{

@@ -114,6 +114,12 @@ typedef struct
 	float		goal_time;		// level.time the current goal was set
 	float		goal_cost;		// A* g-cost of the committed route (0 = unknown)
 	float		goal_best;		// closest we've come to the goal node this attempt
+	// giveup diagnostics only (never read by decisions): wall-clock attempt
+	// start (goal_time is shifted by traversal freezes), seconds spent with an
+	// enemy during the attempt, and when goal_best last improved by >8u
+	float		goal_start;
+	float		goal_fight;
+	float		goal_best_time;
 	int			pending_link;	// link type to record on next learn step
 	// mid-attempt reroute (bot_reroutemid): watch path_idx for a pure-nav stall
 	int			reroute_last_idx;	// path_idx at the last observed advance
@@ -419,6 +425,7 @@ void Playbook_Register (void);				// seed nodes + inject PLAYBOOK links
 qboolean Bot_PlaybackThink (bot_t *b);
 void Bot_PlaybackReset (bot_t *b);
 extern cvar_t	*bot_playbook;
+extern cvar_t	*bot_pbalign;
 
 // strafe-jump qualification funnel (diagnosis only; bot_sjlog >= 2)
 #define SJ_DIAG_QUALIFY		0	// SJ_QualifyRunway calls
@@ -568,7 +575,7 @@ const char *Bot_GameDir (void);
 const char *Bot_ItemName (edict_t *ent);	// telemetry label; disambiguates the item_health_* family (all share one "Health" gitem -- key off the edict classname)
 void Bot_LogItemEvent (bot_t *b, const char *event, const char *item);
 void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fighting,
-	const char *navq);	// navq: oracle verdict on the goal at giveup time
+	const char *navq, float budget);	// navq: oracle verdict on the goal at giveup time
 // one reach-sweep record (bot_reachlog; plans/nav-oracle.md Phase C)
 void Bot_LogReach (const char *when, const char *item, const char *classname,
 	vec3_t org, const char *code, const char *gate, float cost);
