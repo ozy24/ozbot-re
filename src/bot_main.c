@@ -18,7 +18,12 @@ uses A* over that graph to travel point-to-point between goal nodes.
 #include "bot_nav.h"
 
 #include <time.h>
+#ifdef _WIN32
 #include <process.h>	// _getpid (per-process rng entropy)
+#else
+#include <unistd.h>
+#define _getpid getpid
+#endif
 
 cvar_t	*bot_count;
 cvar_t	*bot_forwardspeed;

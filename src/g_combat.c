@@ -21,6 +21,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "g_local.h"
 
+void Bot_BeliefDamage (edict_t *attacker, edict_t *targ, int amount);	// bot_combat.c
+
 /*
 ============
 CanDamage

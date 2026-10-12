@@ -57,8 +57,7 @@ import benchmark as bm      # compute_metrics / prepare-mod conventions
 
 DEFAULT_ENGINE = os.path.join(REPO, "engine")
 OPT_MOD = "ozbotre_opt"                 # frozen source gamedir (never the live one)
-DLL_NAME = "gamex86_64.dll"
-EXE_NAME = "q2reproded.exe"
+EXE_NAME, DLL_NAME = rp.rig_platform.repro_names()   # native .so pair or Windows .dll pair
 REQUIRED_CVARS = [["sv_fps", "40"]]
 
 # Train / holdout split.  Disjoint maps AND disjoint seeds -- a config that only

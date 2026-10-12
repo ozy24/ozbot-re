@@ -14,6 +14,25 @@ the legacy ozbot specifics when working in this repo.
   `engine/q2repro.exe` (client) + `engine/q2reproded.exe` (dedicated, fastsim
   cvar built in). **The 32-bit constraint is dead here**: `build.bat` produces
   `dist/gamex86_64.dll` (MSVC x64; verify PE `0x8664` if in doubt).
+- **Linux (the dev host since 2026-10):** `./build_linux.sh [game|engine|all]`
+  builds the headless rig natively — `engine/q2reproded` (dedicated + fastsim, from
+  `q2repro/build-linux`) and `dist/gamex86_64.so` (gcc), deployed into `engine/`.
+  `game` is the inner loop (a few seconds). The tools pick the native pair whenever
+  `engine/q2reproded` exists (`tools/rig_platform.py`), else run the `.exe` under
+  Wine. Validated: same-seed native runs are bit-identical (md5 gate holds), and
+  native q2dm1 16×90 matches the Windows DLL within seed noise (716 vs 718
+  pickups). ⚠️ **md5s are not comparable across native and Windows/Wine** —
+  different binaries; keep an A/B on one rig. The playable client (`play.bat`,
+  `record_inputs.bat`) is still the Windows build.
+  - Engine gotcha: with `-Dvariable-fps=true`, GCC 16 rejects
+    `src/server/entities.c` (`fix_old_origin` was never ported to q2proto's packed
+    state; MSVC only warned and passed a mis-typed pointer — live for human clients
+    below full server rate). Fixed on the local q2repro `ozbot-re` branch by
+    correcting `old_origin` on an unpacked copy before `PackEntity`.
+  - Game-source portability fixes (no behaviour change for bots): `<stddef.h>` for
+    `offsetof`, `process.h` guarded, `Bot_BeliefDamage` prototype in g_combat.c,
+    and `g_chase.c` read the short `pmove.origin` through `VectorScale` (as floats:
+    a garbage chase-cam origin for spectators on Windows too).
 - **Gamedir:** `engine/ozbotre/` (nav/, logs/, playbooks/). The old
   `engine/ozbot/` q2pro rig still works and is the frozen reference.
 - **Hermeticity:** q2repro auto-detects Steam/GoG installs and an OneDrive
@@ -344,6 +363,69 @@ Rules the tool encodes, all learned the hard way:
   `bot_navvalidate`/`bot_slimeescape` (Bernoulli p→0.9) that a single-knob
   ablation showed were worth ~0. Ablate the winner knob-by-knob; in the pass that
   produced the retune, *all* of the +6.8% holdout win was `bot_commit` alone.
+
+## Ladder MVD corpus — a 40Hz humanness reference (added 2026-10-11)
+
+The DM Duel Ladder (ladder.darkmatter-quake.com) records a Q2REX **multi-view demo**
+(`.mvd2`) of every ranked duel. Unlike a `.dm2`, it carries **both** duellists' full
+player_state at the **40Hz** server tick: origin, velocity, view angles, pm flags and
+stats. There are no usercmds. The site holds the only copy of each recording.
+
+    py tools/fetch_ladder_mvd.py                 # incremental -> demos/mvd/ (+ manifest.jsonl)
+    py tools/mvd2parse.py inspect demos/mvd/<id>.mvd2.gz
+    py tools/humanness.py human-mvd all          # 40Hz cache; --decimate 4 = 10Hz
+    py tools/humanness.py bot <40Hz merged log>  # step auto-detected; --decimate 4
+    py tools/humanness.py report <human.json> <bot.json>
+
+**`mvd2parse.py`** ports the site's `replay/mvd.js` and decodes player records only.
+It was validated against the server's match record: deaths match `deathLog` exactly
+in time and position.
+
+⚠️ The `STAT_SCORE` index from `mvd.js` does **not** hold the frag score. Count
+deaths from health instead.
+
+**Duellist filter:** a duellist is any slot in `PM_NORMAL` for more than half the
+frames. Spectators sit in pm_type 6 the whole time.
+
+**`humanness.py` is tick-rate aware.** `extract_features(dt=)` keeps 10Hz output
+byte-identical (verified on 40 pro q2dm1 demos).
+
+⚠️ **The bot side was silently empty on every 40Hz log before this.** The tick log is
+per server frame and `t` is printed to 2 decimals (steps read 0.02/0.03), so the old
+0.1s continuity test rejected every step.
+
+**Never compare a 40Hz cache with a 10Hz one.** Per-step rates depend on the sampling
+step. 40Hz-only features: `yaw_accel`, `yaw_flip_interval`, `yaw_microflips_per_s`.
+Samples are capped per *player* (`PER_PLAYER_CAP`), because one regular is in most
+ladder matches.
+
+**The reference is valid despite the caveats.** The ladder ran rerelease pmove under
+MMREX/Q2RE rules, the players are mid-skill, and all maps are pooled. Still, decimated
+to 10Hz it sits on top of the pro q2dm1 `.dm2` set: max KS **0.099**, mean 0.061,
+yaw autocorr lag1 0.57 vs 0.57. Movement and view texture are human-universal. The
+bot vs the pros at 10Hz has a mean KS of 0.136.
+
+**What 40Hz exposed (q2dm1, 16×90s, seed 700, Jul-22 DLL):**
+
+| | human | bot |
+|---|---|---|
+| yaw-rate reversals within 100ms, per s | 0.08 | **0.73** |
+| yaw_flip_interval p50 | 0.53s | 0.23s |
+| yaw_rate p99 | 602°/s | **7056°/s** |
+| yaw autocorr lag 0.1s | 0.43 | 0.13 |
+
+The p99 is single-tick 176° snaps, on 1.53% of live ticks. 96% happen in GOAL mode
+with no enemy. **Root cause: the playbook ALIGN phase.** With `bot_playbook 0` the
+snaps fall to 0.06%; `bot_strafejump 0` and `bot_humantest 0` leave them unchanged.
+Likely mechanism (read from the code, not yet traced per tick): the standing-start ALIGN
+branch of `bot_playback.c` flips `pb_yaw` between `vectoyaw(to start node)` and
+`anchor_yaw` as the bot jitters across `pos_tol`. Bot_Think's
+playbook override bypasses `Bot_SlewAngle`, so each flip is an instant snap: about 24
+per align attempt. **Not fixed yet.** The candidate fix is to slew facing during
+PB_ALIGN only (REPLAY must stay exact), then A/B pb_done/abort.
+
+Caches: `demos/derived/humanness/{human_mvd_all,human_mvd_all_10hz,human_q2dm1_full,
+bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
 
 ## Perception: sight-loss pursuit (demo-mined)
 

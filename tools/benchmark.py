@@ -86,8 +86,9 @@ STATS_MD = os.path.join(REPO, "STATS.md")
 BENCH_MOD = "ozbotre_bench"                          # frozen source gamedir
 MATURE_SRC = "ozbotre_mature_src"                    # cold-nav source gamedir
 CANON_MOD = "ozbotre"                                # the live gamedir
-DLL_NAME = "gamex86_64.dll"
-EXE_NAME = "q2reproded.exe"
+# native Linux pair when engine/q2reproded exists, else the Windows pair (Wine off
+# Windows) -- see rig_platform.py
+EXE_NAME, DLL_NAME = rp.rig_platform.repro_names()
 REQUIRED_CVARS = [["sv_fps", "40"]]                  # 40Hz body -- mandatory on this rig
 
 ALL_MAPS = ["q2dm1", "q2dm2", "q2dm3", "q2dm4", "q2dm5", "q2dm6", "q2dm7", "q2dm8"]
@@ -655,10 +656,10 @@ def main(argv):
         return 0
 
     if not args.no_build:
-        log("building (build.bat)...")
-        rc = subprocess.call(["cmd", "/c", os.path.join(REPO, "build.bat")], cwd=REPO)
+        log(f"building {DLL_NAME}...")
+        rc = rp.rig_platform.build_game(engine)
         if rc != 0:
-            sys.exit(f"FAIL: build.bat returned {rc}")
+            sys.exit(f"FAIL: game build returned {rc}")
 
     exe = os.path.join(engine, EXE_NAME)
     if not os.path.isfile(exe):

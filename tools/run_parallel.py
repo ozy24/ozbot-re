@@ -43,6 +43,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))   # <repo>/tools
+sys.path.insert(0, HERE)
+import rig_platform                                 # native-vs-Wine engine pair
 REPO = os.path.dirname(HERE)                         # the bot repo (holds engine/, demos/)
 DEFAULT_ENGINE = os.path.join(REPO, "engine")
 BOT_ID_STRIDE = 1000   # worker i's bot b -> id i*STRIDE + b (keeps ids distinct)
@@ -87,7 +89,8 @@ def setup_worker(engine, src_mod, worker_mod, mapname, dll_name):
 
 
 def launch(engine, exe, worker_mod, port, seed, args):
-    cmd = [exe]
+    # a Windows .exe off Windows runs under Wine; a native build runs directly
+    cmd = rig_platform.launch_prefix(exe) + [exe]
     if args.repro:
         # never auto-detect Steam/GoG installs or an OneDrive homedir --
         # workers must stay hermetic inside the engine dir
@@ -117,7 +120,7 @@ def launch(engine, exe, worker_mod, port, seed, args):
     if os.name == "nt":
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(
-        cmd, cwd=engine,
+        cmd, cwd=engine, env=rig_platform.wine_env(),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=flags,
     )
@@ -205,11 +208,13 @@ def main(argv):
     if args.mod is None:
         args.mod = "ozbotre" if args.repro else "ozbot"
     if args.repro:
-        # q2reproded carries the fastsim cvar itself (built by ozbot-re/build_engine.bat);
-        # without --fastsim it just runs in real time like any dedicated server.
-        exe = os.path.join(engine, "q2reproded.exe")
+        # q2reproded carries the fastsim cvar itself (build_engine.bat on Windows,
+        # build_linux.sh natively); without --fastsim it just runs in real time.
+        exe_name, repro_dll = rig_platform.repro_names(engine)
+        exe = os.path.join(engine, exe_name)
         if not os.path.isfile(exe):
-            sys.exit(f"FAIL: {exe} not found -- build it with ozbot-re/build_engine.bat")
+            sys.exit(f"FAIL: {exe} not found -- build it with build_linux.sh engine "
+                     "(Linux) or build_engine.bat (Windows)")
     elif args.fastsim:
         exe = os.path.join(engine, "q2proded_fast.exe")
         if not os.path.isfile(exe):
@@ -220,7 +225,7 @@ def main(argv):
             exe = os.path.join(engine, "quake2.exe")
         if not os.path.isfile(exe):
             sys.exit(f"FAIL: no q2pro.exe/quake2.exe in {engine}")
-    dll_name = "gamex86_64.dll" if args.repro else "gamex86.dll"
+    dll_name = repro_dll if args.repro else "gamex86.dll"
     if args.instances < 1:
         sys.exit("FAIL: --instances must be >= 1")
 

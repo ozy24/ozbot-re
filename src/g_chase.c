@@ -77,7 +77,10 @@ void UpdateChaseCam(edict_t *ent)
 
 		VectorCopy (targ->client->v_angle, ent->client->v_angle);
 		VectorCopy (targ->client->v_angle, ent->client->ps.viewangles);
-		VectorScale (ent->client->ps.pmove.origin, 0.125f, ent->s.origin);
+		// pmove.origin is short[3] in 1/8 units -- VectorScale would read it as floats
+		ent->s.origin[0] = ent->client->ps.pmove.origin[0] * 0.125f;
+		ent->s.origin[1] = ent->client->ps.pmove.origin[1] * 0.125f;
+		ent->s.origin[2] = ent->client->ps.pmove.origin[2] * 0.125f;
 		ent->viewheight = targ->viewheight;
 
 		for (i = 0; i < 3; i++)

@@ -99,7 +99,7 @@ def find_engine(explicit):
         os.path.join(os.getcwd(), "engine"),
     ]
     for c in cands:
-        if c and os.path.isfile(os.path.join(c, "q2reproded.exe")):
+        if c and os.path.isfile(os.path.join(c, rp.rig_platform.repro_names(c)[0])):
             return os.path.abspath(c)
     return None
 
@@ -268,7 +268,7 @@ def main(argv):
     if not engine:
         print("[gen_nav] FAIL: could not find q2reproded.exe (pass --engine)", file=sys.stderr)
         return 2
-    exe = os.path.join(engine, "q2reproded.exe")
+    exe = os.path.join(engine, rp.rig_platform.repro_names(engine)[0])
     dll = resolve_dll(engine, a.mod, a.dll)
     if not dll:
         print(f"[gen_nav] FAIL: {bench.DLL_NAME} not found in dist/ or the gamedir "
