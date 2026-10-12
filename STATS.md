@@ -9,18 +9,18 @@ Each snapshot runs the fastsim **repro** rig (40Hz / `sv_fps 40`, fixed seed, pi
 
 So the four columns are **shipped-solo / cold-solo** (nav quality) and **shipped-dm / cold-dm** (integration). Note 40Hz deathmatch ITEM% runs structurally below the 10Hz figure — higher kill intensity interrupts more runs.
 
-## Current state — 2026-10-12T16:03:27
+## Current state — 2026-10-12T16:58:02
 
-**2026-10 campaign baseline: native Linux rig (gamex86_64.so), HEAD a3ee586**  
-commit `a3ee586` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
+**OPT-IN bot_pbalign=1 (v2, NOT shipped): shipped-solo q2dm1 -22%, see campaign plan**  
+commit `8ea58e6`  ⚠️ working tree dirty · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
 
 ### Solo nav-collection (nav quality — 1 bot, no combat)
 
 | Map | shipped-solo | cold-solo | Pickups | Attempts | Nav |
 |---|---:|---:|---:|---:|---:|
-| q2dm1 | 83% | 68% | 191 | 229 | 511 |
+| q2dm1 | 78% | 71% | 148 | 190 | 511 |
 | q2dm2 | 66% | 69% | 77 | 116 | 390 |
-| q2dm3 | 58% | 53% | 69 | 120 | 264 |
+| q2dm3 | 57% | 53% | 71 | 124 | 264 |
 | q2dm4 | 80% | 84% | 85 | 106 | 450 |
 | q2dm5 | 73% | 73% | 101 | 138 | 468 |
 | q2dm6 | 41% | 41% | 44 | 108 | 255 |
@@ -32,9 +32,9 @@ commit `a3ee586` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 
 | Map | shipped-dm | cold-dm | Pickups | Attempts | Frags | Deaths | K/D | Nav |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| q2dm1 | 62% | 55% | 718 | 1162 | 146 | 165 | 0.88 | 512 |
+| q2dm1 | 62% | 55% | 697 | 1115 | 151 | 163 | 0.93 | 513 |
 | q2dm2 | 62% | 60% | 616 | 998 | 149 | 163 | 0.91 | 391 |
-| q2dm3 | 55% | 51% | 539 | 974 | 80 | 229 | 0.35 | 268 |
+| q2dm3 | 55% | 51% | 555 | 1010 | 83 | 243 | 0.34 | 268 |
 | q2dm4 | 78% | 76% | 595 | 766 | 37 | 126 | 0.29 | 454 |
 | q2dm5 | 69% | 69% | 629 | 914 | 103 | 123 | 0.84 | 476 |
 | q2dm6 | 47% | 47% | 370 | 782 | 61 | 325 | 0.19 | 262 |
@@ -44,9 +44,9 @@ commit `a3ee586` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 
 <details><summary>Per-item pickups (latest, shipped-dm)</summary>
 
-- **q2dm1**: 156× Armor Shard, 90× Grenades, 68× Shotgun, 42× Rocket Launcher, 41× Combat Armor, 34× Bullets, 31× Machinegun, 31× Slugs, 31× Large Health, 29× Railgun, 29× Health, 24× Chaingun, 23× Super Shotgun, 23× Jacket Armor, 20× Grenade Launcher, 10× Rockets, 10× Mega Health, 9× Shells, 8× Ammo Pack, 6× Small Health, 3× HyperBlaster
+- **q2dm1**: 156× Armor Shard, 78× Grenades, 71× Shotgun, 41× Rocket Launcher, 38× Health, 32× Railgun, 32× Slugs, 32× Combat Armor, 31× Machinegun, 29× Chaingun, 28× Bullets, 27× Jacket Armor, 26× Large Health, 24× Grenade Launcher, 14× Mega Health, 12× Super Shotgun, 7× Ammo Pack, 7× Shells, 6× Rockets, 3× HyperBlaster, 2× Small Health, 1× Cells
 - **q2dm2**: 133× Grenades, 87× Health, 76× Bullets, 42× Shells, 39× Machinegun, 36× Chaingun, 36× Shotgun, 35× Grenade Launcher, 33× Rocket Launcher, 28× Rockets, 26× Super Shotgun, 25× Quad Damage, 16× Cells, 2× Mega Health, 2× 
-- **q2dm3**: 122× Health, 89× Armor Shard, 50× Shells, 47× Jacket Armor, 42× Grenades, 32× Shotgun, 25× Machinegun, 23× Railgun, 21× Grenade Launcher, 20× HyperBlaster, 18× Rocket Launcher, 17× Bullets, 12× Rockets, 9× Cells, 7× Combat Armor, 4× Slugs, 1× Super Shotgun
+- **q2dm3**: 127× Health, 92× Armor Shard, 57× Shells, 47× Jacket Armor, 42× Grenades, 32× Shotgun, 25× Railgun, 24× Machinegun, 21× HyperBlaster, 21× Grenade Launcher, 18× Rocket Launcher, 15× Bullets, 13× Rockets, 10× Cells, 7× Combat Armor, 3× Slugs, 1× Super Shotgun
 - **q2dm4**: 76× Grenades, 73× Armor Shard, 72× Health, 66× Small Health, 53× Shotgun, 48× Machinegun, 45× Combat Armor, 30× Super Shotgun, 26× Chaingun, 20× Large Health, 20× BFG10K, 19× Grenade Launcher, 17× Bullets, 14× Rocket Launcher, 8× Cells, 3× Mega Health, 3× Rockets, 2× Body Armor
 - **q2dm5**: 122× Armor Shard, 99× Grenades, 51× Health, 46× Jacket Armor, 39× Super Shotgun, 38× Chaingun, 35× Machinegun, 33× Rocket Launcher, 29× Large Health, 28× Shotgun, 26× Grenade Launcher, 21× Small Health, 18× Railgun, 15× Quad Damage, 8× Mega Health, 5× Combat Armor, 4× Rockets, 3× Shells, 3× Adrenaline, 3× Bullets, 2× Ammo Pack, 1× Slugs
 - **q2dm6**: 141× Armor Shard, 44× Shotgun, 41× Health, 30× Small Health, 27× Jacket Armor, 24× Machinegun, 17× Shells, 13× Bullets, 8× Super Shotgun, 8× Grenade Launcher, 7× Body Armor, 5× Quad Damage, 4× Large Health, 1× Cells
@@ -61,15 +61,15 @@ Even ids get high skill (0.9), odd ids low (0.1). The raw even/odd kill split ca
 
 | Map | high-skill share | control share | corrected shift | high kills | low kills |
 |---|---:|---:|---:|---:|---:|
-| q2dm1 | 73.3% | 56.0% | +17.3pt | 148 | 54 |
+| q2dm1 | 66.2% | 42.4% | +23.9pt | 153 | 78 |
 | q2dm2 | 65.8% | 42.2% | +23.6pt | 152 | 79 |
-| q2dm3 | 63.5% | 45.7% | +17.7pt | 66 | 38 |
+| q2dm3 | 65.0% | 46.0% | +18.9pt | 76 | 41 |
 | q2dm4 | 61.0% | 40.0% | +21.0pt | 50 | 32 |
 | q2dm5 | 62.1% | 46.7% | +15.4pt | 108 | 66 |
 | q2dm6 | 67.1% | 46.6% | +20.5pt | 55 | 27 |
 | q2dm7 | 61.1% | 41.6% | +19.5pt | 69 | 44 |
 | q2dm8 | 65.1% | 47.3% | +17.7pt | 190 | 102 |
-| **mean** | | | **+19.1pt** | | |
+| **mean** | | | **+20.1pt** | | |
 
 ### Humanness (q2dm1 shipped-dm vs ladder MVD humans, 40Hz)
 
@@ -78,6 +78,7 @@ Mean two-sample KS over the movement/view features (lower = more human), fast ya
 | Date | Note | mean KS | microflips/s (human) | snaps |
 |---|---|---:|---:|---:|
 | 2026-10-12 | 2026-10 campaign baseline: native Lin... | 0.1657 | 0.886 (0.085) | 1.89% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 0.1663 | 0.273 (0.085) | 0.18% |
 
 ## Solo nav-collection over time (shipped)
 
@@ -93,6 +94,7 @@ Mean two-sample KS over the movement/view features (lower = more human), fast ya
 | 2026-07-22 | all four perception levers default OF... | 82% | 54% | 55% | 84% | 74% | 53% | 92% | 67% | 70% |
 | 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 86% | 65% | 58% | 78% | 69% | 51% | 93% | 77% | 72% |
 | 2026-10-12 | 2026-10 campaign baseline: native Lin... | 83% | 66% | 58% | 80% | 73% | 41% | 92% | 77% | 71% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 78% | 66% | 57% | 80% | 73% | 41% | 92% | 77% | 71% |
 
 <details><summary>Solo nav-collection over time (cold — from-scratch nav learning)</summary>
 
@@ -108,6 +110,7 @@ Mean two-sample KS over the movement/view features (lower = more human), fast ya
 | 2026-07-22 | all four perception levers default OF... | 71% | 65% | 58% | 83% | 74% | 53% | 53% | 77% | 67% |
 | 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 72% | 65% | 58% | 82% | 69% | 51% | 52% | 79% | 66% |
 | 2026-10-12 | 2026-10 campaign baseline: native Lin... | 68% | 69% | 53% | 84% | 73% | 41% | 60% | 77% | 66% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 71% | 69% | 53% | 84% | 73% | 41% | 60% | 77% | 66% |
 
 </details>
 
@@ -126,6 +129,7 @@ _shipped-dm:_
 | 2026-07-22 | all four perception levers default OF... | 62% | 56% | 52% | 78% | 70% | 46% | 63% | 56% | 60% |
 | 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 63% | 60% | 55% | 77% | 68% | 46% | 63% | 60% | 61% |
 | 2026-10-12 | 2026-10 campaign baseline: native Lin... | 62% | 62% | 55% | 78% | 69% | 47% | 63% | 60% | 62% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 62% | 62% | 55% | 78% | 69% | 47% | 63% | 60% | 62% |
 
 _cold-dm:_
 | Date | Note | q2dm1 | q2dm2 | q2dm3 | q2dm4 | q2dm5 | q2dm6 | q2dm7 | q2dm8 | mean |
@@ -140,6 +144,7 @@ _cold-dm:_
 | 2026-07-22 | all four perception levers default OF... | 55% | 57% | 52% | 74% | 70% | 46% | 42% | 57% | 57% |
 | 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 54% | 61% | 53% | 75% | 68% | 46% | 45% | 60% | 58% |
 | 2026-10-12 | 2026-10 campaign baseline: native Lin... | 55% | 60% | 51% | 76% | 69% | 47% | 46% | 60% | 58% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 55% | 60% | 51% | 76% | 69% | 47% | 46% | 60% | 58% |
 
 </details>
 
@@ -157,6 +162,7 @@ _cold-dm:_
 | 2026-07-22 | all four perception levers default OF... | 135 | 132 | 60 | 47 | 111 | 54 | 98 | 222 | 859 |
 | 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 152 | 147 | 73 | 55 | 93 | 44 | 109 | 222 | 895 |
 | 2026-10-12 | 2026-10 campaign baseline: native Lin... | 146 | 149 | 80 | 37 | 103 | 61 | 81 | 202 | 859 |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 151 | 149 | 83 | 37 | 103 | 61 | 81 | 202 | 867 |
 
 </details>
 

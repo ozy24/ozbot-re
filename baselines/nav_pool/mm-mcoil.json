@@ -1,0 +1,75 @@
+{
+  "map": "mm-mcoil",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/mm-mcoil.nav",
+  "frozen": true,
+  "peak": {
+    "step": 5,
+    "mature_seconds": 450.0,
+    "nodes": 148,
+    "collect": 81.5,
+    "pickups": 295
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 130,
+      "collect": 75.5,
+      "pickups": 210
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 142,
+      "collect": 71.5,
+      "pickups": 201
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 145,
+      "collect": 77.2,
+      "pickups": 230
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 145,
+      "collect": 79.0,
+      "pickups": 264
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 148,
+      "collect": 81.5,
+      "pickups": 295
+    },
+    {
+      "step": 6,
+      "mature_seconds": 540.0,
+      "nodes": 151,
+      "collect": 78.9,
+      "pickups": 250
+    },
+    {
+      "step": 7,
+      "mature_seconds": 630.0,
+      "nodes": 155,
+      "collect": 79.3,
+      "pickups": 256
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Quad Damage",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

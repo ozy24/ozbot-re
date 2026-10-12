@@ -146,6 +146,7 @@ def merge_logs(engine, worker_mods, mapname, out_path):
     keep per-bot path length / K/D honest too; the global sums are unchanged.
     """
     ticks = events = workers_with_data = bad = 0
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)   # a scratch --mod has no logs/ yet
     with open(out_path, "w", encoding="utf-8") as out:
         for i, mod in enumerate(worker_mods, start=1):
             offset = i * BOT_ID_STRIDE

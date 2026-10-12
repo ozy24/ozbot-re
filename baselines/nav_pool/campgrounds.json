@@ -1,0 +1,80 @@
+{
+  "map": "campgrounds",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/campgrounds.nav",
+  "frozen": true,
+  "peak": {
+    "step": 4,
+    "mature_seconds": 360.0,
+    "nodes": 239,
+    "collect": 83.3,
+    "pickups": 225
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 213,
+      "collect": 75.3,
+      "pickups": 180
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 225,
+      "collect": 78.3,
+      "pickups": 213
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 233,
+      "collect": 84.1,
+      "pickups": 217
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 239,
+      "collect": 83.3,
+      "pickups": 225
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 250,
+      "collect": 79.8,
+      "pickups": 194
+    },
+    {
+      "step": 6,
+      "mature_seconds": 540.0,
+      "nodes": 252,
+      "collect": 77.5,
+      "pickups": 179
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Adrenaline",
+      "code": "no_path"
+    },
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenade Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Railgun",
+      "code": "no_path"
+    },
+    {
+      "item": "Slugs",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

@@ -120,6 +120,9 @@ typedef struct
 	float		goal_start;
 	float		goal_fight;
 	float		goal_best_time;
+	// bot_budgetext: last path_idx seen this attempt and when it advanced
+	int			goal_idx_last;
+	float		goal_idx_time;
 	int			pending_link;	// link type to record on next learn step
 	// mid-attempt reroute (bot_reroutemid): watch path_idx for a pure-nav stall
 	int			reroute_last_idx;	// path_idx at the last observed advance
@@ -421,11 +424,13 @@ int Bot_LinkType (int from, int to);	// NAV_LINK_* of from->to, or -1
 // skips path following/stuck recovery and freezes the goal-budget clock --
 // align waiting must not be billed, like a lift wait).
 void Playbook_Load (const char *mapname);	// parse <gamedir>/playbooks/<map>.pbk
+qboolean Playbook_StandingStart (bot_t *b);	// active entry is a standing start
 void Playbook_Register (void);				// seed nodes + inject PLAYBOOK links
 qboolean Bot_PlaybackThink (bot_t *b);
 void Bot_PlaybackReset (bot_t *b);
 extern cvar_t	*bot_playbook;
 extern cvar_t	*bot_pbalign;
+extern cvar_t	*bot_budgetext;
 
 // strafe-jump qualification funnel (diagnosis only; bot_sjlog >= 2)
 #define SJ_DIAG_QUALIFY		0	// SJ_QualifyRunway calls

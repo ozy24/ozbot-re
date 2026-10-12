@@ -1,0 +1,99 @@
+{
+  "map": "mm-fleshref",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/mm-fleshref.nav",
+  "frozen": true,
+  "peak": {
+    "step": 1,
+    "mature_seconds": 90.0,
+    "nodes": 148,
+    "collect": 82.1,
+    "pickups": 147
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 148,
+      "collect": 82.1,
+      "pickups": 147
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 172,
+      "collect": 67.4,
+      "pickups": 147
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 178,
+      "collect": 69.2,
+      "pickups": 146
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Adrenaline",
+      "code": "no_path"
+    },
+    {
+      "item": "Bullets",
+      "code": "no_path"
+    },
+    {
+      "item": "Cells",
+      "code": "no_path"
+    },
+    {
+      "item": "Chaingun",
+      "code": "no_path"
+    },
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Health",
+      "code": "no_path"
+    },
+    {
+      "item": "HyperBlaster",
+      "code": "no_path"
+    },
+    {
+      "item": "Jacket Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Large Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Mega Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Power Screen",
+      "code": "no_path"
+    },
+    {
+      "item": "Railgun",
+      "code": "no_path"
+    },
+    {
+      "item": "Rockets",
+      "code": "no_path"
+    },
+    {
+      "item": "Small Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Super Shotgun",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

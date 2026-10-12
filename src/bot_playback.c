@@ -43,6 +43,7 @@ different maneuver).
 
 cvar_t	*bot_playbook;	// master gate (inert when no playbook file exists)
 cvar_t	*bot_pbalign;	// standing-start ALIGN settle fix (0 = pre-fix, byte-identical)
+cvar_t	*bot_budgetext;	// goal-budget extension while progressing (bot_main.c)
 
 #define PB_MAX_ENTRIES		16
 #define PB_MAX_TICKS		600		// 15s at 40Hz
@@ -183,6 +184,24 @@ Nav_TagPlatLinks).  The links are never saved (Nav_Save filters the type), so
 with bot_playbook off -- or the file absent -- the on-disk graph is untouched.
 =================
 */
+/*
+=================
+Playbook_StandingStart
+
+True when the bot's active entry is a standing start (min_speed < 60).  Only
+those ALIGNs may slew the view (bot_pbalign): a moving-start run-up turns ~180
+at its staging point and crosses the anchor at ~300ups a fraction of a second
+later, so a slewed view misses the facing gate and the entry loops to its
+align timeout (measured: rl_walkway 0 -> 10 align aborts / 16 solo bots).
+=================
+*/
+qboolean Playbook_StandingStart (bot_t *b)
+{
+	if (b->pb_entry < 0 || b->pb_entry >= pb_num_entries)
+		return false;
+	return pb_entries[b->pb_entry].min_speed < 60.0f;
+}
+
 void Playbook_Register (void)
 {
 	int	i;
@@ -627,24 +646,27 @@ qboolean Bot_PlaybackThink (bot_t *b)
 			vec3_t	aim_ang = {0, 0, 0};
 			float	mag;
 
-			// bot_pbalign: the pre-fix branch below limit-cycles on the
-			// pos_tol boundary when the bot sits on the far side of the anchor
-			// along its heading -- inside, the press carries it back out;
-			// outside, it turns ~180 to walk back in.  The view flipped every
-			// 2-3 ticks and the engage gate (position + facing + speed<=25,
-			// held for the dwell) could never pass: measured 41 of 177 q2dm1
-			// align attempts burning the full 8s timeout, 20% of align ticks a
-			// >90 deg single-tick snap.  Fix: inside 2x pos_tol face the
-			// recorded heading and walk (backpedal/strafe -- movement is
-			// decoupled from facing) onto the anchor itself; press only once
-			// centred.
-			if (bot_pbalign->value != 0 && hdist <= 2.0f * e->pos_tol
-				&& hdist > 0.5f * e->pos_tol)
+			// bot_pbalign: the pre-fix branch limit-cycles on the pos_tol
+			// boundary when the bot sits PAST the anchor along its heading --
+			// inside, the press carries it back out; outside, it turns ~180 to
+			// walk back in.  The view flipped every 2-3 ticks and the engage
+			// gate (position + facing + speed<=25, held for the dwell) could
+			// never pass: measured 41 of 177 q2dm1 align attempts burning the
+			// full 8s timeout, 20% of align ticks a >90 deg single-tick snap.
+			// Fix, touching only the failing cases (v1 also re-steered INSIDE
+			// pos_tol and broke wall-jammed anchors like mh_jump, whose press
+			// into the wall is what makes speed<=25 -- engages 140->72):
+			//   1-2x pos_tol: keep facing the recorded heading while walking
+			//     back in (movement is decoupled from facing) -- no 180 turn;
+			//   inside: press as before, unless already past the anchor along
+			//     the heading -- then hold, so the slide bleeds to the gate.
+			if (bot_pbalign->value != 0 && hdist > e->pos_tol
+				&& hdist <= 2.0f * e->pos_tol)
 			{
 				VectorCopy (d, aim);
 				aim[2] = 0;
 				if (VectorNormalize (aim) > 1.0f)
-					VectorScale (aim, (hdist > 12.0f) ? 0.6f : 0.35f, b->move_dir);
+					VectorScale (aim, 0.6f, b->move_dir);
 				else
 					VectorClear (b->move_dir);
 				b->move_yaw = e->anchor_yaw;
@@ -673,7 +695,10 @@ qboolean Bot_PlaybackThink (bot_t *b)
 				fwd[2] = 0;
 				VectorNormalize (fwd);
 				mag = (speed > 40.0f) ? 0.35f : 0.55f;
-				VectorScale (fwd, mag, b->move_dir);
+				if (bot_pbalign->value != 0 && DotProduct (d, fwd) < -4.0f)
+					VectorClear (b->move_dir);	// past the anchor: don't press away
+				else
+					VectorScale (fwd, mag, b->move_dir);
 				b->move_yaw = e->anchor_yaw;
 				b->pb_yaw = e->anchor_yaw;
 			}

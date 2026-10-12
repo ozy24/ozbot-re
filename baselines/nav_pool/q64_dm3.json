@@ -1,0 +1,76 @@
+{
+  "map": "q64/dm3",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/q64_dm3.nav",
+  "frozen": true,
+  "peak": {
+    "step": 4,
+    "mature_seconds": 360.0,
+    "nodes": 177,
+    "collect": 78.4,
+    "pickups": 268
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 134,
+      "collect": 77.9,
+      "pickups": 102
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 150,
+      "collect": 77.9,
+      "pickups": 74
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 162,
+      "collect": 80.0,
+      "pickups": 136
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 177,
+      "collect": 78.4,
+      "pickups": 268
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 185,
+      "collect": 69.9,
+      "pickups": 188
+    },
+    {
+      "step": 6,
+      "mature_seconds": 540.0,
+      "nodes": 189,
+      "collect": 75.9,
+      "pickups": 230
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "BFG10K",
+      "code": "no_path"
+    },
+    {
+      "item": "Cells",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenade Launcher",
+      "code": "gated"
+    },
+    {
+      "item": "Grenades",
+      "code": "gated"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}
