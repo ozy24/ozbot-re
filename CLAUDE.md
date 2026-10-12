@@ -427,6 +427,36 @@ PB_ALIGN only (REPLAY must stay exact), then A/B pb_done/abort.
 Caches: `demos/derived/humanness/{human_mvd_all,human_mvd_all_10hz,human_q2dm1_full,
 bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
 
+## 2026-10 campaign tools and results (branch `campaign-2026-10`)
+
+The full record is in `plans/in progress/general-improvement-2026-10.md`.
+
+- **`tools/lever_audit.py`:** a liveness probe for every default-ON lever.
+  - It flips each one off on the same seed, per map. An unchanged behaviour md5 means
+    that lever's code path never fired on that map.
+  - Result: no dead paths. Don't put the `bot_aimtest` multipliers
+    (`bot_aimerr`/`aimfire`/`aimreact`/`aimturn`) back on the lever list.
+- **`tools/mine_giveups.py`:** why item goals get abandoned. The giveup event carries
+  budget/elapsed/frozen/fight/noprog.
+  - q2dm1: **37% follow a playbook abort**, 32% slow, 25% stalled, 2% fight.
+- **`tools/ab_cvar.py <cvar> <ctrl> <treat...>`:** paired same-seed A/B on the pinned
+  benchmark navs, with the giveup-class shift per arm.
+  - ⚠️ **Never A/B on the live gamedir.** `bot_pbalign` read +8% deathmatch / flat
+    solo on the live q2dm1 nav, but −10.6% solo on the pinned nav. The two differ by
+    2 nodes.
+  - ⚠️ **Never launch the engine directly on an A/B source gamedir.** It learns and
+    autosaves into that gamedir's nav.
+- **`tools/ladder_pool.py` → `POOL.md`:** the duel ladder's 17-map pool, with
+  `gen_nav` navs in `baselines/nav_pool/` and solo + duel (2 bots) rigs.
+- **`bot_pbalign`** (default 0): playbook ALIGN settle fix.
+  - Deathmatch +4–10% and snaps 1.7%→0.2% on q2dm1. **Off because solo regresses on
+    the pinned nav.**
+  - It is also most of the bot's 40Hz view jitter: micro-flips 0.89→0.27/s.
+  - Never slew a moving-start ALIGN: the run-up crosses the anchor ~0.3 s after
+    turning ~180°.
+- **`bot_budgetext`** (default 0): REJECTED. Giveups −18–36% but pickups −2–7%.
+  Extended attempts reach the node after the item is gone.
+
 ## Perception: sight-loss pursuit (demo-mined)
 
 `bot_pursuit` (default **0**, OFF — behavior built and bounded, benefit unproven)

@@ -197,3 +197,56 @@ repo; Chris's call.
   it?
 - **Captures for 4a.** Are you willing to record targeted playbook takes once the
   per-map list exists?
+
+---
+
+# RESULTS (in progress, branch `campaign-2026-10`)
+
+## Phase 0: DONE
+- **Native Linux rig** (`ebc6e4d`, `4c168775` on q2repro): about 2–4 s per 16×90 run.
+  Same-seed runs are bit-identical. Results match the Windows DLL within noise on all 8
+  maps (the baseline snapshot matches July's: shipped-solo mean 71% vs 72%).
+- **Fresh baseline:** `a3ee586`.
+- **Humanness row:** mean KS 0.166, micro-flips 0.89/s (human 0.085), snaps 1.89%.
+
+## Phase 1: done except 1c
+- **1a lever audit** (`tools/lever_audit.py`, 8 maps × 42 levers, same-seed md5
+  probe): **no dead paths.**
+  - Every inert reading is explained by the map.
+  - `bot_aimerr`/`aimfire`/`aimreact`/`aimturn` are inert by design: they are
+    `bot_aimtest` multipliers.
+- **1b `bot_pbalign`: built and diagnosed, left OFF (opt-in).**
+  - **Finding:** the playbook ALIGN phase limit-cycles on the `pos_tol` boundary. 20%
+    of align ticks are >90° snaps, and **37% of q2dm1 giveups follow a playbook
+    abort** (`tools/mine_giveups.py`).
+  - **v1:** broke wall-jammed anchors (engages 140→72).
+  - **v2:** solo −23% on the pinned nav. Its view slew broke moving-start run-ups.
+  - **v3, 6 banks × 2 navs:** deathmatch **+4.1% / +10.2%** (11/12 banks up), align
+    aborts 179→7, snaps →0.2%. But **solo −10.6% on the pinned nav** (0/6 up), so the
+    headline regresses.
+  - **The open question for v3 is solo around the GL/lift area.** That's where the
+    loss sits (Grenades −27, GL −16).
+- **1c 40Hz humanness re-profile:** TODO. Note that with `bot_pbalign=1`, micro-flips
+  fall 0.89→0.27/s, so **most of the bot's 40Hz view jitter IS the ALIGN bug.** Fixing
+  1b properly is also the biggest humanness lever.
+
+## Phase 2: 2a done, 2b TODO
+- **2a giveup taxonomy, q2dm1:** pb_abort 37%, slow 32%, stalled 25%, at_node 4%,
+  fight 2%.
+- **`bot_budgetext`: REJECTED.**
+  - The idea: extend an expired budget while the bot is still progressing.
+  - Giveups fell 18–36%, but pickups fell 2–7% on every map and rig.
+  - Extended attempts end at the goal node with the item gone (at_node 69→197).
+  - Same lesson as `bot_commit`: drop a slow item and take a closer one. **Giveups
+    are not the cost; the time is.** The 15 s cap stands.
+
+## Phase 4 (ladder pool, added at Chris's request): baseline DONE
+- **`tools/ladder_pool.py` + `POOL.md`:** all 17 ranked-duel pool maps load and play.
+- **Long-tail navs:** the 14 maps with `gen_nav` navs (FROZEN, `baselines/nav_pool/`)
+  reach **78–90% solo COLLECT**. That's at or above the curated q2dm1–3 navs.
+- **The gap is reachability, not execution:**
+  - mm-fleshref: 22/33 items no-path
+  - q64/dm4: 13 no-path
+  - mm-rage: 17 gated
+- **Fixed on the way:** maps in subfolders (`q64/dm3`) silently lost nav saves and
+  telemetry. `Bot_MapFileName` now flattens them to `q64_dm3`.
