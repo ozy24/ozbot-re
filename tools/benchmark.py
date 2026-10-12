@@ -264,9 +264,9 @@ def pin_shipped(engine):
     os.makedirs(PINNED_NAV_SHIPPED, exist_ok=True)
     live, filled = 0, 0
     for m in ALL_MAPS:
-        live_nav = os.path.join(engine, CANON_MOD, "nav", f"{m}.nav")
-        cold_nav = os.path.join(PINNED_NAV, f"{m}.nav")
-        dst = os.path.join(PINNED_NAV_SHIPPED, f"{m}.nav")
+        live_nav = os.path.join(engine, CANON_MOD, "nav", f"{rp.rig_platform.map_file(m)}.nav")
+        cold_nav = os.path.join(PINNED_NAV, f"{rp.rig_platform.map_file(m)}.nav")
+        dst = os.path.join(PINNED_NAV_SHIPPED, f"{rp.rig_platform.map_file(m)}.nav")
         if os.path.isfile(live_nav):
             shutil.copy2(live_nav, dst); live += 1
         elif os.path.isfile(cold_nav):
@@ -307,11 +307,11 @@ def mature_map(engine, exe, mapname, seconds, bots, seed):
         time.sleep(1.0)
     rp.stop([proc])
 
-    nav = os.path.join(engine, worker, "nav", f"{mapname}.nav")
+    nav = os.path.join(engine, worker, "nav", f"{rp.rig_platform.map_file(mapname)}.nav")
     n = nav_node_count(nav)
     staged = None
     if n:
-        staged = os.path.join(engine, MATURE_SRC, f"{mapname}.nav.staged")
+        staged = os.path.join(engine, MATURE_SRC, f"{rp.rig_platform.map_file(mapname)}.nav.staged")
         shutil.copy2(nav, staged)
     shutil.rmtree(os.path.join(engine, worker), ignore_errors=True)
     return staged, n
@@ -345,7 +345,7 @@ def run_map(engine, exe, mapname, args, bots, extra_cvars=None):
 
     logs_dir = os.path.join(engine, BENCH_MOD, "logs")
     os.makedirs(logs_dir, exist_ok=True)
-    out_path = os.path.join(logs_dir, f"bench_{mapname}.jsonl")
+    out_path = os.path.join(logs_dir, f"bench_{rp.rig_platform.map_file(mapname)}.jsonl")
     ticks, events, nw, bad = rp.merge_logs(engine, worker_mods, mapname, out_path)
     for mod in worker_mods:
         shutil.rmtree(os.path.join(engine, mod), ignore_errors=True)
@@ -729,7 +729,7 @@ def main(argv):
             if not staged:
                 log(f"  {m}: WARNING produced no nav -- skipped")
                 continue
-            shutil.copy2(staged, os.path.join(PINNED_NAV, f"{m}.nav"))
+            shutil.copy2(staged, os.path.join(PINNED_NAV, f"{rp.rig_platform.map_file(m)}.nav"))
             log(f"  {m}: {n} nodes -> baselines/nav/")
         shutil.rmtree(os.path.join(engine, MATURE_SRC), ignore_errors=True)
         log("normalized nav baseline rebuilt (live engine navs untouched). "
@@ -752,7 +752,7 @@ def main(argv):
             met = run_map(engine, exe, m, args, bots)
             if met and vname == V_SHIPPED_DM and m == HUMAN_MAP:
                 humanness = humanness_summary(
-                    os.path.join(engine, BENCH_MOD, "logs", f"bench_{m}.jsonl"))
+                    os.path.join(engine, BENCH_MOD, "logs", f"bench_{rp.rig_platform.map_file(m)}.jsonl"))
                 if humanness:
                     log(f"  {m} [humanness vs MVD 40Hz]: mean KS {humanness['mean_ks']}  "
                         f"microflips {humanness['microflips_bot']}/s (human "

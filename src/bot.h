@@ -572,6 +572,7 @@ void Goal_SaveFails (const char *mapname);	// write item_fails>0 to <map>.fail (
 // bot_log.c
 //
 const char *Bot_GameDir (void);
+const char *Bot_MapFileName (const char *mapname);
 const char *Bot_ItemName (edict_t *ent);	// telemetry label; disambiguates the item_health_* family (all share one "Health" gitem -- key off the edict classname)
 void Bot_LogItemEvent (bot_t *b, const char *event, const char *item);
 void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fighting,

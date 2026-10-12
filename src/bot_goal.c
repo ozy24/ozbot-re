@@ -67,7 +67,7 @@ static qboolean		fail_key_set[MAX_EDICTS];
 static void Fail_Path (const char *mapname, char *out, int outsize)
 {
 	Com_sprintf (out, outsize, "%s/nav/%s.fail",
-		Bot_GameDir(), (mapname && mapname[0]) ? mapname : "unknown");
+		Bot_GameDir(), Bot_MapFileName (mapname));
 }
 
 // snapshot the (classname, origin) key of every live item edict, indexed the

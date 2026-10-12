@@ -20,6 +20,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_ENGINE = os.path.join(REPO, "engine")
 
 
+def map_file(mapname):
+    """Map name as a flat file stem, matching the DLL's Bot_MapFileName:
+    'q64/dm3' -> 'q64_dm3' (nav/log/playbook files never live in subfolders)."""
+    return mapname.replace("/", "_").replace("\\", "_")
+
+
 def native_available(engine=DEFAULT_ENGINE):
     return os.name != "nt" and os.path.isfile(os.path.join(engine, "q2reproded"))
 

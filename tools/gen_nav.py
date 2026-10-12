@@ -119,14 +119,14 @@ def probe(engine, exe, mapname, nav_file, seconds, instances, seed, skill, base_
     Returns (metrics_dict_or_None, reach_records)."""
     tmp = tempfile.mkdtemp(prefix="gennav_probe_")
     try:
-        shutil.copy2(nav_file, os.path.join(tmp, f"{mapname}.nav"))
+        shutil.copy2(nav_file, os.path.join(tmp, f"{rp.rig_platform.map_file(mapname)}.nav"))
         bench.prepare_bench_mod(engine, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     metrics = bench.run_map(engine, exe, mapname,
                             _probe_args(seconds, instances, seed, skill, base_port), bots=1)
     reach = []
-    out_path = os.path.join(engine, bench.BENCH_MOD, "logs", f"bench_{mapname}.jsonl")
+    out_path = os.path.join(engine, bench.BENCH_MOD, "logs", f"bench_{rp.rig_platform.map_file(mapname)}.jsonl")
     if os.path.isfile(out_path):
         _t, _e, reach, _b = bench.rp_load(out_path)
     return metrics, reach
@@ -153,7 +153,7 @@ def mature_to_peak(engine, exe, mapname, args):
     checkpoints = []
     best = None
     stale = 0
-    scratch = tempfile.mkdtemp(prefix=f"gennav_{mapname}_")
+    scratch = tempfile.mkdtemp(prefix=f"gennav_{rp.rig_platform.map_file(mapname)}_")
     try:
         secs = args.interval
         step = 0
@@ -167,7 +167,7 @@ def mature_to_peak(engine, exe, mapname, args):
                 print(f"[gen_nav]   no nodes learned at {secs:.0f}s; growing more", flush=True)
                 secs += args.interval
                 continue
-            snap = os.path.join(scratch, f"{mapname}.{step}.nav")
+            snap = os.path.join(scratch, f"{rp.rig_platform.map_file(mapname)}.{step}.nav")
             shutil.copy2(staged, snap)
 
             metrics, reach = probe(engine, exe, mapname, snap, args.probe_seconds,
@@ -211,7 +211,7 @@ def generate_one(engine, exe, mapname, args):
         print(f"[gen_nav] {mapname}: FAILED -- no nodes learned", flush=True)
         return {"map": mapname, "ok": False, "reason": "no-nodes",
                 "checkpoints": checkpoints}, 3
-    out = args.out or os.path.join(engine, bench.CANON_MOD, "nav", f"{mapname}.nav")
+    out = args.out or os.path.join(engine, bench.CANON_MOD, "nav", f"{rp.rig_platform.map_file(mapname)}.nav")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     shutil.copy2(best["snap"], out)
     shutil.rmtree(scratch, ignore_errors=True)

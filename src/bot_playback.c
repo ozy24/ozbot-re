@@ -101,7 +101,8 @@ void Playbook_Load (const char *mapname)
 	if (bot_playbook->value == 0)
 		return;
 
-	Com_sprintf (path, sizeof(path), "%s/playbooks/%s.pbk", Bot_GameDir (), mapname);
+	Com_sprintf (path, sizeof(path), "%s/playbooks/%s.pbk", Bot_GameDir (),
+		Bot_MapFileName (mapname));
 	f = fopen (path, "r");
 	if (!f)
 		return;					// no playbook for this map: stay inert

@@ -1285,7 +1285,7 @@ void Nav_MaskNames (int mask, char *out, int outsize)
 static void Nav_Path (const char *mapname, char *out, int outsize)
 {
 	Com_sprintf (out, outsize, "%s/nav/%s.nav",
-		Bot_GameDir(), (mapname && mapname[0]) ? mapname : "unknown");
+		Bot_GameDir(), Bot_MapFileName (mapname));
 }
 
 /*

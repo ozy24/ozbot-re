@@ -67,24 +67,24 @@ def setup_worker(engine, src_mod, worker_mod, mapname, dll_name):
         sys.exit(f"FAIL: {dll} not found -- run build.bat + deploy.bat first.")
     shutil.copy2(dll, os.path.join(wdir, dll_name))
 
-    nav = os.path.join(engine, src_mod, "nav", f"{mapname}.nav")
+    nav = os.path.join(engine, src_mod, "nav", f"{rig_platform.map_file(mapname)}.nav")
     if os.path.isfile(nav):
-        shutil.copy2(nav, os.path.join(wdir, "nav", f"{mapname}.nav"))
+        shutil.copy2(nav, os.path.join(wdir, "nav", f"{rig_platform.map_file(mapname)}.nav"))
     else:
         log(f"warning: {nav} not found -- worker '{worker_mod}' starts cold.")
 
     # failure-knowledge sidecar (bot_failpersist, P4a): per-item giveup counts
     # persisted alongside the nav; absent file = feature inert
-    fail = os.path.join(engine, src_mod, "nav", f"{mapname}.fail")
+    fail = os.path.join(engine, src_mod, "nav", f"{rig_platform.map_file(mapname)}.fail")
     if os.path.isfile(fail):
-        shutil.copy2(fail, os.path.join(wdir, "nav", f"{mapname}.fail"))
+        shutil.copy2(fail, os.path.join(wdir, "nav", f"{rig_platform.map_file(mapname)}.fail"))
 
     # playbooks (ozbot-re Phase R4): recorded maneuvers the DLL loads at map
     # start; absent file = feature inert
-    pbk = os.path.join(engine, src_mod, "playbooks", f"{mapname}.pbk")
+    pbk = os.path.join(engine, src_mod, "playbooks", f"{rig_platform.map_file(mapname)}.pbk")
     if os.path.isfile(pbk):
         os.makedirs(os.path.join(wdir, "playbooks"), exist_ok=True)
-        shutil.copy2(pbk, os.path.join(wdir, "playbooks", f"{mapname}.pbk"))
+        shutil.copy2(pbk, os.path.join(wdir, "playbooks", f"{rig_platform.map_file(mapname)}.pbk"))
     return wdir
 
 
@@ -150,7 +150,7 @@ def merge_logs(engine, worker_mods, mapname, out_path):
         for i, mod in enumerate(worker_mods, start=1):
             offset = i * BOT_ID_STRIDE
             files = sorted(glob.glob(
-                os.path.join(engine, mod, "logs", f"{mapname}_*.jsonl")))
+                os.path.join(engine, mod, "logs", f"{rig_platform.map_file(mapname)}_*.jsonl")))
             if not files:
                 log(f"warning: worker '{mod}' produced no telemetry.")
                 continue
@@ -264,7 +264,7 @@ def main(argv):
     log(f"servers stopped." + (f" (nonzero exit from #{dead})" if dead else ""))
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    out_path = os.path.join(engine, args.mod, "logs", f"parallel_{args.map}_{stamp}.jsonl")
+    out_path = os.path.join(engine, args.mod, "logs", f"parallel_{rig_platform.map_file(args.map)}_{stamp}.jsonl")
     ticks, events, nw, bad = merge_logs(engine, worker_mods, args.map, out_path)
     log(f"merged {ticks} ticks + {events} events from {nw}/{args.instances} servers "
         f"-> {out_path}" + (f"  ({bad} truncated lines skipped)" if bad else ""))

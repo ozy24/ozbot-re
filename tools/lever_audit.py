@@ -40,9 +40,12 @@ import benchmark as bm      # compute_metrics
 # Default-ON behaviour levers and the value that switches each one off.
 # Parameters (bot_skill, bot_budgetcap, bot_forwardspeed, bot_stucktime,
 # bot_pursuitcost) and pure logging (bot_reachlog) are deliberately absent.
+# bot_aimerr/aimfire/aimreact/aimturn are excluded too: they are bot_aimtest
+# sweep multipliers (1 = identity, applied only to the harness's even ids), so
+# they are inert by design -- the first audit flagged them on all 8 maps.
 LEVERS = [
-    "bot_aimerr", "bot_aimfire", "bot_aimflick", "bot_aimprec", "bot_aimreact",
-    "bot_aimsmooth", "bot_aimtexture", "bot_aimturn", "bot_ammoneed",
+    "bot_aimflick", "bot_aimprec",
+    "bot_aimsmooth", "bot_aimtexture", "bot_ammoneed",
     "bot_blastertransit", "bot_claim", "bot_commit", "bot_decisive", "bot_fidget",
     "bot_flee", "bot_fov", "bot_gaze", "bot_gazelife", "bot_goalbudget",
     "bot_hazard", "bot_hop", "bot_itemfail", "bot_jumppad", "bot_ladder",

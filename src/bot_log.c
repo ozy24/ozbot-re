@@ -51,6 +51,29 @@ const char *Bot_GameDir (void)
 
 /*
 =================
+Bot_MapFileName
+
+The map name as a flat file-name stem: maps in a subfolder (the rerelease's
+"q64/dm3") would otherwise point nav/log/playbook paths into a directory that
+never exists, and every save would silently fail.  '/' and '\\' become '_'
+("q64_dm3"); a stock name passes through unchanged.  Returns a static buffer.
+=================
+*/
+const char *Bot_MapFileName (const char *mapname)
+{
+	static char	buf[MAX_QPATH];
+	int			i;
+
+	if (!mapname || !mapname[0])
+		return "unknown";
+	for (i = 0; mapname[i] && i < (int)sizeof(buf) - 1; i++)
+		buf[i] = (mapname[i] == '/' || mapname[i] == '\\') ? '_' : mapname[i];
+	buf[i] = 0;
+	return buf;
+}
+
+/*
+=================
 Bot_LogBeginLevel
 
 Opens a fresh telemetry file for the given map.  Closes any previous file.
@@ -77,7 +100,7 @@ void Bot_LogBeginLevel (const char *mapname)
 	OZ_MKDIR (dir);	// ignore "already exists"
 
 	Com_sprintf (path, sizeof(path), "%s/%s_%s.jsonl",
-		dir, (mapname && mapname[0]) ? mapname : "unknown", stamp);
+		dir, Bot_MapFileName (mapname), stamp);
 
 	log_fp = fopen (path, "w");
 	if (!log_fp)

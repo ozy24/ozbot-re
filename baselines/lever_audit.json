@@ -1,0 +1,2222 @@
+{
+ "rig": {
+  "maps": "q2dm1,q2dm2,q2dm3,q2dm4,q2dm5,q2dm6,q2dm7,q2dm8",
+  "levers": "bot_aimerr,bot_aimfire,bot_aimflick,bot_aimprec,bot_aimreact,bot_aimsmooth,bot_aimtexture,bot_aimturn,bot_ammoneed,bot_blastertransit,bot_claim,bot_commit,bot_decisive,bot_fidget,bot_flee,bot_fov,bot_gaze,bot_gazelife,bot_goalbudget,bot_hazard,bot_hop,bot_itemfail,bot_jumppad,bot_ladder,bot_lead,bot_lift,bot_liftcommit,bot_losfinal,bot_navlearn,bot_pathcost,bot_playbook,bot_reroute,bot_reroutemid,bot_rollout,bot_strafejump,bot_swim,bot_teleport,bot_train,bot_turnrate,bot_watersight,bot_wpnneed,bot_wpntactic",
+  "instances": 16,
+  "seconds": 60.0,
+  "bots": 5,
+  "seed": 700,
+  "json": "baselines/lever_audit.json"
+ },
+ "results": {
+  "q2dm1": {
+   "baseline": {
+    "md5": "89bf9eeb",
+    "pickups": 488,
+    "frags": 92,
+    "deaths": 97
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "7a6c5f2c",
+     "pickups": 463,
+     "frags": 14,
+     "deaths": 15,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "e0822aed",
+     "pickups": 503,
+     "frags": 106,
+     "deaths": 107,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "a952a986",
+     "pickups": 499,
+     "frags": 96,
+     "deaths": 103,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "5d4f943b",
+     "pickups": 483,
+     "frags": 74,
+     "deaths": 77,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "43985b5a",
+     "pickups": 556,
+     "frags": 95,
+     "deaths": 101,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "30d95d7b",
+     "pickups": 460,
+     "frags": 93,
+     "deaths": 99,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "2b2be9dc",
+     "pickups": 493,
+     "frags": 106,
+     "deaths": 116,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "7d82ce1c",
+     "pickups": 413,
+     "frags": 108,
+     "deaths": 114,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "e6dae0ce",
+     "pickups": 346,
+     "frags": 85,
+     "deaths": 91,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "24fcfc71",
+     "pickups": 545,
+     "frags": 94,
+     "deaths": 95,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "22a437e7",
+     "pickups": 519,
+     "frags": 100,
+     "deaths": 114,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "24148ac2",
+     "pickups": 494,
+     "frags": 106,
+     "deaths": 115,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "e268446d",
+     "pickups": 510,
+     "frags": 108,
+     "deaths": 118,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "35d3bd4a",
+     "pickups": 525,
+     "frags": 97,
+     "deaths": 106,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "3f81bfd5",
+     "pickups": 516,
+     "frags": 98,
+     "deaths": 105,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "89bf9eeb",
+     "pickups": 488,
+     "frags": 92,
+     "deaths": 97,
+     "inert": true
+    },
+    "bot_hop": {
+     "md5": "63b0095d",
+     "pickups": 519,
+     "frags": 90,
+     "deaths": 99,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "139743a9",
+     "pickups": 496,
+     "frags": 91,
+     "deaths": 94,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "89bf9eeb",
+     "pickups": 488,
+     "frags": 92,
+     "deaths": 97,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "89bf9eeb",
+     "pickups": 488,
+     "frags": 92,
+     "deaths": 97,
+     "inert": true
+    },
+    "bot_lead": {
+     "md5": "04ab7a9e",
+     "pickups": 496,
+     "frags": 97,
+     "deaths": 100,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "aa21b23c",
+     "pickups": 458,
+     "frags": 121,
+     "deaths": 131,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "0dfc02e9",
+     "pickups": 439,
+     "frags": 104,
+     "deaths": 113,
+     "inert": false
+    },
+    "bot_losfinal": {
+     "md5": "46b10a66",
+     "pickups": 485,
+     "frags": 111,
+     "deaths": 117,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "6d2eda76",
+     "pickups": 506,
+     "frags": 90,
+     "deaths": 101,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "cca1972b",
+     "pickups": 210,
+     "frags": 96,
+     "deaths": 112,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "3c7ca477",
+     "pickups": 489,
+     "frags": 118,
+     "deaths": 124,
+     "inert": false
+    },
+    "bot_reroute": {
+     "md5": "6df6cee0",
+     "pickups": 496,
+     "frags": 86,
+     "deaths": 91,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "175bdddd",
+     "pickups": 493,
+     "frags": 83,
+     "deaths": 89,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "237fae8d",
+     "pickups": 495,
+     "frags": 87,
+     "deaths": 87,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "4205a8c4",
+     "pickups": 497,
+     "frags": 90,
+     "deaths": 91,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "3e296783",
+     "pickups": 481,
+     "frags": 99,
+     "deaths": 109,
+     "inert": false
+    },
+    "bot_teleport": {
+     "md5": "89bf9eeb",
+     "pickups": 488,
+     "frags": 92,
+     "deaths": 97,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "89bf9eeb",
+     "pickups": 488,
+     "frags": 92,
+     "deaths": 97,
+     "inert": true
+    },
+    "bot_turnrate": {
+     "md5": "8300d928",
+     "pickups": 499,
+     "frags": 100,
+     "deaths": 111,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "64db6981",
+     "pickups": 501,
+     "frags": 92,
+     "deaths": 98,
+     "inert": false
+    },
+    "bot_wpnneed": {
+     "md5": "8e3f1f65",
+     "pickups": 508,
+     "frags": 110,
+     "deaths": 115,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "2c3e708b",
+     "pickups": 509,
+     "frags": 83,
+     "deaths": 87,
+     "inert": false
+    }
+   }
+  },
+  "q2dm2": {
+   "baseline": {
+    "md5": "2c39fcab",
+    "pickups": 392,
+    "frags": 91,
+    "deaths": 98
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "7f080961",
+     "pickups": 366,
+     "frags": 15,
+     "deaths": 23,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "6fa4cc4c",
+     "pickups": 387,
+     "frags": 78,
+     "deaths": 89,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "e3f9d8eb",
+     "pickups": 414,
+     "frags": 103,
+     "deaths": 122,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "9aedbb49",
+     "pickups": 423,
+     "frags": 101,
+     "deaths": 115,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "42afda29",
+     "pickups": 462,
+     "frags": 65,
+     "deaths": 76,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "11ff6e21",
+     "pickups": 431,
+     "frags": 93,
+     "deaths": 115,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "469a848a",
+     "pickups": 356,
+     "frags": 104,
+     "deaths": 129,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "314e8373",
+     "pickups": 272,
+     "frags": 117,
+     "deaths": 133,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "974b9428",
+     "pickups": 299,
+     "frags": 84,
+     "deaths": 105,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "fc6c946b",
+     "pickups": 412,
+     "frags": 96,
+     "deaths": 109,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "49fd0de8",
+     "pickups": 427,
+     "frags": 99,
+     "deaths": 108,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "995f041a",
+     "pickups": 383,
+     "frags": 107,
+     "deaths": 123,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "269e66da",
+     "pickups": 397,
+     "frags": 118,
+     "deaths": 131,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "8653331a",
+     "pickups": 400,
+     "frags": 99,
+     "deaths": 119,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "e96d1d2d",
+     "pickups": 409,
+     "frags": 94,
+     "deaths": 107,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "2c39fcab",
+     "pickups": 392,
+     "frags": 91,
+     "deaths": 98,
+     "inert": true
+    },
+    "bot_hop": {
+     "md5": "980ca3f2",
+     "pickups": 422,
+     "frags": 98,
+     "deaths": 117,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "6898de1e",
+     "pickups": 370,
+     "frags": 105,
+     "deaths": 113,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "2c39fcab",
+     "pickups": 392,
+     "frags": 91,
+     "deaths": 98,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "db11860f",
+     "pickups": 386,
+     "frags": 94,
+     "deaths": 106,
+     "inert": false
+    },
+    "bot_lead": {
+     "md5": "dba1c22a",
+     "pickups": 424,
+     "frags": 86,
+     "deaths": 104,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "622a846a",
+     "pickups": 415,
+     "frags": 124,
+     "deaths": 142,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "3857a847",
+     "pickups": 386,
+     "frags": 90,
+     "deaths": 98,
+     "inert": false
+    },
+    "bot_losfinal": {
+     "md5": "5d4d3593",
+     "pickups": 388,
+     "frags": 83,
+     "deaths": 96,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "a870d8a8",
+     "pickups": 382,
+     "frags": 95,
+     "deaths": 111,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "6a39a81f",
+     "pickups": 205,
+     "frags": 102,
+     "deaths": 117,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "2c39fcab",
+     "pickups": 392,
+     "frags": 91,
+     "deaths": 98,
+     "inert": true
+    },
+    "bot_reroute": {
+     "md5": "ead804f0",
+     "pickups": 381,
+     "frags": 100,
+     "deaths": 105,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "244cf904",
+     "pickups": 398,
+     "frags": 95,
+     "deaths": 107,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "944d3fbc",
+     "pickups": 400,
+     "frags": 98,
+     "deaths": 115,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "7402a93f",
+     "pickups": 429,
+     "frags": 73,
+     "deaths": 91,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "2bf65248",
+     "pickups": 378,
+     "frags": 99,
+     "deaths": 152,
+     "inert": false
+    },
+    "bot_teleport": {
+     "md5": "2c39fcab",
+     "pickups": 392,
+     "frags": 91,
+     "deaths": 98,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "7674bd95",
+     "pickups": 402,
+     "frags": 117,
+     "deaths": 134,
+     "inert": false
+    },
+    "bot_turnrate": {
+     "md5": "933a7c35",
+     "pickups": 395,
+     "frags": 101,
+     "deaths": 117,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "0b31643d",
+     "pickups": 392,
+     "frags": 111,
+     "deaths": 130,
+     "inert": false
+    },
+    "bot_wpnneed": {
+     "md5": "4effc12d",
+     "pickups": 402,
+     "frags": 92,
+     "deaths": 107,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "93a42a0f",
+     "pickups": 430,
+     "frags": 82,
+     "deaths": 105,
+     "inert": false
+    }
+   }
+  },
+  "q2dm3": {
+   "baseline": {
+    "md5": "0e6c1efe",
+    "pickups": 364,
+    "frags": 61,
+    "deaths": 162
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "10436021",
+     "pickups": 367,
+     "frags": 13,
+     "deaths": 110,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "52799390",
+     "pickups": 333,
+     "frags": 55,
+     "deaths": 157,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "2d576581",
+     "pickups": 343,
+     "frags": 46,
+     "deaths": 159,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "4cf57e44",
+     "pickups": 345,
+     "frags": 67,
+     "deaths": 166,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "abfeaf46",
+     "pickups": 364,
+     "frags": 62,
+     "deaths": 162,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "e0c68ffe",
+     "pickups": 323,
+     "frags": 43,
+     "deaths": 157,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "566ea65f",
+     "pickups": 284,
+     "frags": 61,
+     "deaths": 175,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "05c48195",
+     "pickups": 274,
+     "frags": 55,
+     "deaths": 159,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "11f75f1d",
+     "pickups": 269,
+     "frags": 57,
+     "deaths": 144,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "50dbefd8",
+     "pickups": 353,
+     "frags": 57,
+     "deaths": 154,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "480b294b",
+     "pickups": 317,
+     "frags": 65,
+     "deaths": 173,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "d9da8f22",
+     "pickups": 363,
+     "frags": 83,
+     "deaths": 198,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "18a912a3",
+     "pickups": 304,
+     "frags": 62,
+     "deaths": 167,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "f7b26044",
+     "pickups": 355,
+     "frags": 62,
+     "deaths": 164,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "d60df0e5",
+     "pickups": 336,
+     "frags": 70,
+     "deaths": 163,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "cde90e98",
+     "pickups": 311,
+     "frags": 49,
+     "deaths": 247,
+     "inert": false
+    },
+    "bot_hop": {
+     "md5": "b93ed6ff",
+     "pickups": 359,
+     "frags": 53,
+     "deaths": 157,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "f5ff7cd2",
+     "pickups": 342,
+     "frags": 62,
+     "deaths": 162,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "0e6c1efe",
+     "pickups": 364,
+     "frags": 61,
+     "deaths": 162,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "df1ebc50",
+     "pickups": 365,
+     "frags": 57,
+     "deaths": 167,
+     "inert": false
+    },
+    "bot_lead": {
+     "md5": "3e188aff",
+     "pickups": 342,
+     "frags": 60,
+     "deaths": 160,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "45af42c2",
+     "pickups": 343,
+     "frags": 61,
+     "deaths": 165,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "f36d6c21",
+     "pickups": 354,
+     "frags": 72,
+     "deaths": 179,
+     "inert": false
+    },
+    "bot_losfinal": {
+     "md5": "4b9ed20f",
+     "pickups": 324,
+     "frags": 59,
+     "deaths": 169,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "36d780aa",
+     "pickups": 355,
+     "frags": 56,
+     "deaths": 154,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "1d539bfd",
+     "pickups": 252,
+     "frags": 60,
+     "deaths": 173,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "eaf45e7e",
+     "pickups": 353,
+     "frags": 61,
+     "deaths": 165,
+     "inert": false
+    },
+    "bot_reroute": {
+     "md5": "4ffc4be1",
+     "pickups": 360,
+     "frags": 60,
+     "deaths": 155,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "2c1cd94a",
+     "pickups": 337,
+     "frags": 66,
+     "deaths": 177,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "b58a4f7b",
+     "pickups": 363,
+     "frags": 56,
+     "deaths": 161,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "6d254a31",
+     "pickups": 344,
+     "frags": 77,
+     "deaths": 177,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "b75e0b2a",
+     "pickups": 351,
+     "frags": 59,
+     "deaths": 193,
+     "inert": false
+    },
+    "bot_teleport": {
+     "md5": "0e6c1efe",
+     "pickups": 364,
+     "frags": 61,
+     "deaths": 162,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "d94cbcaa",
+     "pickups": 334,
+     "frags": 68,
+     "deaths": 168,
+     "inert": false
+    },
+    "bot_turnrate": {
+     "md5": "6aa86232",
+     "pickups": 355,
+     "frags": 51,
+     "deaths": 174,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "53c86f05",
+     "pickups": 363,
+     "frags": 61,
+     "deaths": 150,
+     "inert": false
+    },
+    "bot_wpnneed": {
+     "md5": "03e362c5",
+     "pickups": 313,
+     "frags": 62,
+     "deaths": 156,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "74b69c46",
+     "pickups": 320,
+     "frags": 52,
+     "deaths": 153,
+     "inert": false
+    }
+   }
+  },
+  "q2dm4": {
+   "baseline": {
+    "md5": "64f61333",
+    "pickups": 387,
+    "frags": 28,
+    "deaths": 82
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "805de418",
+     "pickups": 279,
+     "frags": 8,
+     "deaths": 61,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "5ef6bd96",
+     "pickups": 398,
+     "frags": 32,
+     "deaths": 86,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "82f690a1",
+     "pickups": 397,
+     "frags": 34,
+     "deaths": 77,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "dd140327",
+     "pickups": 417,
+     "frags": 45,
+     "deaths": 94,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "5c2b6d99",
+     "pickups": 406,
+     "frags": 35,
+     "deaths": 91,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "07679a8e",
+     "pickups": 385,
+     "frags": 38,
+     "deaths": 97,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "9a75d079",
+     "pickups": 421,
+     "frags": 40,
+     "deaths": 78,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "f30ae031",
+     "pickups": 383,
+     "frags": 38,
+     "deaths": 86,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "13f4e2f8",
+     "pickups": 297,
+     "frags": 32,
+     "deaths": 80,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "d28ea857",
+     "pickups": 394,
+     "frags": 37,
+     "deaths": 72,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "38d706ac",
+     "pickups": 364,
+     "frags": 26,
+     "deaths": 97,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "abaa3ba4",
+     "pickups": 395,
+     "frags": 42,
+     "deaths": 94,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "72bbacd1",
+     "pickups": 388,
+     "frags": 34,
+     "deaths": 85,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "3c299b1f",
+     "pickups": 431,
+     "frags": 40,
+     "deaths": 95,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "25986ac1",
+     "pickups": 375,
+     "frags": 36,
+     "deaths": 94,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "d9c910c8",
+     "pickups": 395,
+     "frags": 29,
+     "deaths": 185,
+     "inert": false
+    },
+    "bot_hop": {
+     "md5": "ef18d830",
+     "pickups": 401,
+     "frags": 32,
+     "deaths": 86,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "593ea06b",
+     "pickups": 395,
+     "frags": 34,
+     "deaths": 97,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "64f61333",
+     "pickups": 387,
+     "frags": 28,
+     "deaths": 82,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "9e718887",
+     "pickups": 389,
+     "frags": 28,
+     "deaths": 82,
+     "inert": false
+    },
+    "bot_lead": {
+     "md5": "e565982e",
+     "pickups": 395,
+     "frags": 43,
+     "deaths": 97,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "09b1b62a",
+     "pickups": 421,
+     "frags": 50,
+     "deaths": 104,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "dd3a7756",
+     "pickups": 382,
+     "frags": 28,
+     "deaths": 82,
+     "inert": false
+    },
+    "bot_losfinal": {
+     "md5": "30d75add",
+     "pickups": 392,
+     "frags": 39,
+     "deaths": 78,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "08a626fb",
+     "pickups": 388,
+     "frags": 34,
+     "deaths": 89,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "3f670dae",
+     "pickups": 329,
+     "frags": 43,
+     "deaths": 97,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "64f61333",
+     "pickups": 387,
+     "frags": 28,
+     "deaths": 82,
+     "inert": true
+    },
+    "bot_reroute": {
+     "md5": "4caf9209",
+     "pickups": 397,
+     "frags": 32,
+     "deaths": 80,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "95f30f5d",
+     "pickups": 378,
+     "frags": 23,
+     "deaths": 69,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "6ba279eb",
+     "pickups": 390,
+     "frags": 33,
+     "deaths": 78,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "94e56af6",
+     "pickups": 409,
+     "frags": 37,
+     "deaths": 88,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "60db60ab",
+     "pickups": 386,
+     "frags": 33,
+     "deaths": 79,
+     "inert": false
+    },
+    "bot_teleport": {
+     "md5": "64f61333",
+     "pickups": 387,
+     "frags": 28,
+     "deaths": 82,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "64f61333",
+     "pickups": 387,
+     "frags": 28,
+     "deaths": 82,
+     "inert": true
+    },
+    "bot_turnrate": {
+     "md5": "5aa6739c",
+     "pickups": 402,
+     "frags": 33,
+     "deaths": 88,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "7693c91f",
+     "pickups": 384,
+     "frags": 30,
+     "deaths": 87,
+     "inert": false
+    },
+    "bot_wpnneed": {
+     "md5": "52ba0c2b",
+     "pickups": 342,
+     "frags": 35,
+     "deaths": 86,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "0cc76ff3",
+     "pickups": 401,
+     "frags": 32,
+     "deaths": 77,
+     "inert": false
+    }
+   }
+  },
+  "q2dm5": {
+   "baseline": {
+    "md5": "0dbc4537",
+    "pickups": 428,
+    "frags": 71,
+    "deaths": 86
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "202ddfe9",
+     "pickups": 351,
+     "frags": 11,
+     "deaths": 24,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "b58cd517",
+     "pickups": 433,
+     "frags": 72,
+     "deaths": 83,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "6e3bd6aa",
+     "pickups": 448,
+     "frags": 74,
+     "deaths": 99,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "e275c841",
+     "pickups": 427,
+     "frags": 78,
+     "deaths": 96,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "7bc3f989",
+     "pickups": 453,
+     "frags": 80,
+     "deaths": 95,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "d99b888b",
+     "pickups": 421,
+     "frags": 73,
+     "deaths": 81,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "8bc5f9d8",
+     "pickups": 423,
+     "frags": 67,
+     "deaths": 87,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "e4547988",
+     "pickups": 435,
+     "frags": 76,
+     "deaths": 93,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "ea8382e5",
+     "pickups": 323,
+     "frags": 74,
+     "deaths": 79,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "f74daae2",
+     "pickups": 450,
+     "frags": 71,
+     "deaths": 90,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "f0ba18fc",
+     "pickups": 439,
+     "frags": 71,
+     "deaths": 87,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "4b6c0655",
+     "pickups": 458,
+     "frags": 83,
+     "deaths": 98,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "928e9064",
+     "pickups": 423,
+     "frags": 57,
+     "deaths": 66,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "8fb6b526",
+     "pickups": 428,
+     "frags": 84,
+     "deaths": 94,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "d749f77e",
+     "pickups": 433,
+     "frags": 77,
+     "deaths": 89,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "49c9f0e3",
+     "pickups": 433,
+     "frags": 71,
+     "deaths": 87,
+     "inert": false
+    },
+    "bot_hop": {
+     "md5": "02d9a27e",
+     "pickups": 438,
+     "frags": 59,
+     "deaths": 79,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "70b9ec7d",
+     "pickups": 426,
+     "frags": 73,
+     "deaths": 87,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "0dbc4537",
+     "pickups": 428,
+     "frags": 71,
+     "deaths": 86,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "56d76b16",
+     "pickups": 428,
+     "frags": 71,
+     "deaths": 86,
+     "inert": false
+    },
+    "bot_lead": {
+     "md5": "6fa2a944",
+     "pickups": 458,
+     "frags": 71,
+     "deaths": 89,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "3bea2520",
+     "pickups": 351,
+     "frags": 74,
+     "deaths": 83,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "a18fb6c3",
+     "pickups": 433,
+     "frags": 75,
+     "deaths": 90,
+     "inert": false
+    },
+    "bot_losfinal": {
+     "md5": "ffd85160",
+     "pickups": 447,
+     "frags": 67,
+     "deaths": 80,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "4fe6c7ac",
+     "pickups": 449,
+     "frags": 64,
+     "deaths": 80,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "1592ea49",
+     "pickups": 346,
+     "frags": 88,
+     "deaths": 108,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "0dbc4537",
+     "pickups": 428,
+     "frags": 71,
+     "deaths": 86,
+     "inert": true
+    },
+    "bot_reroute": {
+     "md5": "37cef02e",
+     "pickups": 428,
+     "frags": 63,
+     "deaths": 83,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "762e8c7c",
+     "pickups": 446,
+     "frags": 76,
+     "deaths": 97,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "26a152eb",
+     "pickups": 429,
+     "frags": 74,
+     "deaths": 85,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "c2baa9b5",
+     "pickups": 453,
+     "frags": 69,
+     "deaths": 85,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "e775b6ff",
+     "pickups": 446,
+     "frags": 64,
+     "deaths": 82,
+     "inert": false
+    },
+    "bot_teleport": {
+     "md5": "0dbc4537",
+     "pickups": 428,
+     "frags": 71,
+     "deaths": 86,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "0dbc4537",
+     "pickups": 428,
+     "frags": 71,
+     "deaths": 86,
+     "inert": true
+    },
+    "bot_turnrate": {
+     "md5": "975eb85d",
+     "pickups": 436,
+     "frags": 74,
+     "deaths": 80,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "4ee5a30e",
+     "pickups": 421,
+     "frags": 85,
+     "deaths": 100,
+     "inert": false
+    },
+    "bot_wpnneed": {
+     "md5": "b98f5ec4",
+     "pickups": 403,
+     "frags": 68,
+     "deaths": 74,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "89a08ac3",
+     "pickups": 410,
+     "frags": 83,
+     "deaths": 99,
+     "inert": false
+    }
+   }
+  },
+  "q2dm6": {
+   "baseline": {
+    "md5": "6dfab9e2",
+    "pickups": 261,
+    "frags": 44,
+    "deaths": 223
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "f8e3e30b",
+     "pickups": 262,
+     "frags": 9,
+     "deaths": 172,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "e9d3413e",
+     "pickups": 254,
+     "frags": 38,
+     "deaths": 245,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "2c052a6b",
+     "pickups": 289,
+     "frags": 35,
+     "deaths": 231,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "16a4e7db",
+     "pickups": 240,
+     "frags": 48,
+     "deaths": 235,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "a2f1bd68",
+     "pickups": 337,
+     "frags": 37,
+     "deaths": 242,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "8429663d",
+     "pickups": 238,
+     "frags": 46,
+     "deaths": 258,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "6f72248e",
+     "pickups": 261,
+     "frags": 37,
+     "deaths": 245,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "2300d92e",
+     "pickups": 207,
+     "frags": 41,
+     "deaths": 252,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "75b6bf82",
+     "pickups": 154,
+     "frags": 33,
+     "deaths": 219,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "6ecc7a16",
+     "pickups": 238,
+     "frags": 40,
+     "deaths": 242,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "3e1ef27c",
+     "pickups": 274,
+     "frags": 54,
+     "deaths": 246,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "05315fd7",
+     "pickups": 259,
+     "frags": 47,
+     "deaths": 232,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "7f901c0c",
+     "pickups": 229,
+     "frags": 39,
+     "deaths": 251,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "ce2a2da2",
+     "pickups": 276,
+     "frags": 39,
+     "deaths": 267,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "6aedfc0e",
+     "pickups": 303,
+     "frags": 47,
+     "deaths": 215,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "a7c9883a",
+     "pickups": 286,
+     "frags": 22,
+     "deaths": 354,
+     "inert": false
+    },
+    "bot_hop": {
+     "md5": "5d613224",
+     "pickups": 249,
+     "frags": 62,
+     "deaths": 224,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "dfd1baaf",
+     "pickups": 263,
+     "frags": 43,
+     "deaths": 232,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "6dfab9e2",
+     "pickups": 261,
+     "frags": 44,
+     "deaths": 223,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "8948194e",
+     "pickups": 234,
+     "frags": 32,
+     "deaths": 255,
+     "inert": false
+    },
+    "bot_lead": {
+     "md5": "d65d0a5b",
+     "pickups": 260,
+     "frags": 34,
+     "deaths": 222,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "98b1a3dd",
+     "pickups": 257,
+     "frags": 41,
+     "deaths": 220,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "6dfab9e2",
+     "pickups": 261,
+     "frags": 44,
+     "deaths": 223,
+     "inert": true
+    },
+    "bot_losfinal": {
+     "md5": "71f9eaf5",
+     "pickups": 269,
+     "frags": 45,
+     "deaths": 214,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "a05c9c79",
+     "pickups": 292,
+     "frags": 43,
+     "deaths": 241,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "facc05cb",
+     "pickups": 199,
+     "frags": 43,
+     "deaths": 249,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "6dfab9e2",
+     "pickups": 261,
+     "frags": 44,
+     "deaths": 223,
+     "inert": true
+    },
+    "bot_reroute": {
+     "md5": "df79b404",
+     "pickups": 261,
+     "frags": 45,
+     "deaths": 235,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "ed755f9b",
+     "pickups": 257,
+     "frags": 35,
+     "deaths": 232,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "644445f9",
+     "pickups": 265,
+     "frags": 50,
+     "deaths": 229,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "a91acc37",
+     "pickups": 261,
+     "frags": 40,
+     "deaths": 243,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "6256677b",
+     "pickups": 249,
+     "frags": 34,
+     "deaths": 247,
+     "inert": false
+    },
+    "bot_teleport": {
+     "md5": "6dfab9e2",
+     "pickups": 261,
+     "frags": 44,
+     "deaths": 223,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "6dfab9e2",
+     "pickups": 261,
+     "frags": 44,
+     "deaths": 223,
+     "inert": true
+    },
+    "bot_turnrate": {
+     "md5": "41c63f99",
+     "pickups": 215,
+     "frags": 48,
+     "deaths": 251,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "c5736ef9",
+     "pickups": 257,
+     "frags": 41,
+     "deaths": 219,
+     "inert": false
+    },
+    "bot_wpnneed": {
+     "md5": "6ec8a3f5",
+     "pickups": 251,
+     "frags": 34,
+     "deaths": 226,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "5835663b",
+     "pickups": 248,
+     "frags": 38,
+     "deaths": 239,
+     "inert": false
+    }
+   }
+  },
+  "q2dm7": {
+   "baseline": {
+    "md5": "297eb1e2",
+    "pickups": 492,
+    "frags": 84,
+    "deaths": 209
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "91da0b99",
+     "pickups": 444,
+     "frags": 17,
+     "deaths": 99,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "5d76665e",
+     "pickups": 479,
+     "frags": 68,
+     "deaths": 208,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "a0c8353a",
+     "pickups": 503,
+     "frags": 86,
+     "deaths": 201,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "6779cc6f",
+     "pickups": 488,
+     "frags": 72,
+     "deaths": 201,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "76d04e63",
+     "pickups": 494,
+     "frags": 74,
+     "deaths": 200,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "7ee69581",
+     "pickups": 491,
+     "frags": 63,
+     "deaths": 198,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "83c67437",
+     "pickups": 505,
+     "frags": 88,
+     "deaths": 224,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "e59c1cba",
+     "pickups": 445,
+     "frags": 87,
+     "deaths": 191,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "e9ab5f1c",
+     "pickups": 387,
+     "frags": 77,
+     "deaths": 196,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "77ec08ad",
+     "pickups": 508,
+     "frags": 67,
+     "deaths": 182,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "b07c5b0f",
+     "pickups": 516,
+     "frags": 77,
+     "deaths": 202,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "84f3f299",
+     "pickups": 493,
+     "frags": 84,
+     "deaths": 203,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "cf4800bc",
+     "pickups": 485,
+     "frags": 79,
+     "deaths": 208,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "92cf1d1b",
+     "pickups": 502,
+     "frags": 71,
+     "deaths": 214,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "cfa25975",
+     "pickups": 492,
+     "frags": 79,
+     "deaths": 209,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "b411cc93",
+     "pickups": 465,
+     "frags": 66,
+     "deaths": 222,
+     "inert": false
+    },
+    "bot_hop": {
+     "md5": "77d5c5d4",
+     "pickups": 472,
+     "frags": 79,
+     "deaths": 202,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "ea508ce6",
+     "pickups": 509,
+     "frags": 87,
+     "deaths": 204,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "297eb1e2",
+     "pickups": 492,
+     "frags": 84,
+     "deaths": 209,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "ff2a2d89",
+     "pickups": 494,
+     "frags": 89,
+     "deaths": 218,
+     "inert": false
+    },
+    "bot_lead": {
+     "md5": "dbbdfb10",
+     "pickups": 493,
+     "frags": 84,
+     "deaths": 206,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "b82e1c6a",
+     "pickups": 476,
+     "frags": 83,
+     "deaths": 214,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "297eb1e2",
+     "pickups": 492,
+     "frags": 84,
+     "deaths": 209,
+     "inert": true
+    },
+    "bot_losfinal": {
+     "md5": "0aae01db",
+     "pickups": 475,
+     "frags": 62,
+     "deaths": 209,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "f4f33673",
+     "pickups": 506,
+     "frags": 90,
+     "deaths": 217,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "71aa5885",
+     "pickups": 370,
+     "frags": 88,
+     "deaths": 192,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "297eb1e2",
+     "pickups": 492,
+     "frags": 84,
+     "deaths": 209,
+     "inert": true
+    },
+    "bot_reroute": {
+     "md5": "a07a6aa7",
+     "pickups": 490,
+     "frags": 87,
+     "deaths": 212,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "2fa0bb14",
+     "pickups": 506,
+     "frags": 76,
+     "deaths": 215,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "a9d086a9",
+     "pickups": 481,
+     "frags": 79,
+     "deaths": 199,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "d56eeec9",
+     "pickups": 497,
+     "frags": 81,
+     "deaths": 204,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "56f05b08",
+     "pickups": 505,
+     "frags": 79,
+     "deaths": 211,
+     "inert": false
+    },
+    "bot_teleport": {
+     "md5": "297eb1e2",
+     "pickups": 492,
+     "frags": 84,
+     "deaths": 209,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "297eb1e2",
+     "pickups": 492,
+     "frags": 84,
+     "deaths": 209,
+     "inert": true
+    },
+    "bot_turnrate": {
+     "md5": "5c2f60bb",
+     "pickups": 498,
+     "frags": 69,
+     "deaths": 204,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "f75024fb",
+     "pickups": 518,
+     "frags": 89,
+     "deaths": 209,
+     "inert": false
+    },
+    "bot_wpnneed": {
+     "md5": "cf58ccfd",
+     "pickups": 487,
+     "frags": 67,
+     "deaths": 202,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "91fce25c",
+     "pickups": 501,
+     "frags": 79,
+     "deaths": 197,
+     "inert": false
+    }
+   }
+  },
+  "q2dm8": {
+   "baseline": {
+    "md5": "0b9b370f",
+    "pickups": 547,
+    "frags": 150,
+    "deaths": 159
+   },
+   "levers": {
+    "bot_aimflick": {
+     "md5": "5760ad36",
+     "pickups": 356,
+     "frags": 25,
+     "deaths": 42,
+     "inert": false
+    },
+    "bot_aimprec": {
+     "md5": "4343d6b6",
+     "pickups": 527,
+     "frags": 157,
+     "deaths": 166,
+     "inert": false
+    },
+    "bot_aimsmooth": {
+     "md5": "99ab38da",
+     "pickups": 520,
+     "frags": 163,
+     "deaths": 174,
+     "inert": false
+    },
+    "bot_aimtexture": {
+     "md5": "9aead689",
+     "pickups": 517,
+     "frags": 138,
+     "deaths": 157,
+     "inert": false
+    },
+    "bot_ammoneed": {
+     "md5": "eef20d4a",
+     "pickups": 578,
+     "frags": 139,
+     "deaths": 154,
+     "inert": false
+    },
+    "bot_blastertransit": {
+     "md5": "d654699d",
+     "pickups": 485,
+     "frags": 159,
+     "deaths": 168,
+     "inert": false
+    },
+    "bot_claim": {
+     "md5": "4c38c3f9",
+     "pickups": 442,
+     "frags": 163,
+     "deaths": 171,
+     "inert": false
+    },
+    "bot_commit": {
+     "md5": "9897d876",
+     "pickups": 390,
+     "frags": 154,
+     "deaths": 166,
+     "inert": false
+    },
+    "bot_decisive": {
+     "md5": "5525fc86",
+     "pickups": 370,
+     "frags": 132,
+     "deaths": 155,
+     "inert": false
+    },
+    "bot_fidget": {
+     "md5": "ac86df6d",
+     "pickups": 567,
+     "frags": 149,
+     "deaths": 161,
+     "inert": false
+    },
+    "bot_flee": {
+     "md5": "e6a8c6fe",
+     "pickups": 521,
+     "frags": 157,
+     "deaths": 171,
+     "inert": false
+    },
+    "bot_fov": {
+     "md5": "798148df",
+     "pickups": 493,
+     "frags": 146,
+     "deaths": 161,
+     "inert": false
+    },
+    "bot_gaze": {
+     "md5": "e0d7f19a",
+     "pickups": 522,
+     "frags": 148,
+     "deaths": 161,
+     "inert": false
+    },
+    "bot_gazelife": {
+     "md5": "8713a12e",
+     "pickups": 512,
+     "frags": 155,
+     "deaths": 173,
+     "inert": false
+    },
+    "bot_goalbudget": {
+     "md5": "c58274cb",
+     "pickups": 558,
+     "frags": 144,
+     "deaths": 158,
+     "inert": false
+    },
+    "bot_hazard": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_hop": {
+     "md5": "224d1bae",
+     "pickups": 516,
+     "frags": 154,
+     "deaths": 161,
+     "inert": false
+    },
+    "bot_itemfail": {
+     "md5": "0dabe30b",
+     "pickups": 547,
+     "frags": 146,
+     "deaths": 155,
+     "inert": false
+    },
+    "bot_jumppad": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_ladder": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_lead": {
+     "md5": "c5cd3c01",
+     "pickups": 505,
+     "frags": 153,
+     "deaths": 167,
+     "inert": false
+    },
+    "bot_lift": {
+     "md5": "d99c0edf",
+     "pickups": 511,
+     "frags": 153,
+     "deaths": 160,
+     "inert": false
+    },
+    "bot_liftcommit": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_losfinal": {
+     "md5": "acedaa0a",
+     "pickups": 543,
+     "frags": 151,
+     "deaths": 159,
+     "inert": false
+    },
+    "bot_navlearn": {
+     "md5": "2c9aac14",
+     "pickups": 578,
+     "frags": 147,
+     "deaths": 154,
+     "inert": false
+    },
+    "bot_pathcost": {
+     "md5": "df83c705",
+     "pickups": 246,
+     "frags": 139,
+     "deaths": 168,
+     "inert": false
+    },
+    "bot_playbook": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_reroute": {
+     "md5": "82d2974e",
+     "pickups": 551,
+     "frags": 149,
+     "deaths": 155,
+     "inert": false
+    },
+    "bot_reroutemid": {
+     "md5": "c15f35ac",
+     "pickups": 552,
+     "frags": 133,
+     "deaths": 149,
+     "inert": false
+    },
+    "bot_rollout": {
+     "md5": "6a60cf9c",
+     "pickups": 484,
+     "frags": 153,
+     "deaths": 168,
+     "inert": false
+    },
+    "bot_strafejump": {
+     "md5": "7d8f8fcc",
+     "pickups": 505,
+     "frags": 151,
+     "deaths": 164,
+     "inert": false
+    },
+    "bot_swim": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_teleport": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_train": {
+     "md5": "dbb78ff7",
+     "pickups": 548,
+     "frags": 160,
+     "deaths": 160,
+     "inert": false
+    },
+    "bot_turnrate": {
+     "md5": "1543091f",
+     "pickups": 507,
+     "frags": 155,
+     "deaths": 167,
+     "inert": false
+    },
+    "bot_watersight": {
+     "md5": "0b9b370f",
+     "pickups": 547,
+     "frags": 150,
+     "deaths": 159,
+     "inert": true
+    },
+    "bot_wpnneed": {
+     "md5": "ca658920",
+     "pickups": 462,
+     "frags": 157,
+     "deaths": 169,
+     "inert": false
+    },
+    "bot_wpntactic": {
+     "md5": "15251f27",
+     "pickups": 505,
+     "frags": 149,
+     "deaths": 161,
+     "inert": false
+    }
+   }
+  }
+ },
+ "note": "q2dm2 rerun 2026-10-12 (first pass overlapped a smoke test); aimtest multipliers removed"
+}
