@@ -15,6 +15,9 @@ cvar_t	*bot_lead;		// lead moving targets by projectile flight time
 cvar_t	*bot_leadtest;	// head-to-head lead A/B: even bot ids lead, odd don't
 cvar_t	*bot_flee;		// retreat + fetch health/armor when clearly outmatched
 cvar_t	*bot_fleetest;	// head-to-head flee A/B: even bot ids flee, odd don't
+cvar_t	*bot_fleehp;		// flee trigger: own strength below this (75 = the 10Hz value) ...
+cvar_t	*bot_fleeratio;	// ... AND below this fraction of the enemy's (0.65)
+cvar_t	*bot_fleetunetest;	// id-parity: even ids use bot_fleehp/ratio, odd the 75/0.65 constants
 cvar_t	*bot_outnumbered;	// break off + retreat when 2+ enemies are actively
 							// engaging (crossfire).  The 1v1 flee compares only vs
 							// the nearest target; outnumbered deaths were 2.8x
@@ -1073,7 +1076,13 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 				// low-absolute-hp caution (bot_survive): break off and heal even
 				// in an even fight -- the attrition deaths were bots at <40hp
 				// fighting on because they were not "outmatched"
-				if ((mine < 75 && mine < theirs * 0.65f) || (survive && mine < 40.0f))
+				float fhp = 75.0f, fratio = 0.65f;
+				if (bot_fleetunetest->value == 0 || (b->id & 1) == 0)
+				{
+					fhp = bot_fleehp->value;
+					fratio = bot_fleeratio->value;
+				}
+				if ((mine < fhp && mine < theirs * fratio) || (survive && mine < 40.0f))
 					b->flee = true;
 			}
 		}

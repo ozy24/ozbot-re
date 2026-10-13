@@ -332,7 +332,10 @@ void Bot_Init (void)
 	bot_lead         = gi.cvar ("bot_lead", "1", 0);		// lead moving targets by projectile flight time
 	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);	// head-to-head: even bot ids lead, odd don't
 	bot_flee         = gi.cvar ("bot_flee", "1", 0);		// retreat + fetch health/armor when outmatched
-	bot_fleetest     = gi.cvar ("bot_fleetest", "0", 0);	// head-to-head: even bot ids flee, odd don't
+	bot_fleetest     = gi.cvar ("bot_fleetest", "0", 0);
+	bot_fleehp       = gi.cvar ("bot_fleehp", "75", 0);		// flee trigger: own strength below this...
+	bot_fleeratio    = gi.cvar ("bot_fleeratio", "0.65", 0);	// ...and below this fraction of the enemy's
+	bot_fleetunetest = gi.cvar ("bot_fleetunetest", "0", 0);	// id-parity: even ids use bot_fleehp/ratio, odd 75/0.65	// head-to-head: even bot ids flee, odd don't
 	bot_outnumbered     = gi.cvar ("bot_outnumbered", "0", 0);	// break off + retreat from a LOSING 2+ enemy crossfire
 															// (strength-gated).  Default OFF: parity A/B is marginal/
 															// mixed (q2dm1/6 net-positive, q2dm8 regresses) -- promising

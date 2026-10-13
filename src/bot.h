@@ -490,6 +490,9 @@ extern cvar_t	*bot_lead;
 extern cvar_t	*bot_leadtest;
 extern cvar_t	*bot_flee;
 extern cvar_t	*bot_fleetest;
+extern cvar_t	*bot_fleehp;
+extern cvar_t	*bot_fleeratio;
+extern cvar_t	*bot_fleetunetest;
 extern cvar_t	*bot_outnumbered;		// retreat from a 2+ enemy crossfire (bot_combat.c)
 extern cvar_t	*bot_outnumberedtest;	// id-parity A/B for bot_outnumbered
 // enemy last-known-position pursuit: investigate where a lost enemy was
