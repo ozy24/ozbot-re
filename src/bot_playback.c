@@ -42,7 +42,8 @@ different maneuver).
 #include "bot_nav.h"
 
 cvar_t	*bot_playbook;	// master gate (inert when no playbook file exists)
-cvar_t	*bot_pbalign;	// standing-start ALIGN settle fix (0 = pre-fix, byte-identical)
+cvar_t	*bot_pbalign;	// ALIGN fixes, bitmask: 1 face-heading re-entry, 2 hold past anchor,
+						// 4 standing-start view slew (0 = pre-fix, byte-identical)
 cvar_t	*bot_budgetext;	// goal-budget extension while progressing (bot_main.c)
 
 #define PB_MAX_ENTRIES		16
@@ -660,7 +661,7 @@ qboolean Bot_PlaybackThink (bot_t *b)
 			//     back in (movement is decoupled from facing) -- no 180 turn;
 			//   inside: press as before, unless already past the anchor along
 			//     the heading -- then hold, so the slide bleeds to the gate.
-			if (bot_pbalign->value != 0 && hdist > e->pos_tol
+			if (((int)bot_pbalign->value & 1) && hdist > e->pos_tol
 				&& hdist <= 2.0f * e->pos_tol)
 			{
 				VectorCopy (d, aim);
@@ -695,7 +696,7 @@ qboolean Bot_PlaybackThink (bot_t *b)
 				fwd[2] = 0;
 				VectorNormalize (fwd);
 				mag = (speed > 40.0f) ? 0.35f : 0.55f;
-				if (bot_pbalign->value != 0 && DotProduct (d, fwd) < -4.0f)
+				if (((int)bot_pbalign->value & 2) && DotProduct (d, fwd) < -4.0f)
 					VectorClear (b->move_dir);	// past the anchor: don't press away
 				else
 					VectorScale (fwd, mag, b->move_dir);

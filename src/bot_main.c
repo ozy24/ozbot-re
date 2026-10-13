@@ -1998,7 +1998,7 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 		// bot_pbalign: ALIGN only steers onto the anchor, so turn the view
 		// like a player instead of snapping it.  REPLAY must stay exact --
 		// the recorded yaw IS the maneuver.
-		if (bot_pbalign->value != 0 && b->pb_state == PB_ALIGN
+		if (((int)bot_pbalign->value & 4) && b->pb_state == PB_ALIGN
 			&& Playbook_StandingStart (b))
 			facing_yaw = Bot_SlewAngle (ent->client->ps.viewangles[YAW],
 				b->pb_yaw, 0.5f, 45.0f);
