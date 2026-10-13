@@ -12,6 +12,10 @@ navigation for the frame.
 cvar_t	*bot_skill;		// 0 (easy) .. 1 (hard)
 cvar_t	*bot_skilltest;	// head-to-head skill A/B; see Bot_Add in bot_main.c
 cvar_t	*bot_lead;		// lead moving targets by projectile flight time
+cvar_t	*bot_glead;		// grenade launcher: ballistic lob solve + lead (default 0)
+cvar_t	*bot_wpnall;		// weapon selection also considers the GL and BFG10K (default 0)
+cvar_t	*bot_wpnalltest;	// id-parity: even ids use bot_wpnall, odd control
+cvar_t	*bot_gleadtest;	// id-parity: even ids use bot_glead, odd control
 cvar_t	*bot_leadtest;	// head-to-head lead A/B: even bot ids lead, odd don't
 cvar_t	*bot_flee;		// retreat + fetch health/armor when clearly outmatched
 cvar_t	*bot_fleetest;	// head-to-head flee A/B: even bot ids flee, odd don't
@@ -297,6 +301,10 @@ static qboolean Combat_HasWeaponAmmo (edict_t *ent, gitem_t *w)
 	am = FindItem (w->ammo);
 	if (!am)
 		return true;
+	// the BFG10K fires only with 50+ cells (weapon_bfg auto-switches away
+	// below that); "has ammo" must mean "can fire", or selection thrashes
+	if (w->pickup_name && !Q_stricmp (w->pickup_name, "BFG10K"))
+		return ent->client->pers.inventory[ITEM_INDEX(am)] >= 50;
 	return ent->client->pers.inventory[ITEM_INDEX(am)] > 0;
 }
 
@@ -341,10 +349,23 @@ static void Combat_WeaponProfile (gitem_t *w, float *lo, float *hi, float *bias)
 
 static void Combat_SelectWeapon (bot_t *b)
 {
-	static const char *prio[] = {
+	static const char *prio8[] = {
 		"railgun", "rocket launcher", "hyperblaster", "chaingun",
 		"super shotgun", "machinegun", "shotgun", "blaster"
 	};
+	// bot_wpnall: the stock list never names the Grenade Launcher or the
+	// BFG10K, so a bot that picked either up never fired it (q2dm2 16x90: 0
+	// GL shots vs 1205 chaingun).  BFG leads; the GL sits after the SSG so the
+	// fixed order never prefers a self-splashing lob to a close-range gun
+	// (with bot_wpnselect its demo band, 350-800u, decides instead).
+	static const char *prio10[] = {
+		"bfg10k", "railgun", "rocket launcher", "hyperblaster", "chaingun",
+		"super shotgun", "grenade launcher", "machinegun", "shotgun", "blaster"
+	};
+	qboolean	all = (bot_wpnalltest->value != 0) ? ((b->id & 1) == 0)
+							: (bot_wpnall->value != 0);
+	const char	**prio = all ? prio10 : prio8;
+	int			nprio = all ? 10 : 8;
 	edict_t	*ent = b->ent;
 	int		i;
 
@@ -366,7 +387,7 @@ static void Combat_SelectWeapon (bot_t *b)
 
 		VectorSubtract (b->enemy->s.origin, ent->s.origin, d);
 		dist = VectorLength (d);
-		for (i = 0; i < 8; i++)
+		for (i = 0; i < nprio; i++)
 		{
 			gitem_t	*w = FindItem ((char *)prio[i]);
 			float	lo, hi, bias, pen;
@@ -409,7 +430,7 @@ static void Combat_SelectWeapon (bot_t *b)
 		}
 	}
 
-	for (i = 0; i < 8; i++)
+	for (i = 0; i < nprio; i++)
 	{
 		gitem_t *w = FindItem ((char *)prio[i]);
 		if (w && Combat_HasWeaponAmmo (ent, w))
@@ -791,6 +812,82 @@ static float Combat_ProjectileSpeed (gitem_t *w)
 	return 0;
 }
 
+/*
+=================
+Combat_GrenadePitch
+
+bot_glead: the grenade launcher's lob, solved.  fire_grenade launches at
+600ups along the view plus 200ups along the view's UP vector, under
+sv_gravity, with a 2.5s fuse (MOVETYPE_BOUNCE; contact with a player
+detonates).  For elevation phi the launch velocity in the (horizontal, up)
+plane is
+    vh = 600 cos(phi) - 200 sin(phi),   vz = 600 sin(phi) + 200 cos(phi)
+and at horizontal range R (t = R / vh) the grenade sits at
+    z = vz t - g/2 t^2.
+Bisect phi for z = H on the LOW arc (first root scanning up from -60 deg,
+flight time inside the fuse).  Returns the Quake view pitch (positive =
+down) and the flight time, or false when no lob reaches the target.
+=================
+*/
+static qboolean Combat_GrenadePitch (float R, float H, float *pitch, float *tflight)
+{
+	float	g = sv_gravity ? sv_gravity->value : 800.0f;
+	float	lo = -60.0f, hi, prev_f = 0, phi, f;
+	int		i, k;
+	qboolean have = false;
+
+	if (R < 16.0f)
+		return false;
+	// scan for the first sign change of z(phi) - H, low arc first
+	for (k = 0; k <= 48; k++)
+	{
+		phi = -60.0f + k * 2.5f;
+		{
+			float r = phi * (M_PI / 180.0f);
+			float vh = 600.0f * cos (r) - 200.0f * sin (r);
+			float vz = 600.0f * sin (r) + 200.0f * cos (r);
+			float t;
+			if (vh <= 1.0f)
+				break;
+			t = R / vh;
+			f = vz * t - 0.5f * g * t * t - H;
+		}
+		if (k > 0 && ((prev_f < 0) != (f < 0)))
+		{
+			lo = phi - 2.5f;
+			hi = phi;
+			have = true;
+			break;
+		}
+		prev_f = f;
+	}
+	if (!have)
+		return false;
+	for (i = 0; i < 16; i++)
+	{
+		float mid = 0.5f * (lo + hi);
+		float r = mid * (M_PI / 180.0f);
+		float vh = 600.0f * cos (r) - 200.0f * sin (r);
+		float vz = 600.0f * sin (r) + 200.0f * cos (r);
+		float t = R / vh;
+		float fm = vz * t - 0.5f * g * t * t - H;
+		if ((fm < 0) == (prev_f < 0))
+			lo = mid;
+		else
+			hi = mid;
+	}
+	phi = 0.5f * (lo + hi);
+	{
+		float r = phi * (M_PI / 180.0f);
+		float vh = 600.0f * cos (r) - 200.0f * sin (r);
+		*tflight = R / vh;
+	}
+	if (*tflight > 2.4f)
+		return false;			// would fuse out mid-air
+	*pitch = -phi;
+	return true;
+}
+
 // bot_aimprec calibration (at strength 1.0): the aim-error multiplier for a
 // precision weapon is 1 + wprec * (BASE + RANGE*range/1000 + LAT*lat/300), so a
 // railgun (wprec 1) against a still target at 500u gets ~BASE+RANGE/2, and more
@@ -1113,6 +1210,46 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	VectorSubtract (teyes, eyes, dir);
 	range = VectorLength (dir);
 	vectoangles (dir, ang);
+
+	// bot_glead: lob the grenade launcher onto the target's predicted spot
+	// (aimed at the body centre, led by the solved flight time) instead of
+	// pointing it straight at the eyes and landing short or long.
+	{
+		qboolean glead = (bot_gleadtest->value != 0)
+			? ((b->id & 1) == 0)
+			: (bot_glead->value != 0);
+		gitem_t *w = self->client->pers.weapon;
+		if (glead && w && w->pickup_name && !strcmp (w->pickup_name, "Grenade Launcher"))
+		{
+			vec3_t	tgt, hd;
+			float	gp, tf = 0, R, H;
+			int		it;
+			qboolean ok = false;
+
+			VectorCopy (enemy->s.origin, tgt);
+			for (it = 0; it < 3; it++)
+			{
+				VectorSubtract (tgt, eyes, hd);
+				H = hd[2];
+				hd[2] = 0;
+				R = VectorLength (hd);
+				if (!Combat_GrenadePitch (R, H, &gp, &tf))
+				{
+					ok = false;
+					break;
+				}
+				ok = true;
+				VectorMA (enemy->s.origin, skill * tf, enemy->velocity, tgt);
+			}
+			if (ok)
+			{
+				VectorSubtract (tgt, eyes, hd);
+				hd[2] = 0;
+				ang[YAW] = vectoyaw (hd);
+				ang[PITCH] = gp;
+			}
+		}
+	}
 
 	// weapon-aware engagement intent (10Hz-committed): the per-tick movement
 	// blend below reads eng_lo/eng_hi/eng_bias to hold each weapon at its

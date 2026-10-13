@@ -330,7 +330,11 @@ void Bot_Init (void)
 	bot_humantest    = gi.cvar ("bot_humantest", "0", 0);	// head-to-head: even ids humanized, odd stock
 	bot_skilltest    = gi.cvar ("bot_skilltest", "0", 0);
 	bot_lead         = gi.cvar ("bot_lead", "1", 0);		// lead moving targets by projectile flight time
-	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);	// head-to-head: even bot ids lead, odd don't
+	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);
+	bot_wpnall       = gi.cvar ("bot_wpnall", "0", 0);		// weapon selection includes the GL and BFG10K
+	bot_wpnalltest   = gi.cvar ("bot_wpnalltest", "0", 0);	// id-parity: even ids use bot_wpnall, odd control
+	bot_glead        = gi.cvar ("bot_glead", "0", 0);		// grenade launcher lob solve + lead
+	bot_gleadtest    = gi.cvar ("bot_gleadtest", "0", 0);	// id-parity: even ids glead, odd control	// head-to-head: even bot ids lead, odd don't
 	bot_flee         = gi.cvar ("bot_flee", "1", 0);		// retreat + fetch health/armor when outmatched
 	bot_fleetest     = gi.cvar ("bot_fleetest", "0", 0);
 	bot_fleehp       = gi.cvar ("bot_fleehp", "75", 0);		// flee trigger: own strength below this...
