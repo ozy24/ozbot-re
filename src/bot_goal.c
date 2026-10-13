@@ -906,7 +906,7 @@ qboolean Goal_Select (bot_t *b)
 			{
 				float cap = (bot_budgetcap->value > 0) ? bot_budgetcap->value
 													   : BOT_GOAL_BUDGET_MAX;
-				if (BOT_GOAL_BUDGET_BASE + Nav_LastPathCost () / BOT_GOAL_BUDGET_SPEED
+				if (bot_budgetbase->value + Nav_LastPathCost () / bot_budgetspeed->value
 					> cap * 1.5f)
 					continue;	// not fundable: try the next best
 			}

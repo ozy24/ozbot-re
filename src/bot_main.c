@@ -196,6 +196,8 @@ void Bot_Init (void)
 	bot_enemymodel     = gi.cvar ("bot_enemymodel", "0", 0);
 	bot_enemymodeltest = gi.cvar ("bot_enemymodeltest", "0", 0);
 	bot_belieflog      = gi.cvar ("bot_belieflog", "0", 0);
+	bot_budgetbase   = gi.cvar ("bot_budgetbase", "6", 0);	// goal budget: seconds of slack (BOT_GOAL_BUDGET_BASE)
+	bot_budgetspeed  = gi.cvar ("bot_budgetspeed", "100", 0);	// goal budget: route cost units per second (BOT_GOAL_BUDGET_SPEED)
 	bot_budgetcap    = gi.cvar ("bot_budgetcap", "12", 0);	// max seconds to fund any one goal route (15 -> 12: 2026-10 8-map sweep)
 	bot_itemfail     = gi.cvar ("bot_itemfail", "1", 0);	// escalating shared blacklist for items bots keep failing
 															// (2 = also fast-track items whose route evaporated, per
@@ -1603,7 +1605,7 @@ static void Bot_Navigate (bot_t *b)
 			if (bot_goalbudget->value != 0 && b->goal_cost > 0)
 			{
 				float cap = (bot_budgetcap->value > 0) ? bot_budgetcap->value : BOT_GOAL_BUDGET_MAX;
-				budget = BOT_GOAL_BUDGET_BASE + b->goal_cost / BOT_GOAL_BUDGET_SPEED;
+				budget = bot_budgetbase->value + b->goal_cost / bot_budgetspeed->value;
 				if (budget > cap)
 					budget = cap;
 			}
