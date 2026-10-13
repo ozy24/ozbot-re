@@ -414,15 +414,15 @@ bot vs the pros at 10Hz has a mean KS of 0.136.
 | yaw_rate p99 | 602°/s | **7056°/s** |
 | yaw autocorr lag 0.1s | 0.43 | 0.13 |
 
-The p99 is single-tick 176° snaps, on 1.53% of live ticks. 96% happen in GOAL mode
-with no enemy. **Root cause: the playbook ALIGN phase.** With `bot_playbook 0` the
-snaps fall to 0.06%; `bot_strafejump 0` and `bot_humantest 0` leave them unchanged.
-Likely mechanism (read from the code, not yet traced per tick): the standing-start ALIGN
-branch of `bot_playback.c` flips `pb_yaw` between `vectoyaw(to start node)` and
-`anchor_yaw` as the bot jitters across `pos_tol`. Bot_Think's
-playbook override bypasses `Bot_SlewAngle`, so each flip is an instant snap: about 24
-per align attempt. **Not fixed yet.** The candidate fix is to slew facing during
-PB_ALIGN only (REPLAY must stay exact), then A/B pb_done/abort.
+The p99 is single-tick 176° snaps, on 1.53% of live ticks, almost all inside the
+playbook **ALIGN** phase: 20% of align ticks. The bot limit-cycles on the `pos_tol`
+boundary and its view flips between the start node and the recorded heading. That
+also accounts for most of the micro-flips.
+
+See the 2026-10 campaign section for what was done about it:
+- the `bot_pbalign` bitmask (off);
+- playbook curation (shipped);
+- `bot_gazefix 2` (shipped).
 
 Caches: `demos/derived/humanness/{human_mvd_all,human_mvd_all_10hz,human_q2dm1_full,
 bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
@@ -431,31 +431,68 @@ bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
 
 The full record is in `plans/in progress/general-improvement-2026-10.md`.
 
-- **`tools/lever_audit.py`:** a liveness probe for every default-ON lever.
-  - It flips each one off on the same seed, per map. An unchanged behaviour md5 means
-    that lever's code path never fired on that map.
-  - Result: no dead paths. Don't put the `bot_aimtest` multipliers
-    (`bot_aimerr`/`aimfire`/`aimreact`/`aimturn`) back on the lever list.
-- **`tools/mine_giveups.py`:** why item goals get abandoned. The giveup event carries
-  budget/elapsed/frozen/fight/noprog.
-  - q2dm1: **37% follow a playbook abort**, 32% slow, 25% stalled, 2% fight.
-- **`tools/ab_cvar.py <cvar> <ctrl> <treat...>`:** paired same-seed A/B on the pinned
-  benchmark navs, with the giveup-class shift per arm.
-  - ⚠️ **Never A/B on the live gamedir.** `bot_pbalign` read +8% deathmatch / flat
-    solo on the live q2dm1 nav, but −10.6% solo on the pinned nav. The two differ by
-    2 nodes.
-  - ⚠️ **Never launch the engine directly on an A/B source gamedir.** It learns and
-    autosaves into that gamedir's nav.
-- **`tools/ladder_pool.py` → `POOL.md`:** the duel ladder's 17-map pool, with
-  `gen_nav` navs in `baselines/nav_pool/` and solo + duel (2 bots) rigs.
-- **`bot_pbalign`** (default 0): playbook ALIGN settle fix.
-  - Deathmatch +4–10% and snaps 1.7%→0.2% on q2dm1. **Off because solo regresses on
-    the pinned nav.**
-  - It is also most of the bot's 40Hz view jitter: micro-flips 0.89→0.27/s.
-  - Never slew a moving-start ALIGN: the run-up crosses the anchor ~0.3 s after
-    turning ~180°.
-- **`bot_budgetext`** (default 0): REJECTED. Giveups −18–36% but pickups −2–7%.
-  Extended attempts reach the node after the item is gone.
+### Shipped
+- **Curated q2dm1 playbook file: deathmatch +9.1%** (6/6 banks up), solo flat.
+  Per-entry outcomes showed three dead entries:
+  - `bhop_rockets`: 78 engages, 78 drift aborts.
+  - `dm1_walkway_descent` and `cg_descend`: 0 engages, all align timeouts. They are
+    dwell-gated *rescue* entries, but A* routes their cheap links as ordinary
+    shortcuts.
+  - **Measure per-entry done/align before adding playbook entries, and periodically
+    after.** The one-liner pattern is in the commit `310bd41` message.
+- **`bot_gazefix 2`** (40Hz humanness re-profile): the gaze fixation thresholds
+  doubled. Yaw, yaw-while-moving and pitch-rate KS improve on all banks; pickups
+  −1–2%, within noise. **Don't widen `bot_gazedead`**: it worsens pitch texture.
+
+### Tools
+- **`tools/lever_audit.py`:** a same-seed md5 liveness probe for every default-ON
+  lever. No dead paths. The `bot_aimtest` multipliers are inert by design.
+- **`tools/mine_giveups.py`:** giveup taxonomy. q2dm1: 37% follow a playbook abort,
+  32% slow, 25% stalled, 2% fight.
+- **`tools/ab_cvar.py`:** paired same-seed A/B on the pinned benchmark navs.
+  - ⚠️ **Never A/B on the live gamedir.** `bot_pbalign` read flat on live and −10.6%
+    solo on pinned, two navs 2 nodes apart.
+  - ⚠️ **Never launch the engine directly on an A/B source gamedir.** It autosaves
+    into that nav.
+- **`tools/ab_parity.py`:** paired id-parity strength A/B with a 95% CI.
+  - ⚠️ **If the test switch IS the treatment** (`bot_gleadtest`, `bot_wpnalltest`),
+    the control must turn the switch OFF. A "test on, lever off" control is
+    identical to the treatment and reads exactly 0.00.
+  - ⚠️ **Replicate on fresh seeds.** `bot_fleeratio 0.45` read +3.14 [+0.01, +6.27],
+    then +0.04 on new seeds.
+- **`tools/ladder_pool.py` → `POOL.md`:** the duel ladder's 17-map pool.
+  - Its 14 `gen_nav` navs reach 78–90% solo COLLECT.
+  - Maps in subfolders (`q64/dm3`) used to silently lose nav and telemetry files;
+    `Bot_MapFileName` now flattens them to `q64_dm3`.
+- **`tools/gated_items.py` → `GATED.md`:** unreachable items per map, with
+  coordinates. ⚠️ **The reach sweep used to test from the FIRST spawn only**
+  (q2dm7 read 28/29 items no_path). It now keeps the best verdict over every
+  spawn. Diagnostics only.
+- **`tools/mvd_coverage.py` → `COVERAGE.md`:** human duellists spend 91–100% of
+  grounded time within 128u of a nav node on all 13 ladder maps.
+
+### Built, measured, left OFF (byte-identical; don't re-derive)
+- **`bot_pbalign`** (bitmask: 1 re-entry facing, 2 hold past anchor, 4 slew): every
+  bit regresses solo on the pinned nav. Bit 2 alone gives deathmatch +5.1%. Never
+  slew a moving-start ALIGN.
+- **`bot_pbfailfast`:** pickups flat, giveups +26–92%, humanness worse.
+- **`bot_budgetext`:** pickups −2–7%. Extended attempts arrive after the item is gone.
+- **`bot_wpnall`:** GL + BFG10K in weapon selection. The stock list never named them,
+  so bots never fired either. Parity ~+1.4pt [~0.0, +2.7] over 374 arms, but
+  pickups −1.3%. The BFG "has ammo" check now means ≥ 50 cells.
+- **`bot_glead`** (grenade lob solve): rejected. It lowers the GL's value.
+- **Flee thresholds** (`bot_fleehp`/`ratio`, `bot_fleetunetest`): flat at 40Hz.
+- **Aim timing re-sweep** (`bot_aimtest` react/turn/fire ×0.6/×1.5): all flat.
+  `bot_lead` is still positive (+2.6, n.s.).
+
+### Measured facts worth keeping
+- **Deaths** (q2dm1/2/8 deathmatch): 62–67% are fights during fetches that began
+  healthy, 18–24% finishing blows on weak bots, 1–11% environmental. In symmetric
+  self-play combat deaths = frags, so they are a strength question.
+- **Stillness at 40Hz:**
+  - lift waits 37%, goal-mode stalls 31% (mostly at playbook anchors), playbook
+    16%, airborne 12%;
+  - **engaged only 1%** — the July "plant-and-shoot 46%" breakdown is obsolete.
 
 ## Perception: sight-loss pursuit (demo-mined)
 

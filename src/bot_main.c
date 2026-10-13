@@ -196,7 +196,7 @@ void Bot_Init (void)
 	bot_enemymodel     = gi.cvar ("bot_enemymodel", "0", 0);
 	bot_enemymodeltest = gi.cvar ("bot_enemymodeltest", "0", 0);
 	bot_belieflog      = gi.cvar ("bot_belieflog", "0", 0);
-	bot_budgetcap    = gi.cvar ("bot_budgetcap", "15", 0);	// max seconds to fund any one goal route
+	bot_budgetcap    = gi.cvar ("bot_budgetcap", "12", 0);	// max seconds to fund any one goal route (15 -> 12: 2026-10 8-map sweep)
 	bot_itemfail     = gi.cvar ("bot_itemfail", "1", 0);	// escalating shared blacklist for items bots keep failing
 															// (2 = also fast-track items whose route evaporated, per
 															// the giveup-time oracle verdict; plans/nav-oracle.md)
