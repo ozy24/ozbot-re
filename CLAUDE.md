@@ -431,7 +431,7 @@ bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
 
 The full record is in `plans/completed/general-improvement-2026-10.md`.
 
-### Shipped (net vs campaign baseline: shipped-solo +7.7%, cold-solo +9.8%, deathmatch flat, humanness KS 0.166 → 0.146, snaps 1.89% → 0.07%)
+### Shipped (net vs campaign baseline: shipped-solo +7.2%, cold-solo +9.8%, shipped-dm +2.8%, cold-dm +1.7%, snaps 1.89% → 0.08%)
 - **`bot_pbalign 24`** (view-only ALIGN fix):
   - **bit 8:** slew the view during ALIGN, but gate engagement on the
     *commanded* heading, so engage timing is unchanged.
@@ -439,6 +439,14 @@ The full record is in `plans/completed/general-improvement-2026-10.md`.
     the rail with forward/side input.
 
   Snaps 0.41% → 0.07% deathmatch, 0.80% → 0.03% solo, with pickups flat.
+- **Nav grafts (`tools/nav_graft.py`, donors in `baselines/nav_donor/`):**
+  - New items routable on q2dm4/5/7/8, q64/dm8, mm-fleshref and kaktus-re-b2,
+    each DLL-verified and A/B'd.
+  - **Graft a route; don't swap a nav.** Whole grown navs cost deathmatch pickups
+    −1% to −8%.
+- **`bot_slottop 1`:** bots take client slots top-down. Bottom-up let every human
+  joining a dedicated server take over a bot's slot. A client landing in a bot slot
+  now evicts it cleanly (`Bot_HumanConnecting`).
 - **`bot_budgetcap 15 → 12`:** 8-map sweep, solo +2.2% (22/32 map-banks up).
   `bot_budgetbase`/`bot_budgetspeed` are exposed but flat (the cap binds).
 - **Curated q2dm1 playbook file: deathmatch +9.1%** (6/6 banks up), solo flat.

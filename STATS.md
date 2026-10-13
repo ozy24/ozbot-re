@@ -9,10 +9,10 @@ Each snapshot runs the fastsim **repro** rig (40Hz / `sv_fps 40`, fixed seed, pi
 
 So the four columns are **shipped-solo / cold-solo** (nav quality) and **shipped-dm / cold-dm** (integration). Note 40Hz deathmatch ITEM% runs structurally below the 10Hz figure — higher kill intensity interrupts more runs.
 
-## Current state — 2026-10-13T12:37:36
+## Current state — 2026-10-13T13:10:42
 
-**shipped set + bot_pbalign 24 (view-only ALIGN fix)**  
-commit `87e2add` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
+**+ nav grafts (q2dm4/5/7/8) + bot_slottop**  
+commit `75ffac9`  ⚠️ working tree dirty · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
 
 ### Solo nav-collection (nav quality — 1 bot, no combat)
 
@@ -21,37 +21,37 @@ commit `87e2add` · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0
 | q2dm1 | 83% | 67% | 205 | 246 | 511 |
 | q2dm2 | 67% | 72% | 91 | 135 | 390 |
 | q2dm3 | 56% | 49% | 72 | 128 | 265 |
-| q2dm4 | 81% | 80% | 87 | 108 | 449 |
-| q2dm5 | 74% | 74% | 99 | 134 | 468 |
+| q2dm4 | 78% | 80% | 83 | 106 | 450 |
+| q2dm5 | 75% | 74% | 103 | 137 | 471 |
 | q2dm6 | 55% | 55% | 73 | 133 | 258 |
-| q2dm7 | 92% | 67% | 274 | 298 | 266 |
-| q2dm8 | 75% | 78% | 166 | 222 | 583 |
+| q2dm7 | 92% | 67% | 267 | 290 | 267 |
+| q2dm8 | 76% | 78% | 168 | 220 | 590 |
 | **mean** | **73%** | **68%** | | | |
 
 ### Deathmatch (integration — 5 bots, combat + contention)
 
 | Map | shipped-dm | cold-dm | Pickups | Attempts | Frags | Deaths | K/D | Nav |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| q2dm1 | 64% | 56% | 808 | 1271 | 151 | 158 | 0.96 | 512 |
-| q2dm2 | 60% | 59% | 662 | 1095 | 140 | 177 | 0.79 | 393 |
-| q2dm3 | 53% | 51% | 533 | 999 | 63 | 248 | 0.25 | 267 |
-| q2dm4 | 75% | 72% | 574 | 768 | 58 | 135 | 0.43 | 460 |
-| q2dm5 | 65% | 65% | 605 | 929 | 125 | 150 | 0.83 | 476 |
-| q2dm6 | 43% | 43% | 343 | 793 | 49 | 322 | 0.15 | 261 |
-| q2dm7 | 62% | 44% | 670 | 1078 | 95 | 302 | 0.31 | 268 |
-| q2dm8 | 57% | 57% | 777 | 1362 | 227 | 263 | 0.86 | 585 |
+| q2dm1 | 63% | 55% | 782 | 1234 | 150 | 156 | 0.96 | 513 |
+| q2dm2 | 56% | 59% | 581 | 1043 | 150 | 182 | 0.82 | 392 |
+| q2dm3 | 54% | 52% | 548 | 1014 | 57 | 238 | 0.24 | 267 |
+| q2dm4 | 77% | 74% | 640 | 834 | 46 | 113 | 0.41 | 462 |
+| q2dm5 | 64% | 67% | 627 | 977 | 122 | 138 | 0.88 | 479 |
+| q2dm6 | 43% | 43% | 351 | 822 | 49 | 333 | 0.15 | 263 |
+| q2dm7 | 61% | 42% | 693 | 1137 | 110 | 330 | 0.33 | 271 |
+| q2dm8 | 60% | 59% | 829 | 1388 | 194 | 230 | 0.84 | 593 |
 | **mean** | **60%** | **56%** | | | | | | |
 
 <details><summary>Per-item pickups (latest, shipped-dm)</summary>
 
-- **q2dm1**: 176× Armor Shard, 94× Grenades, 71× Shotgun, 49× Rocket Launcher, 43× Bullets, 37× Large Health, 35× Combat Armor, 35× Health, 34× Chaingun, 33× Slugs, 31× Machinegun, 30× Railgun, 27× Grenade Launcher, 25× Jacket Armor, 18× Super Shotgun, 18× Rockets, 15× Shells, 11× Small Health, 10× Mega Health, 8× Ammo Pack, 7× HyperBlaster, 1× Cells
-- **q2dm2**: 131× Grenades, 111× Health, 67× Bullets, 57× Shells, 45× Shotgun, 40× Machinegun, 38× Chaingun, 37× Rockets, 36× Grenade Launcher, 35× Rocket Launcher, 23× Quad Damage, 19× Super Shotgun, 17× Cells, 5× Mega Health, 1× 
-- **q2dm3**: 153× Health, 73× Armor Shard, 47× Shells, 42× Jacket Armor, 33× Shotgun, 32× Grenades, 27× Rocket Launcher, 26× Machinegun, 22× HyperBlaster, 19× Grenade Launcher, 19× Railgun, 14× Bullets, 10× Rockets, 7× Combat Armor, 6× Cells, 2× Slugs, 1× Super Shotgun
-- **q2dm4**: 83× Health, 75× Armor Shard, 66× Small Health, 63× Grenades, 56× Shotgun, 45× Machinegun, 43× Combat Armor, 26× Chaingun, 24× Super Shotgun, 22× Large Health, 18× BFG10K, 17× Grenade Launcher, 15× Bullets, 13× Rocket Launcher, 5× Cells, 2× Rockets, 1× Body Armor
-- **q2dm5**: 109× Armor Shard, 102× Grenades, 59× Health, 40× Chaingun, 37× Machinegun, 36× Jacket Armor, 31× Super Shotgun, 31× Large Health, 28× Rocket Launcher, 26× Shotgun, 21× Grenade Launcher, 20× Small Health, 19× Railgun, 14× Quad Damage, 9× Mega Health, 7× Bullets, 6× Shells, 3× Adrenaline, 3× Combat Armor, 2× Ammo Pack, 1× Rockets, 1× Slugs
-- **q2dm6**: 136× Armor Shard, 40× Shotgun, 36× Small Health, 29× Health, 27× Jacket Armor, 18× Machinegun, 17× Shells, 10× Body Armor, 8× Grenade Launcher, 6× Super Shotgun, 5× Quad Damage, 4× Cells, 4× Bullets, 3× Large Health
-- **q2dm7**: 133× Armor Shard, 85× Health, 49× Small Health, 43× Body Armor, 39× Shotgun, 39× Grenades, 39× Rocket Launcher, 37× HyperBlaster, 36× Grenade Launcher, 34× Cells, 31× Shells, 30× Machinegun, 29× Bullets, 27× Rockets, 19× Super Shotgun
-- **q2dm8**: 185× Armor Shard, 110× Grenades, 69× Health, 62× Chaingun, 59× Super Shotgun, 55× Bullets, 44× Large Health, 39× Combat Armor, 25× Railgun, 23× Grenade Launcher, 23× Shotgun, 23× HyperBlaster, 20× Machinegun, 11× Shells, 10× Slugs, 9× Cells, 6× Rocket Launcher, 4× Rockets
+- **q2dm1**: 177× Armor Shard, 99× Grenades, 73× Shotgun, 47× Rocket Launcher, 44× Large Health, 39× Combat Armor, 32× Chaingun, 32× Slugs, 31× Jacket Armor, 30× Railgun, 29× Bullets, 28× Machinegun, 26× Grenade Launcher, 24× Health, 17× Super Shotgun, 12× Ammo Pack, 12× Rockets, 10× Mega Health, 9× Shells, 7× Small Health, 4× HyperBlaster
+- **q2dm2**: 112× Grenades, 109× Health, 63× Bullets, 43× Shotgun, 41× Shells, 36× Machinegun, 32× Super Shotgun, 29× Chaingun, 29× Grenade Launcher, 28× Rocket Launcher, 22× Quad Damage, 20× Rockets, 12× Cells, 4× Mega Health, 1× 
+- **q2dm3**: 120× Health, 97× Armor Shard, 63× Shells, 41× Grenades, 39× Jacket Armor, 30× Shotgun, 26× Machinegun, 23× HyperBlaster, 22× Grenade Launcher, 21× Rocket Launcher, 15× Railgun, 15× Combat Armor, 13× Cells, 11× Rockets, 7× Bullets, 3× Slugs, 1× Super Shotgun, 1× 
+- **q2dm4**: 107× Armor Shard, 81× Health, 76× Grenades, 72× Small Health, 55× Shotgun, 43× Machinegun, 42× Combat Armor, 27× Super Shotgun, 27× Large Health, 25× Chaingun, 21× BFG10K, 18× Bullets, 17× Rocket Launcher, 12× Grenade Launcher, 8× Cells, 3× Rockets, 3× Body Armor, 2× Mega Health, 1× Shells
+- **q2dm5**: 116× Armor Shard, 99× Grenades, 66× Health, 41× Jacket Armor, 39× Chaingun, 34× Super Shotgun, 32× Machinegun, 28× Small Health, 27× Grenade Launcher, 25× Large Health, 23× Shotgun, 22× Rocket Launcher, 21× Railgun, 17× Quad Damage, 12× Bullets, 9× Mega Health, 5× Shells, 4× Combat Armor, 3× Ammo Pack, 2× Rockets, 1× Adrenaline, 1× Slugs
+- **q2dm6**: 140× Armor Shard, 39× Shotgun, 39× Small Health, 29× Jacket Armor, 27× Health, 22× Shells, 16× Machinegun, 11× Super Shotgun, 10× Body Armor, 8× Grenade Launcher, 3× Quad Damage, 3× Bullets, 2× Cells, 2× Large Health
+- **q2dm7**: 121× Armor Shard, 91× Health, 56× Rocket Launcher, 51× Small Health, 43× Shotgun, 42× Grenades, 41× HyperBlaster, 39× Body Armor, 33× Shells, 33× Machinegun, 33× Bullets, 31× Grenade Launcher, 30× Cells, 28× Rockets, 21× Super Shotgun
+- **q2dm8**: 202× Armor Shard, 148× Grenades, 84× Health, 62× Super Shotgun, 58× Chaingun, 52× Bullets, 42× Large Health, 33× Combat Armor, 28× Railgun, 24× Grenade Launcher, 24× HyperBlaster, 19× Shells, 18× Machinegun, 17× Shotgun, 8× Slugs, 6× Cells, 3× Rocket Launcher, 1× Rockets
 
 </details>
 
@@ -61,15 +61,15 @@ Even ids get high skill (0.9), odd ids low (0.1). The raw even/odd kill split ca
 
 | Map | high-skill share | control share | corrected shift | high kills | low kills |
 |---|---:|---:|---:|---:|---:|
-| q2dm1 | 67.2% | 51.4% | +15.8pt | 162 | 79 |
-| q2dm2 | 55.5% | 52.5% | +3.0pt | 121 | 97 |
-| q2dm3 | 64.5% | 49.6% | +14.9pt | 80 | 44 |
-| q2dm4 | 57.5% | 35.6% | +22.0pt | 42 | 31 |
-| q2dm5 | 68.9% | 41.1% | +27.9pt | 122 | 55 |
-| q2dm6 | 60.0% | 55.6% | +4.4pt | 48 | 32 |
-| q2dm7 | 60.0% | 51.9% | +8.1pt | 78 | 52 |
-| q2dm8 | 70.1% | 47.0% | +23.0pt | 220 | 94 |
-| **mean** | | | **+14.9pt** | | |
+| q2dm1 | 64.0% | 47.6% | +16.4pt | 165 | 93 |
+| q2dm2 | 59.1% | 40.7% | +18.4pt | 130 | 90 |
+| q2dm3 | 57.7% | 43.1% | +14.6pt | 60 | 44 |
+| q2dm4 | 67.6% | 41.9% | +25.7pt | 48 | 23 |
+| q2dm5 | 65.2% | 44.4% | +20.8pt | 118 | 63 |
+| q2dm6 | 73.4% | 43.7% | +29.8pt | 58 | 21 |
+| q2dm7 | 65.3% | 56.9% | +8.4pt | 66 | 35 |
+| q2dm8 | 74.1% | 43.9% | +30.2pt | 203 | 71 |
+| **mean** | | | **+20.5pt** | | |
 
 ### Humanness (q2dm1 shipped-dm vs ladder MVD humans, 40Hz)
 
@@ -81,6 +81,7 @@ Mean two-sample KS over the movement/view features (lower = more human), fast ya
 | 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 0.1663 | 0.273 (0.085) | 0.18% |
 | 2026-10-13 | campaign shipped set: curated q2dm1 p... | 0.152 | 0.301 (0.085) | 0.39% |
 | 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 0.1459 | 0.239 (0.085) | 0.07% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 0.156 | 0.258 (0.085) | 0.08% |
 
 ## Solo nav-collection over time (shipped)
 
@@ -99,6 +100,7 @@ Mean two-sample KS over the movement/view features (lower = more human), fast ya
 | 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 78% | 66% | 57% | 80% | 73% | 41% | 92% | 77% | 71% |
 | 2026-10-13 | campaign shipped set: curated q2dm1 p... | 84% | 67% | 56% | 81% | 74% | 55% | 92% | 75% | 73% |
 | 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 83% | 67% | 56% | 81% | 74% | 55% | 92% | 75% | 73% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 83% | 67% | 56% | 78% | 75% | 55% | 92% | 76% | 73% |
 
 <details><summary>Solo nav-collection over time (cold — from-scratch nav learning)</summary>
 
@@ -117,6 +119,7 @@ Mean two-sample KS over the movement/view features (lower = more human), fast ya
 | 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 71% | 69% | 53% | 84% | 73% | 41% | 60% | 77% | 66% |
 | 2026-10-13 | campaign shipped set: curated q2dm1 p... | 66% | 72% | 49% | 80% | 74% | 55% | 67% | 78% | 68% |
 | 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 67% | 72% | 49% | 80% | 74% | 55% | 67% | 78% | 68% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 67% | 72% | 49% | 80% | 74% | 55% | 67% | 78% | 68% |
 
 </details>
 
@@ -138,6 +141,7 @@ _shipped-dm:_
 | 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 62% | 62% | 55% | 78% | 69% | 47% | 63% | 60% | 62% |
 | 2026-10-13 | campaign shipped set: curated q2dm1 p... | 62% | 60% | 54% | 75% | 65% | 43% | 62% | 57% | 60% |
 | 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 64% | 60% | 53% | 75% | 65% | 43% | 62% | 57% | 60% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 63% | 56% | 54% | 77% | 64% | 43% | 61% | 60% | 60% |
 
 _cold-dm:_
 | Date | Note | q2dm1 | q2dm2 | q2dm3 | q2dm4 | q2dm5 | q2dm6 | q2dm7 | q2dm8 | mean |
@@ -155,6 +159,7 @@ _cold-dm:_
 | 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 55% | 60% | 51% | 76% | 69% | 47% | 46% | 60% | 58% |
 | 2026-10-13 | campaign shipped set: curated q2dm1 p... | 54% | 59% | 51% | 72% | 65% | 43% | 44% | 57% | 56% |
 | 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 56% | 59% | 51% | 72% | 65% | 43% | 44% | 57% | 56% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 55% | 59% | 52% | 74% | 67% | 43% | 42% | 59% | 56% |
 
 </details>
 
@@ -175,6 +180,7 @@ _cold-dm:_
 | 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 151 | 149 | 83 | 37 | 103 | 61 | 81 | 202 | 867 |
 | 2026-10-13 | campaign shipped set: curated q2dm1 p... | 157 | 140 | 60 | 58 | 125 | 49 | 95 | 227 | 911 |
 | 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 151 | 140 | 63 | 58 | 125 | 49 | 95 | 227 | 908 |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 150 | 150 | 57 | 46 | 122 | 49 | 110 | 194 | 878 |
 
 </details>
 

@@ -346,3 +346,39 @@ The skill-parity mean shift went 19.1 → 14.4pt. That table measures how much
 
 Shipped levers: curated q2dm1 playbook file, `bot_gazefix 2`,
 `bot_budgetcap 12`, `bot_pbalign 24`.
+
+
+# ADDENDUM 2 (2026-10-13): Phase 4a via nav grafts, and the slot bug
+
+- **Phase 4a without recordings: `tools/nav_graft.py`.** It copies only a donor
+  nav's route to each item the base nav can't reach, under the DLL reach mask.
+  Every graft was DLL-verified and A/B'd over 6 banks.
+  - **Shipped:**
+    - q2dm4: 5 items newly routable; deathmatch +2.3%, solo +0.2%.
+    - q2dm5: 3 items; deathmatch +2.3%, solo +3.2%.
+    - q2dm7: 3 items incl. the Rocket Launcher; deathmatch +1.2%, solo −1.2%.
+    - q2dm8: 7 items; deathmatch +3.4%, solo +2.3%.
+    - q64/dm8: 2 items.
+    - mm-fleshref: 1 item; duel +4.3%.
+    - kaktus-re-b2: Rocket Launcher + rockets; duel +2.2%, solo +1.9%.
+  - **Held back:** mm-ptrip (solo −3.4%) and the first q2dm5 graft (solo −8.2%).
+  - **Remaining stock maps:** q2dm2 has nothing unrouted; q2dm3/q2dm6 are behind
+    lava, by design.
+- **`bot_slottop` (default 1), found while watching a live server:** bots took
+  client slots bottom-up, so every human joining a dedicated server took over a
+  bot's slot. Bots now allocate top-down, and a client landing in a bot slot
+  evicts it cleanly. Byte-identical at 0; neutral on the bot-only rig.
+- **Phase 5 not done:** it lives in the Q2RED repo, behind PR rules and a live
+  server deploy, so it's Chris's call. The proposal stands: an optional usercmd
+  record type plus a header flag; existing readers skip unknown record types.
+
+## Final shipped set vs campaign baseline
+
+| | |
+|---|---|
+| shipped-solo | **+7.2%** |
+| cold-solo | **+9.8%** |
+| shipped-dm | **+2.8%** |
+| cold-dm | **+1.7%** |
+| humanness KS | 0.166 → 0.146–0.156 (seed-dependent) |
+| snaps | 1.89% → **0.08%** |
