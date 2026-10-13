@@ -13,7 +13,14 @@ a zero length ends a clean stream.  Payload type 1 = header, type 2 = one
 command: u32 frame, u8 slot, u8 mask, then the fields whose mask bit is set,
 each written only when it changed since that slot's previous command:
 bit0 u8 msec, bit1 u8 buttons, bit2-4 i16 angle deltas (1/65536 turn,
-wrapping), bit5 i16 forwardmove, bit6 i16 sidemove, bit7 u8 lag in frames.
+wrapping, against the previous angles written for the slot -- one running
+base per slot for the whole file, never reset, even across occupants), bit5
+i16 forwardmove, bit6 i16 sidemove, bit7 u8 lag in frames.
+
+Timing: a command stamped F ran after .mvd2 frame F was captured and before
+F+1 was, so its effect first shows in the player state of .mvd2 frame F+1.
+Angles are quantized to 1/65536 turn and moves to whole units (the wire
+carries floats).  Game-driven bots and spectators are not recorded.
 
 Usage:
     py ucmdparse.py inspect <file.ucmd[.gz]> [more ...]
@@ -43,7 +50,8 @@ def parse(path):
 def parse_data(data):
     """Returns {"header": {...}, "commands": [...], "complete": bool}.
 
-    Each command is a dict: frame, slot, msec, buttons, angles (pitch, yaw,
+    Each command is a dict: frame (its effect is in .mvd2 frame F+1), slot,
+    msec, buttons, angles (pitch, yaw,
     roll in degrees, 0..360), forward, side, acked_frame (the server frame
     the client had seen: frame - lag).  "complete" is False when the stream
     was cut short (the records before the cut are still valid)."""
