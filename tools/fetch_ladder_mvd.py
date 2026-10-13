@@ -8,6 +8,9 @@ server's ladder_ship deletes its local copy after upload), so this pulls:
     GET /api/duel/matches?limit=100&before=<start_ms>   (paged match list)
     GET /api/duel/matches/<id>                          -> <id>.json
     GET /api/duel/matches/<id>/recording                -> <id>.mvd2.gz
+    GET /api/duel/matches/<id>/usercmds                 -> <id>.ucmd.gz
+        (only when the match detail lists one: Q2RED's sv_mvd_usercmds
+        sidecar of every executed command, read by tools/ucmdparse.py)
 
 and appends one row per new match to demos/mvd/manifest.jsonl.  Incremental:
 ids already on disk are skipped, so re-running only fetches new matches.
@@ -92,6 +95,18 @@ def main():
             continue
         with open(os.path.join(OUT, mid + ".json"), "wb") as f:
             f.write(detail)
+        has_ucmd = False
+        try:
+            has_ucmd = bool(json.loads(detail).get("usercmds"))
+        except ValueError:
+            pass
+        if has_ucmd:
+            ucmd = get(f"{base}/api/duel/matches/{mid}/usercmds")
+            if ucmd[:2] == b"\x1f\x8b":
+                with open(os.path.join(OUT, mid + ".ucmd.gz"), "wb") as f:
+                    f.write(ucmd)
+            else:
+                has_ucmd = False
         # write the demo last: its presence is the "already fetched" marker
         tmp = os.path.join(OUT, mid + ".mvd2.gz.part")
         with open(tmp, "wb") as f:
@@ -105,7 +120,7 @@ def main():
                             "outcome": p.get("outcome"),
                             "rating_before": p.get("rating_before")}
                            for p in m["players"]],
-               "bytes": len(demo)}
+               "bytes": len(demo), "usercmds": has_ucmd}
         with open(manifest, "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
         total += len(demo)

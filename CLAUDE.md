@@ -377,6 +377,17 @@ stats. There are no usercmds. The site holds the only copy of each recording.
     py tools/humanness.py bot <40Hz merged log>  # step auto-detected; --decimate 4
     py tools/humanness.py report <human.json> <bot.json>
 
+**Usercmd sidecars (`.ucmd`, from 2026-10-13):** Q2RED can also write every executed
+client command beside each recording (`sv_mvd_usercmds 1`, Q2RED divergence A47).
+It's a separate file because Q2REX's reader rejects unknown MVD commands, so the
+`.mvd2` stays byte-identical. Together with the `.mvd2` this gives state/action
+pairs.
+- `tools/ucmdparse.py` reads the sidecars. It was validated against the real
+  recorder's output.
+- `fetch_ladder_mvd.py` downloads them when a match has one.
+- The pipeline is in three local branches, none pushed: Q2RED
+  `host/mvd-usercmd-sidecar`, dm-tourneys `ladder/ucmd-sidecar`, and this repo.
+
 **`mvd2parse.py`** ports the site's `replay/mvd.js` and decodes player records only.
 It was validated against the server's match record: deaths match `deathLog` exactly
 in time and position.
