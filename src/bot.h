@@ -433,6 +433,8 @@ extern cvar_t	*bot_pbalign;
 extern cvar_t	*bot_gazefix;
 extern cvar_t	*bot_gazedead;
 extern cvar_t	*bot_budgetext;
+extern cvar_t	*bot_slottop;
+void Bot_HumanConnecting (edict_t *ent);
 extern cvar_t	*bot_budgetbase;
 extern cvar_t	*bot_budgetspeed;
 extern cvar_t	*bot_pbfailfast;

@@ -48,6 +48,7 @@ cvar_t	*bot_pbalign;	// ALIGN fixes, bitmask: 1 face-heading re-entry, 2 hold pa
 cvar_t	*bot_pbfailfast;	// end the goal attempt on a playbook failure (bot_main.c)
 cvar_t	*bot_budgetbase;	// goal budget slack seconds (bot_main.c / bot_goal.c)
 cvar_t	*bot_budgetspeed;	// goal budget route-cost units per second
+cvar_t	*bot_slottop;		// bot client slots top-down (bot_main.c)
 cvar_t	*bot_budgetext;	// goal-budget extension while progressing (bot_main.c)
 
 #define PB_MAX_ENTRIES		16

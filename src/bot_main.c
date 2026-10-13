@@ -196,6 +196,7 @@ void Bot_Init (void)
 	bot_enemymodel     = gi.cvar ("bot_enemymodel", "0", 0);
 	bot_enemymodeltest = gi.cvar ("bot_enemymodeltest", "0", 0);
 	bot_belieflog      = gi.cvar ("bot_belieflog", "0", 0);
+	bot_slottop      = gi.cvar ("bot_slottop", "1", 0);		// bots take client slots top-down (humans get the low ones)
 	bot_budgetbase   = gi.cvar ("bot_budgetbase", "6", 0);	// goal budget: seconds of slack (BOT_GOAL_BUDGET_BASE)
 	bot_budgetspeed  = gi.cvar ("bot_budgetspeed", "100", 0);	// goal budget: route cost units per second (BOT_GOAL_BUDGET_SPEED)
 	bot_budgetcap    = gi.cvar ("bot_budgetcap", "12", 0);	// max seconds to fund any one goal route (15 -> 12: 2026-10 8-map sweep)
@@ -946,10 +947,12 @@ static qboolean Bot_SlotHeldByHuman (int i)
 Bot_Add
 =================
 */
+static qboolean bot_adding;	// true while Bot_Add runs ClientConnect for a bot
+
 static qboolean Bot_Add (void)
 {
 	edict_t	*ent;
-	int		i;
+	int		i, k;
 	char	userinfo[MAX_INFO_STRING];
 	char	name[32];
 	bot_t	*b;
@@ -960,8 +963,16 @@ static qboolean Bot_Add (void)
 		return false;
 	}
 
-	for (i = 0; i < game.maxclients; i++)
+	// bot_slottop: claim client slots from the TOP down.  A bot is a game-side
+	// client the engine does not know about, so the engine hands a connecting
+	// human the lowest free slot -- with bottom-up bots that was a bot's slot:
+	// the human took over its edict, the bot record went dead and the manager
+	// spawned a replacement (seen 2026-10-13 on a dedicated mm-mcoil server:
+	// OzBot0 stopped ticking the instant a spectator joined).  Top-down, bots
+	// and humans only meet when the server is full (Bot_HumanConnecting).
+	for (k = 0; k < game.maxclients; k++)
 	{
+		i = (bot_slottop->value != 0) ? game.maxclients - 1 - k : k;
 		// On a listen server the local host permanently owns client slot 0.
 		// Reserve it: a bot must never claim slot 0 even in the frames after a
 		// map load before the host's ClientBegin marks the edict inuse -- that
@@ -978,7 +989,7 @@ static qboolean Bot_Add (void)
 		if (!ent->inuse && !bots[i].inuse && !Bot_SlotHeldByHuman (i))
 			break;
 	}
-	if (i == game.maxclients)
+	if (k == game.maxclients)
 		return false;	// no free slots
 
 	b = &bots[i];
@@ -1002,7 +1013,10 @@ static qboolean Bot_Add (void)
 	Info_SetValueForKey (userinfo, "hand", "2");
 	Info_SetValueForKey (userinfo, "fov", "90");
 
-	if (!ClientConnect (ent, userinfo))
+	bot_adding = true;
+	k = ClientConnect (ent, userinfo);
+	bot_adding = false;
+	if (!k)
 	{
 		gi.dprintf ("ozbot: ClientConnect refused bot\n");
 		memset (b, 0, sizeof(*b));
@@ -1045,14 +1059,41 @@ static void Bot_RemoveSlot (int i)
 
 /*
 =================
+Bot_HumanConnecting
+
+Called from ClientConnect.  If a real client is connecting into a slot a bot
+holds (only possible on a full server once bot_slottop allocates bots from the
+top), remove that bot cleanly first -- otherwise its record stays inuse with
+no body, it never ticks again and the slot count leaks.
+=================
+*/
+void Bot_HumanConnecting (edict_t *ent)
+{
+	int i;
+
+	if (bot_adding || !ent)
+		return;
+	i = (int)(ent - g_edicts) - 1;
+	if (i < 0 || i >= game.maxclients || !bots[i].inuse)
+		return;
+	gi.dprintf ("ozbot: a client is connecting into bot slot %d -- removing OzBot%d\n",
+		i, bots[i].id);
+	Bot_RemoveSlot (i);
+}
+
+/*
+=================
 Bot_RemoveOne
 =================
 */
 static qboolean Bot_RemoveOne (void)
 {
-	int i;
-	for (i = game.maxclients - 1; i >= 0; i--)
+	int i, k;
+	// remove the most recently added bot: the lowest slot when allocating
+	// top-down (bot_slottop), the highest otherwise
+	for (k = 0; k < game.maxclients; k++)
 	{
+		i = (bot_slottop->value != 0) ? k : game.maxclients - 1 - k;
 		if (bots[i].inuse)
 		{
 			Bot_RemoveSlot (i);
