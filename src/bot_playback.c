@@ -43,7 +43,8 @@ different maneuver).
 
 cvar_t	*bot_playbook;	// master gate (inert when no playbook file exists)
 cvar_t	*bot_pbalign;	// ALIGN fixes, bitmask: 1 face-heading re-entry, 2 hold past anchor,
-						// 4 standing-start view slew (0 = pre-fix, byte-identical)
+						// 4 standing-start view slew, 8 view slew with intent-based gate,
+						// 16 replay wedge recovery keeps the recorded view (0 = pre-fix)
 cvar_t	*bot_pbfailfast;	// end the goal attempt on a playbook failure (bot_main.c)
 cvar_t	*bot_budgetext;	// goal-budget extension while progressing (bot_main.c)
 
@@ -386,6 +387,25 @@ qboolean Bot_PlaybackThink (bot_t *b)
 				float *ref = (best_k == 0) ? e->anchor : e->ticks[best_k - 1].org;
 				VectorSubtract (ref, ent->s.origin, d);
 				d[2] = 0;
+				if (VectorLength (d) > 1 && ((int)bot_pbalign->value & 16))
+				{
+					// bot_pbalign bit 16: keep the recording's view and steer
+					// back onto the rail with forward/side input instead of
+					// turning to face it.  Turning made the view snap to the
+					// rail point and back every few ticks (lift_cg_room rides a
+					// moving plat while "stopped dead": 32% of solo snaps).
+					float	ryaw = (best_k == 0) ? e->anchor_yaw : e->ticks[best_k - 1].yaw;
+					float	delta = (vectoyaw (d) - ryaw) * (M_PI / 180.0f);
+					b->pb_yaw = ryaw;
+					b->pb_pitch = 0;
+					b->pb_cmd_fwd = (short)(400.0f * cos (delta));
+					b->pb_cmd_side = (short)(-400.0f * sin (delta));
+					b->pb_cmd_up = 0;
+					VectorNormalize (d);
+					VectorCopy (d, b->move_dir);
+					Bot_SetMoveYaw (b, vectoyaw (d));
+					return true;
+				}
 				if (VectorLength (d) > 1)
 				{
 					b->pb_yaw = vectoyaw (d);
@@ -561,7 +581,14 @@ qboolean Bot_PlaybackThink (bot_t *b)
 	vel[2] = 0;
 	speed = VectorLength (vel);
 
-	dyaw = e->anchor_yaw - ent->client->ps.viewangles[YAW];
+	// bot_pbalign bit 8 slews the VIEW during ALIGN; the gate must then read
+	// the heading we COMMANDED last frame (b->pb_yaw), which is exactly what
+	// the unslewed view used to equal -- so engage timing, and therefore where
+	// the bot goes, is unchanged (bit 4 read the lagging view and broke).
+	if ((int)bot_pbalign->value & 8)
+		dyaw = e->anchor_yaw - b->pb_yaw;
+	else
+		dyaw = e->anchor_yaw - ent->client->ps.viewangles[YAW];
 	while (dyaw > 180)  dyaw -= 360;
 	while (dyaw < -180) dyaw += 360;
 

@@ -319,7 +319,7 @@ void Bot_Init (void)
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
 	bot_budgetext    = gi.cvar ("bot_budgetext", "0", 0);	// extend an expired goal budget while the route still advances (s; 0 = off)
 	bot_pbfailfast   = gi.cvar ("bot_pbfailfast", "0", 0);	// end the goal attempt as soon as its playbook fails
-	bot_pbalign      = gi.cvar ("bot_pbalign", "0", 0);		// playbook ALIGN settle fix + slewed facing (0 = pre-fix, byte-identical)
+	bot_pbalign      = gi.cvar ("bot_pbalign", "24", 0);		// playbook ALIGN settle fix + slewed facing (0 = pre-fix, byte-identical)
 	bot_playbook     = gi.cvar ("bot_playbook", "1", 0);	// recorded maneuvers as nav links (Phase R4;
 															// inert unless playbooks/<map>.pbk exists)
 	bot_cmdlog       = gi.cvar ("bot_cmdlog", "0", 0);		// log BOT usercmds in the input-log schema
@@ -2017,8 +2017,9 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 		// bot_pbalign: ALIGN only steers onto the anchor, so turn the view
 		// like a player instead of snapping it.  REPLAY must stay exact --
 		// the recorded yaw IS the maneuver.
-		if (((int)bot_pbalign->value & 4) && b->pb_state == PB_ALIGN
-			&& Playbook_StandingStart (b))
+		if (b->pb_state == PB_ALIGN
+			&& (((int)bot_pbalign->value & 8)
+				|| (((int)bot_pbalign->value & 4) && Playbook_StandingStart (b))))
 			facing_yaw = Bot_SlewAngle (ent->client->ps.viewangles[YAW],
 				b->pb_yaw, 0.5f, 45.0f);
 	}
