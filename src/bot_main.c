@@ -318,6 +318,7 @@ void Bot_Init (void)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
 	bot_budgetext    = gi.cvar ("bot_budgetext", "0", 0);	// extend an expired goal budget while the route still advances (s; 0 = off)
+	bot_pbfailfast   = gi.cvar ("bot_pbfailfast", "0", 0);	// end the goal attempt as soon as its playbook fails
 	bot_pbalign      = gi.cvar ("bot_pbalign", "0", 0);		// playbook ALIGN settle fix + slewed facing (0 = pre-fix, byte-identical)
 	bot_playbook     = gi.cvar ("bot_playbook", "1", 0);	// recorded maneuvers as nav links (Phase R4;
 															// inert unless playbooks/<map>.pbk exists)
@@ -1616,7 +1617,14 @@ static void Bot_Navigate (bot_t *b)
 				&& level.time - b->goal_idx_time < 2.0f
 				&& b->path_idx < b->path_len)
 				budget = level.time - b->goal_time + 1.0f;	// not yet
-			if (level.time - b->goal_time > budget)
+			// bot_pbfailfast: a failed playbook attempt leaves PB_FAILED stuck
+			// for the rest of the goal attempt, and path following cannot
+			// execute a PLAYBOOK link -- so the bot stood on the anchor until
+			// the budget expired (the top still-frame cells on q2dm1 are the
+			// dm1_walkway_descent / cg_descend / djump_rockets anchors; 25%
+			// of giveups were this "stalled" class).  End the attempt now.
+			qboolean pbfail = (bot_pbfailfast->value != 0 && b->pb_state == PB_FAILED);
+			if (pbfail || level.time - b->goal_time > budget)
 			{
 			vec3_t	tgt, d;
 			int		atnode = (b->path_idx >= b->path_len) ? 1 : 0;
@@ -1644,7 +1652,9 @@ static void Bot_Navigate (bot_t *b)
 			// attempt reroutes around it instead of re-selling the same
 			// unexecutable link.  Gated on !enemy so combat-interrupted giveups
 			// (20% of them) never erode a good link.
-			if (bot_reroute && bot_reroute->value != 0 && !atnode
+			// (not after a playbook failure: Playbook_Abort already penalized
+			// what deserves it, and align misses must never erode the link)
+			if (bot_reroute && bot_reroute->value != 0 && !atnode && !pbfail
 				&& navq == NAVQ_OK && !b->enemy
 				&& b->path_idx > 0 && b->path_idx < b->path_len)
 			{

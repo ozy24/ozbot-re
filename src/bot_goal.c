@@ -257,6 +257,12 @@ void Goal_ReachSweep (const char *when)
 	if (bot_reachlog->value == 0)
 		return;
 
+	// judge from EVERY deathmatch spawn, keeping each item's best verdict
+	// (ok > gated > no_path > uncovered).  The sweep used to test only the
+	// FIRST spawn, so a map whose first spawn sits in a one-way pocket read
+	// almost everything as no_path (q2dm7: 28 of 29 items, while bots
+	// collected 92% of attempts) -- misleading GATED lists and gen_nav's
+	// gated-item report.  Diagnostics only: no decision reads this.
 	spawn = G_Find (NULL, FOFS (classname), "info_player_deathmatch");
 	if (!spawn)
 		spawn = G_Find (NULL, FOFS (classname), "info_player_start");
@@ -276,7 +282,27 @@ void Goal_ReachSweep (const char *when)
 		if (it->spawnflags & DROPPED_ITEM)
 			continue;	// weapons dropped at death spots aren't map item spots
 
-		code = Nav_QueryPath (spawn->s.origin, it->s.origin, base, &cost, &gate);
+		{
+			edict_t	*sp = NULL;
+			const char *cls = spawn->classname;
+			int		best = -1, c2, g2;
+			float	cost2;
+			while ((sp = G_Find (sp, FOFS (classname), cls)) != NULL)
+			{
+				int score;
+				cost2 = 0;
+				g2 = 0;
+				c2 = Nav_QueryPath (sp->s.origin, it->s.origin, base, &cost2, &g2);
+				score = (c2 == NAVQ_OK) ? 3 : (c2 == NAVQ_GATED) ? 2 : (c2 == NAVQ_NO_PATH) ? 1 : 0;
+				if (score > best || (score == best && score >= 2 && cost2 < cost))
+				{
+					best = score;
+					code = c2;
+					cost = cost2;
+					gate = g2;
+				}
+			}
+		}
 		Nav_MaskNames (gate, gates, sizeof(gates));
 		nm = Bot_ItemName (it);
 

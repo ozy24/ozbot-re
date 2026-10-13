@@ -44,6 +44,7 @@ different maneuver).
 cvar_t	*bot_playbook;	// master gate (inert when no playbook file exists)
 cvar_t	*bot_pbalign;	// ALIGN fixes, bitmask: 1 face-heading re-entry, 2 hold past anchor,
 						// 4 standing-start view slew (0 = pre-fix, byte-identical)
+cvar_t	*bot_pbfailfast;	// end the goal attempt on a playbook failure (bot_main.c)
 cvar_t	*bot_budgetext;	// goal-budget extension while progressing (bot_main.c)
 
 #define PB_MAX_ENTRIES		16
