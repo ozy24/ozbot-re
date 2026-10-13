@@ -250,3 +250,57 @@ repo; Chris's call.
   - mm-rage: 17 gated
 - **Fixed on the way:** maps in subfolders (`q64/dm3`) silently lost nav saves and
   telemetry. `Bot_MapFileName` now flattens them to `q64_dm3`.
+
+---
+
+# FINAL (2026-10-13): every phase implemented and measured
+
+## Net effect vs the campaign baseline (`a3ee586` → `0d1f8db`, benchmark 16×90, seed 700)
+
+| | baseline → shipped |
+|---|---|
+| shipped-solo pickups (headline) | 991 → 1056 (**+6.6%**) |
+| cold-solo pickups | 785 → 858 (**+9.3%**) |
+| shipped-dm / cold-dm pickups | +0.2% / −1.0% (flat) |
+| humanness mean KS vs MVD humans | 0.166 → **0.152** |
+| yaw micro-flips per second (human 0.085) | 0.886 → **0.301** |
+| single-tick >90° snaps | 1.89% → **0.39%** |
+
+The skill-parity mean shift went 19.1 → 14.4pt. That table measures how much
+`bot_skill` separates bots, not overall strength, and it's a single seed bank.
+
+## What shipped (3)
+1. **Curated q2dm1 playbook file:** three dead entries dropped. Deathmatch +9.1%
+   (6/6 banks).
+2. **`bot_gazefix 2`:** 40Hz humanness re-profile.
+3. **`bot_budgetcap 15 → 12`:** 8-map sweep, solo +2.2% (22/32 map-banks up).
+
+## Phase by phase
+- **0:** native Linux rig, fresh baseline, humanness row. DONE.
+- **1a:** lever audit, no dead paths. DONE.
+- **1b:** `bot_pbalign` bitmask, OFF. The real fix turned out to be playbook
+  curation (shipped).
+- **1c:** `bot_gazefix 2` SHIPPED; `bot_gazedead` rejected.
+- **2a:** giveup taxonomy. DONE.
+- **2b:** death taxonomy, done. Combat deaths equal frags in symmetric self-play,
+  so they're a strength question. Flee re-sweep: flat; the false positive didn't
+  replicate. `bot_budgetext` and `bot_pbfailfast` rejected.
+- **3a:** grenade lead. The bot never fired the GL or BFG at all.
+  - `bot_wpnall` built: borderline strength gain, −1.3% pickups, OFF.
+  - `bot_glead` rejected.
+- **3b:** aim timing and lead re-sweep: flat. The 10Hz values hold.
+- **3c:** engaged stillness re-measured at **1%** of still frames. The July premise
+  is obsolete, so no lever was needed.
+- **4a:** `GATED.md`, after fixing the reach sweep's first-spawn bias.
+- **4b:** `COVERAGE.md`. Humans spend 91–100% of grounded time within 128u of a nav
+  node.
+- **4c:** `bot_budgetcap` per-map sweep, 12 shipped.
+- **Pool:** the `ladder_pool` baseline and the shipped-set snapshot are in `POOL.md`.
+
+## Open for Chris
+- **Recording to-do lists:** `GATED.md` (q2dm6 25, q2dm4 21, q2dm5 13, q2dm8 12
+  unreachable items) and `COVERAGE.md` (human-only spots).
+- **q2dm3 `mh_ladder`:** 0 completions in 51 aligns. Its anchor needs a fresh
+  capture.
+- **Opt-ins worth a decision:** `bot_pbalign 2` (deathmatch +5.1%, solo −7.7%) and
+  `bot_wpnall 1` (stronger, −1.3% pickups).

@@ -429,7 +429,7 @@ bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
 
 ## 2026-10 campaign tools and results (branch `campaign-2026-10`)
 
-The full record is in `plans/in progress/general-improvement-2026-10.md`.
+The full record is in `plans/completed/general-improvement-2026-10.md`.
 
 ### Shipped
 - **Curated q2dm1 playbook file: deathmatch +9.1%** (6/6 banks up), solo flat.
