@@ -430,6 +430,8 @@ qboolean Bot_PlaybackThink (bot_t *b);
 void Bot_PlaybackReset (bot_t *b);
 extern cvar_t	*bot_playbook;
 extern cvar_t	*bot_pbalign;
+extern cvar_t	*bot_gazefix;
+extern cvar_t	*bot_gazedead;
 extern cvar_t	*bot_budgetext;
 
 // strafe-jump qualification funnel (diagnosis only; bot_sjlog >= 2)

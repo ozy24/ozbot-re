@@ -324,7 +324,9 @@ void Bot_Init (void)
 	bot_cmdlog       = gi.cvar ("bot_cmdlog", "0", 0);		// log BOT usercmds in the input-log schema
 															// (playbook pipeline validation)
 	bot_gaze         = gi.cvar ("bot_gaze", "1", 0);		// humanization: path look-ahead, glances, live pitch
-	bot_turnrate     = gi.cvar ("bot_turnrate", "1", 0);	// humanization: slew-limited view turns
+	bot_turnrate     = gi.cvar ("bot_turnrate", "1", 0);
+	bot_gazefix      = gi.cvar ("bot_gazefix", "2", 0);		// gaze fixation threshold multiplier: 2 = 40Hz re-profile vs MVD humans (1 = the 10Hz fit)
+	bot_gazedead     = gi.cvar ("bot_gazedead", "2", 0);	// gaze slew deadband, degrees	// humanization: slew-limited view turns
 	bot_humantest    = gi.cvar ("bot_humantest", "0", 0);	// head-to-head: even ids humanized, odd stock
 	bot_skilltest    = gi.cvar ("bot_skilltest", "0", 0);
 	bot_lead         = gi.cvar ("bot_lead", "1", 0);		// lead moving targets by projectile flight time

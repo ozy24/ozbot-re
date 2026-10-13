@@ -33,6 +33,8 @@ the facing while engaged).
 
 cvar_t	*bot_gaze;
 cvar_t	*bot_turnrate;
+cvar_t	*bot_gazefix;	// fixation re-aim threshold multiplier (8 deg yaw / 4 deg pitch at 1)
+cvar_t	*bot_gazedead;	// slew deadband, degrees (2 = the 10Hz-fitted value)
 cvar_t	*bot_humantest;	// head-to-head: even bot ids run the humanization
 						// behaviors, odd ids run stock -- the parity harness
 						// for measuring what humanness costs in kills
@@ -87,7 +89,7 @@ float Bot_SlewAngle (float cur, float target, float gain, float cap)
 	while (d > 180)  d -= 360;
 	while (d < -180) d += 360;
 
-	if (d > -GAZE_DEADBAND && d < GAZE_DEADBAND)
+	if (d > -bot_gazedead->value && d < bot_gazedead->value)
 		return cur;				// close enough: hold genuinely still
 
 	// 40Hz adaptation: gain and cap arrive in 10Hz-tick units from every
@@ -296,9 +298,9 @@ void Bot_GazeThink (bot_t *b, float *facing_yaw, float *facing_pitch)
 				float dy = want_yaw - b->gaze_hold_yaw;
 				while (dy > 180)  dy -= 360;
 				while (dy < -180) dy += 360;
-				if (dy > 8.0f || dy < -8.0f)
+				if (dy > 8.0f * bot_gazefix->value || dy < -8.0f * bot_gazefix->value)
 					b->gaze_hold_yaw = want_yaw;
-				if (fabs (want_pitch - b->gaze_hold_pitch) > 4.0f)
+				if (fabs (want_pitch - b->gaze_hold_pitch) > 4.0f * bot_gazefix->value)
 					b->gaze_hold_pitch = want_pitch;
 			}
 			want_yaw = b->gaze_hold_yaw;
