@@ -304,3 +304,45 @@ The skill-parity mean shift went 19.1 → 14.4pt. That table measures how much
   capture.
 - **Opt-ins worth a decision:** `bot_pbalign 2` (deathmatch +5.1%, solo −7.7%) and
   `bot_wpnall 1` (stronger, −1.3% pickups).
+
+
+---
+
+# ADDENDUM (2026-10-13, after review): remaining gates closed
+
+- **Phase 1b gate MET: `bot_pbalign 24`, default-ON.** These are view-only fixes:
+  - **bit 8:** slew the view during ALIGN, but evaluate the engage gate against the
+    *commanded* heading, so engage timing is unchanged.
+  - **bit 16:** replay wedge recovery keeps the recorded view and steers back onto
+    the rail with forward/side input.
+
+  Results, q2dm1:
+  - Snaps 0.41% → **0.07%** in deathmatch and 0.80% → **0.03%** solo (gate ≤ 0.1%).
+  - Pickups: deathmatch −0.5%, solo +1.7% (noise). q2dm3: deathmatch +1.0%,
+    solo +0.4%.
+  - Humanness KS 0.152 → 0.146.
+- **Phase 4c done:** `bot_budgetbase`/`bot_budgetspeed` are exposed and swept on 8
+  maps (base 3/9, speed 70/140). Flat, ±1%; the shipped 12 s cap binds. Defaults
+  stay.
+- **Phase 4a, automated half:**
+  - `GATED.md` now uses end-of-run reach verdicts.
+  - `gen_nav`-grown navs for q2dm4/5/6/8 make new items routable (q2dm4 BFG10K,
+    q2dm5 Chaingun, q2dm8 Cells/Chaingun) but cost deathmatch pickups on all four
+    (−1% to −8%), so they were not adopted.
+  - The gate's other half, recorded playbooks for the no_path items, needs human
+    captures.
+- **Phase 5:** optional and outside this repo (the Q2RED recorder). Not done.
+
+## Final shipped set vs campaign baseline (`a3ee586`)
+
+| | |
+|---|---|
+| shipped-solo | **+7.7%** |
+| cold-solo | **+9.8%** |
+| shipped-dm / cold-dm | +1.2% / −1.0% |
+| humanness KS | 0.166 → **0.146** |
+| micro-flips per second | 0.89 → **0.24** (human 0.085) |
+| snaps | 1.89% → **0.07%** |
+
+Shipped levers: curated q2dm1 playbook file, `bot_gazefix 2`,
+`bot_budgetcap 12`, `bot_pbalign 24`.

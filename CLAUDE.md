@@ -431,7 +431,16 @@ bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
 
 The full record is in `plans/completed/general-improvement-2026-10.md`.
 
-### Shipped
+### Shipped (net vs campaign baseline: shipped-solo +7.7%, cold-solo +9.8%, deathmatch flat, humanness KS 0.166 → 0.146, snaps 1.89% → 0.07%)
+- **`bot_pbalign 24`** (view-only ALIGN fix):
+  - **bit 8:** slew the view during ALIGN, but gate engagement on the
+    *commanded* heading, so engage timing is unchanged.
+  - **bit 16:** replay wedge recovery keeps the recorded view and steers back onto
+    the rail with forward/side input.
+
+  Snaps 0.41% → 0.07% deathmatch, 0.80% → 0.03% solo, with pickups flat.
+- **`bot_budgetcap 15 → 12`:** 8-map sweep, solo +2.2% (22/32 map-banks up).
+  `bot_budgetbase`/`bot_budgetspeed` are exposed but flat (the cap binds).
 - **Curated q2dm1 playbook file: deathmatch +9.1%** (6/6 banks up), solo flat.
   Per-entry outcomes showed three dead entries:
   - `bhop_rockets`: 78 engages, 78 drift aborts.
@@ -472,9 +481,12 @@ The full record is in `plans/completed/general-improvement-2026-10.md`.
   grounded time within 128u of a nav node on all 13 ladder maps.
 
 ### Built, measured, left OFF (byte-identical; don't re-derive)
-- **`bot_pbalign`** (bitmask: 1 re-entry facing, 2 hold past anchor, 4 slew): every
-  bit regresses solo on the pinned nav. Bit 2 alone gives deathmatch +5.1%. Never
-  slew a moving-start ALIGN.
+- **`bot_pbalign` bits 1/2/4** (re-entry facing, hold past anchor, view slew with a
+  view-based gate): every one regresses solo on the pinned nav. **Lesson: change
+  only the view, never where the bot goes or when it engages.** That is why 24
+  works and these didn't.
+- **`gen_nav` navs for q2dm4/5/6/8:** new items become routable, but deathmatch
+  pickups fall −1% to −8%. Not adopted.
 - **`bot_pbfailfast`:** pickups flat, giveups +26–92%, humanness worse.
 - **`bot_budgetext`:** pickups −2–7%. Extended attempts arrive after the item is gone.
 - **`bot_wpnall`:** GL + BFG10K in weapon selection. The stock list never named them,
