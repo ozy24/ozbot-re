@@ -148,6 +148,21 @@ Adding BSP-verified FALL links 113→169 and 76→120 cut island time ~10× and 
 
 Tool: `tools/goal_outcomes.py` (per-goal done/giveup/superseded/death + durations).
 
+### Step 1 bit 2 (2026-10-14): hop through fights
+
+`bot_sjpath 3`: an enemy no longer ends the chain. Aim owns the view; the policy
+facing becomes virtual (no rate cap: nobody sees it) and Bot_ApplyMovement rotates
+its world wishdir into the aim frame as analog fwd/side. Bit 1 alone stays
+byte-identical (md5 00206877 before/after). q2duel5: speed p90 395, >330 28.8%,
+arc gain p50 +47, arcs gaining 74% — on the pros / q2pro-x targets; aim on target
+at onset 10.6% → 7.6%. DM pickups vs bit 1: +2.1% (21/32), deaths −3.2%. Parity
+(`bot_sjpathtest`): +0.69pt [−2.16, +3.55], 190 arms — neutral.
+
+**Recommendation:** `bot_sjpath 3` is a net pickup gain in dm (~+5% vs off) and
+moves movement texture onto the human/q2pro-x targets at no strength cost. The
+blocker for default-ON is q2dm3 solo (−25%, nav-trap dominated). Step 3 (aim
+orientation) is next and is where q2pro-x's real edge is.
+
 ## Work plan (in order)
 
 ### Step 1: strafe-jump as the default travel mode

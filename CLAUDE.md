@@ -535,7 +535,14 @@ arcs. q2duel5 share >330 u/s 11% → 24% (pros 27%), arc gain p50 +2 → +41. Pi
 pickups solo +2.9% (20/32), dm +3.4% (23/32); q2dm6 big up, **q2dm3 solo −25%**
 (dominated by nav traps, see below). Off-state byte-identical. Two lessons baked in:
 `SJ_WISH_CAP 270` is the **10Hz** optimum (40Hz: 292.5); and any facing limit must
-live *inside* the simulated policy, or the sim stops predicting the live arc. Full
+live *inside* the simulated policy, or the sim stops predicting the live arc. **Bit 2** keeps the chain through fights: aim
+owns the view and the policy's world wishdir is rotated into the aim frame as an
+analog fwd/side (pmove clamps wishspeed and flattens forward, so the arc is the one
+simulated). On top of bit 1: dm pickups +2.1% (21/32), deaths −3.2%; parity
+(`bot_sjpathtest`, even ids) **+0.69pt [−2.16, +3.55], 190 arms — strength-neutral**.
+`bot_sjpath 3` puts q2duel5 at speed p90 395 (pros 392), >330 28.8% (27.4%), arc
+gain +47 (q2pro-x +47). ⚠️ `ab_cvar` and `ab_parity` share the `ozbotre_ab` staging
+gamedir — never run them concurrently. Full
 record: `plans/in progress/q2prox-replication.md`.
 
 ## Nav sinks: learned regions with no way out (2026-10-14)

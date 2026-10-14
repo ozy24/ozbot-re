@@ -1538,6 +1538,31 @@ static void SJ_Abort (bot_t *b, const char *why);
 static int		sjp_base[MAX_CLIENTS + 1];	// polyline start (path index)
 static int		sjp_endnode[MAX_CLIENTS + 1];	// node at the span end (replan check)
 static float	sjp_endslack[MAX_CLIENTS + 1];	// allowed landing past the span end
+static float	sjp_vyaw[MAX_CLIENTS + 1];	// this tick's policy facing (bit 2 reads it
+											// in Bot_ApplyMovement; combat may bend move_yaw)
+
+/*
+=================
+SJP_Uncapped
+
+bot_sjpath bit 2 with an enemy: combat aim owns the real view, so the policy's
+facing is virtual -- nothing a viewer sees -- and needs no turn-rate cap.
+=================
+*/
+int SJP_Bits (bot_t *b)
+{
+	int bits = (int)bot_sjpath->value;
+
+	// bot_sjpathtest: id-parity A/B of bit 2 -- odd ids never fight-hop
+	if (bot_sjpathtest->value != 0 && (b->id % 2) != 0)
+		bits &= ~2;
+	return bits;
+}
+
+static qboolean SJP_Uncapped (bot_t *b)
+{
+	return b->enemy && (SJP_Bits (b) & 2);
+}
 static int		sjp_policy[MAX_CLIENTS + 1];
 static vec3_t	sjp_start[MAX_CLIENTS + 1];	// bot origin at plan time
 
@@ -1716,6 +1741,7 @@ static float SJP_SimHop (bot_t *b, int policy)
 	pmove_t		pm;
 	vec3_t		pos, vel;
 	float		s0, s1, lat, z, len, v0, v1, prev_yaw = cl->ps.viewangles[YAW];
+	qboolean	uncapped = SJP_Uncapped (b);
 	int			i, t;
 	qboolean	landed = false;
 
@@ -1752,7 +1778,8 @@ static float SJP_SimHop (bot_t *b, int policy)
 			pos[i] = pm.s.origin[i] * 0.125f;
 			vel[i] = pm.s.velocity[i] * 0.125f;
 		}
-		yaw = SJP_PolicyYaw (b, policy, pos, vel, prev_yaw);
+		yaw = uncapped ? SJP_LawYaw (b, policy, pos, vel)
+			: SJP_PolicyYaw (b, policy, pos, vel, prev_yaw);
 		prev_yaw = yaw;
 
 		memset (&pm.cmd, 0, sizeof(pm.cmd));
@@ -1878,7 +1905,10 @@ static qboolean SJP_Think (bot_t *b)
 	float	speed, yaw, ps, lat, z, len;
 	vec3_t	vel2, d, prev;
 
-	if (b->enemy || ent->waterlevel > 0 || b->lift_state != LIFT_NONE)
+	// bit 2: an enemy no longer ends the chain -- aim owns the view and
+	// Bot_ApplyMovement rotates the policy's wishdir into the aim frame
+	if ((b->enemy && !(SJP_Bits (b) & 2))
+		|| ent->waterlevel > 0 || b->lift_state != LIFT_NONE)
 	{
 		if (b->sj_state == SJ_ACTIVE)
 			SJ_Abort (b, b->enemy ? "abort_enemy" : "abort_env");
@@ -1964,8 +1994,10 @@ static qboolean SJP_Think (bot_t *b)
 			b->path_idx = k;
 	}
 
-	yaw = SJP_PolicyYaw (b, sjp_policy[s], ent->s.origin, ent->velocity,
-		ent->client->ps.viewangles[YAW]);
+	yaw = SJP_Uncapped (b) ? SJP_LawYaw (b, sjp_policy[s], ent->s.origin, ent->velocity)
+		: SJP_PolicyYaw (b, sjp_policy[s], ent->s.origin, ent->velocity,
+			ent->client->ps.viewangles[YAW]);
+	sjp_vyaw[s] = yaw;
 	SJP_PolicyCmd (sjp_policy[s], &b->sj_cmd_fwd, &b->sj_cmd_side);
 	b->sj_side = (sjp_policy[s] == SJP_POL_GAIN_L) ? -1 : 1;
 	Bot_SetMoveYaw (b, yaw);
@@ -2853,6 +2885,29 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 	{
 		cmd->forwardmove = b->sj_cmd_fwd;
 		cmd->sidemove    = b->sj_cmd_side;
+		cmd->upmove      = b->sj_cmd_up;
+		return;
+	}
+
+	// bot_sjpath bit 2: hopping through a fight.  Aim owns the view, so express
+	// the policy's world wishdir (its facing + the fwd/side diagonal) in the
+	// aim frame as an analog fwd/side.  Pmove clamps wishspeed to 300 either
+	// way and flattens forward/right, so the arc is the one the plan simulated.
+	if (bot_strafejump->value != 0 && b->sj_state == SJ_ACTIVE && b->enemy
+		&& (SJP_Bits (b) & 3) == 3)
+	{
+		float	wish = sjp_vyaw[SJP_Slot (b)], a, c, sn, m;
+
+		if (b->sj_cmd_side > 0)
+			wish -= 45.0f;		// +side = right = clockwise
+		else if (b->sj_cmd_side < 0)
+			wish += 45.0f;
+		a = (wish - facing_yaw) * (float)(M_PI / 180.0);
+		c = (float)cos (a);
+		sn = (float)sin (a);
+		m = (float)(fabs (c) > fabs (sn) ? fabs (c) : fabs (sn));
+		cmd->forwardmove = (short)(400.0f * c / m);
+		cmd->sidemove    = (short)(-400.0f * sn / m);
 		cmd->upmove      = b->sj_cmd_up;
 		return;
 	}

@@ -74,6 +74,7 @@ cvar_t	*bot_liftlog;
 cvar_t	*bot_strafejump;
 cvar_t	*bot_sjlog;
 cvar_t	*bot_sjpath;
+cvar_t	*bot_sjpathtest;
 cvar_t	*bot_inputlog;
 cvar_t	*bot_ammoneed;
 cvar_t	*bot_healthneed;
@@ -320,6 +321,7 @@ void Bot_Init (void)
 	bot_strafejump   = gi.cvar ("bot_strafejump", "1", 0);	// chained strafe-jump travel on clear runways (Phase 19:
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)
 	bot_sjpath       = gi.cvar ("bot_sjpath", "0", 0);		// path-mode strafe jumping, bitmask (plans/in progress/q2prox-replication.md)
+	bot_sjpathtest   = gi.cvar ("bot_sjpathtest", "0", 0);	// id-parity A/B of bot_sjpath bit 2 (odd ids: off)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
 	bot_budgetext    = gi.cvar ("bot_budgetext", "0", 0);	// extend an expired goal budget while the route still advances (s; 0 = off)
