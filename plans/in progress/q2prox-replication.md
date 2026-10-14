@@ -85,6 +85,69 @@ Ozbot has **not** been profiled on ztn2dm3 yet. It needs a nav: run
    - Sight-legal ingredients already exist: last-known-position fields from
      `bot_pursuit` (`Bot_PursueTry`, LKP on `bot_t`) and the nav graph.
 
+## Step 1 design (2026-10-14): `bot_sjpath` path-mode hopping
+
+Baseline re-run 2026-10-14 reproduces the handover bit-for-bit (arc gain p50 +2,
+>330 share 0.108). The `bot_sjlog 2` funnel on q2duel5 (16×180s): 487 qualify
+calls die as short 456 / trace 167 / turn 114 / dz 107, 298 engages, **341 hops in
+5760 bot-seconds** (~1 hop per engage). The runway controller is effectively off.
+
+Also found: `SJ_WISH_CAP 270` is the **10Hz** optimum (300 − the 30-ups air-accel
+quantum per 100ms; Q2 air accel is `1 * frametime * 300`). At 40Hz the quantum is
+7.5, so the optimum is 292.5 — a raw per-tick constant. Path mode uses
+`300 − 30·BOT_TICK_RATIO`; the old runway mode keeps 270 for byte-identity.
+
+Design (`bot_sjpath`, bitmask, default 0, needs `bot_strafejump 1`):
+- **bit 1 — path mode.** Replace runway qualification with a per-hop *choice by
+  simulation*. On every grounded tick (engage, or each landing mid-chain) take the
+  committed path's WALK span (stop at the first non-WALK link or hazard/water
+  node), then forward-simulate one whole hop through the real `gi.Pmove`, from the
+  live pmove state, for three policies: optimal-gain yaw law on side +1, the same
+  on side −1, and a TURN policy (wishdir at a lookahead point on the path).
+  Score = progress along the path polyline at landing. Reject any arc that touches
+  liquid, lands > 40u off the path's height, lands > 64u off the polyline, bleeds
+  > 40 ups (it hit a wall), or overshoots the span end. Fly the best one, or hand
+  back to the follower if none is valid. Physics is deterministic, so the live hop
+  flies exactly the simulated arc unless another player interferes. No runway
+  length/collinearity/flatness rules are needed: the sim is the rule.
+- **bit 2 — keep hopping with an enemy** (aim owns facing; the controller writes
+  an analog fwd/side so the wishdir is still the law's). Separate A/B.
+
+### Step 1 results (2026-10-14, bit 1 built, default OFF)
+
+Shipped as opt-in `bot_sjpath 1` (off-state md5 `429a6236` = pre-change, q2duel5
+16×180 seed 700). Additions beyond the design: `SJP_YAW_RATE` 800°/s view cap
+inside the policy (shared by sim and live, so the sim stays exact); span ends at
+links climbing >32u / dropping >64u (ladders broke the arc-length projection);
+landings must stop 96u short of a span that ends in a non-WALK transition (the
+follower takes jumps/ladders at run speed — this flipped q2dm7 solo −12% → +4%);
+the gaze layer owns pitch while hopping (pmove uses pitch/3 for air wishdir, so
+the effect on the arc is ≤ ~1°).
+
+| q2duel5 | pros | off | `bot_sjpath 1` | q2pro-x |
+|---|---|---|---|---|
+| speed p90 | 392 | 332 | 381 | 378 |
+| share >330 | 27% | 11% | 24% | 19% |
+| arc gain p50 | +13 | +2 | +41 | +47 |
+| arcs gaining | 59% | 53% | 70% | 76% |
+| yaw snaps >45°/tick | | 0.12% | 0.07% | |
+
+Pinned-nav `ab_cvar` (8 maps × 4 banks): **solo +2.9% (20/32), dm +3.4% (23/32)**;
+q2dm6 solo +74% / dm +12%, q2dm7 +4%/+4%, q2dm8 dm +8%. Losers: **q2dm3 solo −25%
+(0/4, reproduced over 6 banks)**, q2dm8 solo −6%, q2dm4 dm −2%. Humanness (q2dm1 dm vs
+ladder MVDs, KS): speed2d 0.150→0.086, yaw_accel 0.102→0.045, still_episode
+0.377→0.353 better; yaw_rate 0.187→0.209 worse; pitch fixed after the v3 read.
+
+q2dm3 solo diagnosis: not hop-caused (no hops near the stalls). Its solo collection
+is dominated by pre-existing nav traps that strand whole instances in both arms —
+a spawn point on a 12-node **nav island with no outgoing links** (bots spawning
+there idle until the run ends: 4–6 of 16 instances), and a follower stall at the
+101→231→4 triple near the HyperBlaster. Path mode changes *which* instances fall in.
+Adding BSP-verified FALL links 113→169 and 76→120 cut island time ~10× and pickups
++3.8% (5/6 banks) with sjpath 0 — see the nav-trap follow-up.
+
+Tool: `tools/goal_outcomes.py` (per-goal done/giveup/superseded/death + durations).
+
 ## Work plan (in order)
 
 ### Step 1: strafe-jump as the default travel mode

@@ -413,6 +413,7 @@ qboolean Bot_StrafeThink (bot_t *b);
 void Bot_StrafeReset (bot_t *b);
 extern cvar_t	*bot_strafejump;
 extern cvar_t	*bot_sjlog;
+extern cvar_t	*bot_sjpath;
 
 // generic movement helpers shared with the playback controller
 void Bot_SetMoveYaw (bot_t *b, float yaw);

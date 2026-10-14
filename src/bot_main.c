@@ -73,6 +73,7 @@ cvar_t	*bot_liftcommit;	// once on a rising plat, commit to the ride (don't step
 cvar_t	*bot_liftlog;
 cvar_t	*bot_strafejump;
 cvar_t	*bot_sjlog;
+cvar_t	*bot_sjpath;
 cvar_t	*bot_inputlog;
 cvar_t	*bot_ammoneed;
 cvar_t	*bot_healthneed;
@@ -318,6 +319,7 @@ void Bot_Init (void)
 	bot_liftlog      = gi.cvar ("bot_liftlog", "0", 0);		// diagnosis telemetry near func_plats (plans/lift-riding.md)
 	bot_strafejump   = gi.cvar ("bot_strafejump", "1", 0);	// chained strafe-jump travel on clear runways (Phase 19:
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)
+	bot_sjpath       = gi.cvar ("bot_sjpath", "0", 0);		// path-mode strafe jumping, bitmask (plans/in progress/q2prox-replication.md)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
 	bot_budgetext    = gi.cvar ("bot_budgetext", "0", 0);	// extend an expired goal budget while the route still advances (s; 0 = off)
@@ -2073,8 +2075,17 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 		// corrupt it.  The sweep it produces is the human-looking motion.
 		if (bot_strafejump->value != 0 && b->sj_state == SJ_ACTIVE)
 		{
+			// bot_sjpath: pitch can't touch the hop (PM_AirMove flattens
+			// forward/right), so let the gaze layer own it -- a hopping view
+			// pinned level read as the worst pitch KS vs the ladder MVDs
+			if ((int)bot_sjpath->value & 1)
+			{
+				float gaze_yaw;
+				Bot_GazeThink (b, &gaze_yaw, &facing_pitch);
+			}
+			else
+				facing_pitch = 0;
 			facing_yaw = b->move_yaw;
-			facing_pitch = 0;
 		}
 		else
 			Bot_GazeThink (b, &facing_yaw, &facing_pitch);
