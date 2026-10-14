@@ -525,6 +525,19 @@ The full record is in `plans/completed/general-improvement-2026-10.md`.
     16%, airborne 12%;
   - **engaged only 1%** — the July "plant-and-shoot 46%" breakdown is obsolete.
 
+## Path-mode strafe jumping (`bot_sjpath`, default OFF, 2026-10-14)
+
+`bot_sjpath 1` replaces the runway qualification of `bot_strafejump` (which fired
+~1 hop per 17 bot-seconds on q2duel5) with a **per-hop choice by simulation**: each
+grounded tick, simulate one whole hop through `gi.Pmove` for three policies and
+fly the one that buys the most path, rejecting liquid/wall/corridor/wrong-floor
+arcs. q2duel5 share >330 u/s 11% → 24% (pros 27%), arc gain p50 +2 → +41. Pinned
+pickups solo +2.9% (20/32), dm +3.4% (23/32); q2dm6 big up, **q2dm3 solo −25%**
+(dominated by nav traps, see below). Off-state byte-identical. Two lessons baked in:
+`SJ_WISH_CAP 270` is the **10Hz** optimum (40Hz: 292.5); and any facing limit must
+live *inside* the simulated policy, or the sim stops predicting the live arc. Full
+record: `plans/in progress/q2prox-replication.md`.
+
 ## Nav sinks: learned regions with no way out (2026-10-14)
 
 The learner only records traversals the bot already makes, so a region it only
