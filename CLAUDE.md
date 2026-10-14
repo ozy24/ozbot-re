@@ -525,6 +525,30 @@ The full record is in `plans/completed/general-improvement-2026-10.md`.
     16%, airborne 12%;
   - **engaged only 1%** — the July "plant-and-shoot 46%" breakdown is obsolete.
 
+## Nav sinks: learned regions with no way out (2026-10-14)
+
+The learner only records traversals the bot already makes, so a region it only
+ever *falls into* (or spawns in) gets no exit link. A bot inside such a **sink**
+(an SCC with no outgoing link) can never route to an item outside, so it idles
+with no goal. q2dm3 has a **spawn point on a 12-node island**: a solo bot spawning
+there idled until the run ended (4–6 of 16 instances). The shipped AND cold navs
+carry the same sinks (q2dm2/4/5/6/7 too), so grafting doesn't help.
+
+    python3 tools/stranded.py <log>          # time with no goal for >5s, and where
+    python3 tools/nav_sinks.py <nav> <bsp> [--apply out.nav]   # BSP-checked exits
+    python3 tools/ab_nav.py <map> <cand.nav> # paired nav-file A/B, pinned config
+
+`nav_sinks.py` proposes FALL links (drop ≤ 180u, under fall damage) and WALK /
+stair links (floor within 48u under every sample), checked by point LOS at knee,
+body and head height. **That is an approximation — A/B every link.** Shipped
+(pinned + live; originals as `*.pre-sinkexit`), each A/B'd on 4 banks:
+- q2dm3 76→120 FALL: solo +5.6%, dm +3.1%. The other island exit, 113→169, read
+  solo +13% but **dm −6%**, and a second sink's 176u drop cost −25% solo / −6% dm.
+  **Ending idleness is not automatically good**: an idle bot can't die.
+- q2dm5 (2 links): solo +17.0% (4/4), dm +2.4% (3/4).
+- q2dm6 (2 links): solo +8.6% (4/4), dm +1.7% (3/4).
+q2dm2/4/7 sinks have no exit within one link's reach (lifts or long stairs).
+
 ## Perception: sight-loss pursuit (demo-mined)
 
 `bot_pursuit` (default **0**, OFF — behavior built and bounded, benefit unproven)
