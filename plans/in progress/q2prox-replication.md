@@ -163,6 +163,13 @@ moves movement texture onto the human/q2pro-x targets at no strength cost. The
 blocker for default-ON is q2dm3 solo (−25%, nav-trap dominated). Step 3 (aim
 orientation) is next and is where q2pro-x's real edge is.
 
+### Step 3a result (2026-10-14): the cone, confirmed — `bot_hearsight`
+
+23% of visible-opponent samples unacquired, 93% of them outside ±60° (p50 117°).
+`bot_hearsight 1` (hearing-gated out-of-cone acquisition): visible aim p75 73° → 49°;
+parity null over ~380 arms; dm pickups −1.0%. Default OFF (humanness option).
+On target at onset is unchanged (10%) — that gap is pre-aim (3b), not acquisition.
+
 ## Work plan (in order)
 
 ### Step 1: strafe-jump as the default travel mode

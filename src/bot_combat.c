@@ -194,6 +194,8 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 	float		bestd = 1e18f;
 	int			i;
 	qboolean	fovgate = (bot_fov->value != 0 && Bot_Humanized (b));
+	qboolean	hear = bot_hearsight->value != 0
+		&& !(bot_hearsighttest->value != 0 && (b->id % 2) != 0);
 
 	for (i = 1; i <= (int)maxclients->value; i++)
 	{
@@ -219,6 +221,7 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 		if (fovgate && o != b->enemy
 			&& !(b->threat_ent == o && level.time - b->threat_time < 2.0f)
 			&& !(dd < 700 && level.time - Bot_NoiseTime (o) < 1.0f)
+			&& !(hear && Bot_HeardRecently (o, dd))
 			&& !Combat_InFov (self, o))
 			continue;
 		if (dd < bestd)

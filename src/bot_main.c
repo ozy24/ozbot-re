@@ -75,6 +75,8 @@ cvar_t	*bot_strafejump;
 cvar_t	*bot_sjlog;
 cvar_t	*bot_sjpath;
 cvar_t	*bot_sjpathtest;
+cvar_t	*bot_hearsight;
+cvar_t	*bot_hearsighttest;
 cvar_t	*bot_inputlog;
 cvar_t	*bot_ammoneed;
 cvar_t	*bot_healthneed;
@@ -322,6 +324,8 @@ void Bot_Init (void)
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)
 	bot_sjpath       = gi.cvar ("bot_sjpath", "0", 0);		// path-mode strafe jumping, bitmask (plans/in progress/q2prox-replication.md)
 	bot_sjpathtest   = gi.cvar ("bot_sjpathtest", "0", 0);	// id-parity A/B of bot_sjpath bit 2 (odd ids: off)
+	bot_hearsight    = gi.cvar ("bot_hearsight", "0", 0);	// out-of-cone acquisition of a visible enemy we just heard
+	bot_hearsighttest = gi.cvar ("bot_hearsighttest", "0", 0);	// id-parity A/B of bot_hearsight (odd ids: off)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
 	bot_budgetext    = gi.cvar ("bot_budgetext", "0", 0);	// extend an expired goal budget while the route still advances (s; 0 = off)
@@ -857,6 +861,40 @@ void Bot_NoteNoiseEx (edict_t *who, int kind, vec3_t origin)
 	bot_noise_at[i]   = level.time;
 	bot_noise_kind[i] = kind;
 	VectorCopy (origin, bot_noise_pos[i]);
+}
+
+/*
+=================
+Bot_HeardRecently  (bot_hearsight)
+
+Did `who` make a noise in the last second that a listener `dist` away would
+notice?  Radii by kind: gunfire carries furthest, a footfall only up close.
+Feeds ACQUISITION only (Combat_FindEnemy's out-of-cone exception) -- the
+target must still be visible; this never moves the bot (bot_hearing's
+noise-driven pursuit was the rejected design: a noise carries no heading).
+=================
+*/
+qboolean Bot_HeardRecently (edict_t *who, float dist)
+{
+	int		i;
+	float	r;
+
+	if (!who || !who->client)
+		return false;
+	i = who - g_edicts - 1;
+	if (i < 0 || i >= MAX_CLIENTS)
+		return false;
+	if (level.time - bot_noise_at[i] > 1.0f)
+		return false;
+	switch (bot_noise_kind[i])
+	{
+	case NOISE_WEAPON:	r = 1000.0f; break;
+	case NOISE_PICKUP:	r = 640.0f; break;
+	case NOISE_PAIN:	r = 640.0f; break;
+	case NOISE_STEP:	r = 384.0f; break;
+	default:			return false;
+	}
+	return dist < r;
 }
 
 float Bot_NoiseTime (edict_t *who)

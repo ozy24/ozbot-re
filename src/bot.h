@@ -415,6 +415,9 @@ extern cvar_t	*bot_strafejump;
 extern cvar_t	*bot_sjlog;
 extern cvar_t	*bot_sjpath;
 extern cvar_t	*bot_sjpathtest;
+extern cvar_t	*bot_hearsight;
+extern cvar_t	*bot_hearsighttest;
+qboolean Bot_HeardRecently (edict_t *who, float dist);
 
 // generic movement helpers shared with the playback controller
 void Bot_SetMoveYaw (bot_t *b, float yaw);

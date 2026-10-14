@@ -545,6 +545,20 @@ gain +47 (q2pro-x +47). ⚠️ `ab_cvar` and `ab_parity` share the `ozbotre_ab` 
 gamedir — never run them concurrently. Full
 record: `plans/in progress/q2prox-replication.md`.
 
+## Hearing-gated acquisition (`bot_hearsight`, default OFF, 2026-10-14)
+
+Measured first: on q2duel5, **23% of visible-opponent samples are unacquired, and
+93% of those sit outside the ±60° `bot_fov` cone** (p50 117°). Acquired aim is
+tight (p50 5.9°), so the 73° visible-aim p75 is the cone, not aim precision.
+`bot_hearsight 1` makes a *visible* enemy acquirable outside the cone if it made a
+noise in the last second within earshot (gunfire 1000u, pickup/pain 640u, footstep
+384u; the `bot_hearing` registry). It only touches acquisition: the bot still turns
+at its normal rate, and nothing moves toward a sound (that was `bot_hearing`'s
+failure). Visible-aim p75 73° → **49°** (pros 38°). Parity (`bot_hearsighttest`):
++1.33pt [−1.54, +4.20] and a fresh-seed replication +0.35pt [−2.61, +3.32]
+(~380 arms) — **null**. DM pickups −1.0% (16/32), frags/deaths up symmetrically.
+Same shape as `bot_pursuit`/`bot_enemymodel`: a humanness option, not strength.
+
 ## Nav sinks: learned regions with no way out (2026-10-14)
 
 The learner only records traversals the bot already makes, so a region it only
