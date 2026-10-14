@@ -170,6 +170,16 @@ orientation) is next and is where q2pro-x's real edge is.
 parity null over ~380 arms; dm pickups −1.0%. Default OFF (humanness option).
 On target at onset is unchanged (10%) — that gap is pre-aim (3b), not acquisition.
 
+### Step 3b result (2026-10-14): `bot_preaim`
+
+Reappearance-point gaze (see CLAUDE.md). On target at onset 10% → 25% (pros 43%,
+q2pro-x 68%/44%), hidden-within-15° 6% → 17.5% (pros 20%, q2pro-x 27%/47%).
+Parity ≈ +1.8pt over 573 arms (marginal), dm pickups −3.2% (more fights).
+Remaining gap to q2pro-x is onset precision — they are on target before the
+enemy appears far more often; a next step would rank candidate reappearance
+points by the enemy's likely route (item timers / the routes it was taking)
+rather than nearest-visible-first.
+
 ## Work plan (in order)
 
 ### Step 1: strafe-jump as the default travel mode

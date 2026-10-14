@@ -1129,6 +1129,16 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->lkp_noise = false;	// this one we actually saw
 	}
 
+	// bot_preaim: our own sighting record (pursuit consumes the LKP fields)
+	if (Bot_PreaimOn (b))
+	{
+		b->pa_ent = enemy;
+		VectorCopy (enemy->s.origin, b->pa_pos);
+		VectorCopy (enemy->velocity, b->pa_vel);
+		b->pa_time = level.time;
+		b->pa_next = 0;			// re-solve as soon as sight is lost
+	}
+
 	// fight-or-flight: when clearly outmatched, retreat (still firing) and let
 	// the goal layer fetch health/armor.  Hysteresis so it doesn't flap.
 	{

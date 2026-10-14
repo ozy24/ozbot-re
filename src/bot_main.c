@@ -77,6 +77,8 @@ cvar_t	*bot_sjpath;
 cvar_t	*bot_sjpathtest;
 cvar_t	*bot_hearsight;
 cvar_t	*bot_hearsighttest;
+cvar_t	*bot_preaim;
+cvar_t	*bot_preaimtest;
 cvar_t	*bot_inputlog;
 cvar_t	*bot_ammoneed;
 cvar_t	*bot_healthneed;
@@ -326,6 +328,8 @@ void Bot_Init (void)
 	bot_sjpathtest   = gi.cvar ("bot_sjpathtest", "0", 0);	// id-parity A/B of bot_sjpath bit 2 (odd ids: off)
 	bot_hearsight    = gi.cvar ("bot_hearsight", "0", 0);	// out-of-cone acquisition of a visible enemy we just heard
 	bot_hearsighttest = gi.cvar ("bot_hearsighttest", "0", 0);	// id-parity A/B of bot_hearsight (odd ids: off)
+	bot_preaim       = gi.cvar ("bot_preaim", "0", 0);		// look where a lost enemy will reappear (sight-legal pre-aim)
+	bot_preaimtest   = gi.cvar ("bot_preaimtest", "0", 0);	// id-parity A/B of bot_preaim (odd ids: off)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
 	bot_budgetext    = gi.cvar ("bot_budgetext", "0", 0);	// extend an expired goal budget while the route still advances (s; 0 = off)
@@ -585,6 +589,9 @@ static void Bot_ResetNavState (bot_t *b)
 	b->lkp_ent      = NULL;
 	b->lkp_time     = 0;
 	VectorClear (b->lkp_pos);
+	b->pa_ent       = NULL;
+	b->pa_time      = 0;
+	b->pa_have      = false;
 	VectorClear (b->lkp_vel);
 	Bot_LiftReset (b);
 	Bot_TrainReset (b);
@@ -895,6 +902,128 @@ qboolean Bot_HeardRecently (edict_t *who, float dist)
 	default:			return false;
 	}
 	return dist < r;
+}
+
+/*
+=================
+Bot_PreaimOn / Bot_PreaimPoint  (bot_preaim)
+
+Sight-legal pre-aim.  While an enemy is visible the combat keyframe records
+where it was and how it was moving (Combat_Aim).  After sight is lost, for
+PREAIM_SECS, the gaze layer looks at the most likely REAPPEARANCE point: walk
+the nav graph outward from the enemy's extrapolated position, in order of
+graph distance, and take the first node our eyes can see.  If they went behind
+a corner, that is the corner; if they went through a door, the doorway.  Uses
+only our own sighting plus the map -- no live enemy position, ever.
+=================
+*/
+#define PREAIM_SECS		4.0f	// a sighting older than this is stale
+#define PREAIM_LEAD		0.5f	// seconds of velocity extrapolation
+#define PREAIM_RADIUS	1400.0f	// graph search horizon from the sighting
+#define PREAIM_TRACES	64		// visibility traces per solve
+#define PREAIM_RESOLVE	0.1f	// re-solve cadence (10Hz, like the brain)
+
+qboolean Bot_PreaimOn (bot_t *b)
+{
+	if (bot_preaim->value == 0 || !Bot_Humanized (b))
+		return false;
+	if (bot_preaimtest->value != 0 && (b->id % 2) != 0)
+		return false;
+	return true;
+}
+
+qboolean Bot_PreaimPoint (bot_t *b, vec3_t out)
+{
+	static float	dist[NAV_MAX_NODES];
+	static byte		done[NAV_MAX_NODES];
+	edict_t	*self = b->ent;
+	vec3_t	from, eye;
+	float	dt;
+	int		start, i, traces = 0;
+
+	if (!b->pa_ent || !b->pa_ent->inuse || b->pa_ent->health <= 0
+		|| level.time - b->pa_time > PREAIM_SECS || nav.num_nodes <= 0)
+	{
+		b->pa_have = false;
+		return false;
+	}
+	if (level.time < b->pa_next)
+	{
+		if (b->pa_have)
+			VectorCopy (b->pa_look, out);
+		return b->pa_have;
+	}
+	b->pa_next = level.time + PREAIM_RESOLVE;
+	b->pa_have = false;
+
+	dt = level.time - b->pa_time;
+	if (dt > PREAIM_LEAD)
+		dt = PREAIM_LEAD;
+	VectorMA (b->pa_pos, dt, b->pa_vel, from);
+	start = Nav_NearestNode (from);
+	if (start < 0)
+		start = Nav_NearestNode (b->pa_pos);
+	if (start < 0)
+		return false;
+
+	VectorCopy (self->s.origin, eye);
+	eye[2] += self->viewheight;
+
+	// Dijkstra by straight-line link length, settled in distance order; the
+	// first settled node with a clear sightline is the reappearance point
+	for (i = 0; i < nav.num_nodes; i++)
+	{
+		dist[i] = 1e18f;
+		done[i] = 0;
+	}
+	dist[start] = 0;
+	for (;;)
+	{
+		int		u = -1, k;
+		float	best = 1e18f;
+		trace_t	tr;
+		vec3_t	tgt;
+
+		// linear extract-min: graphs are a few hundred nodes and this runs
+		// at 10Hz only while a sighting is fresh
+		for (k = 0; k < nav.num_nodes; k++)
+			if (!done[k] && dist[k] < best)
+			{
+				best = dist[k];
+				u = k;
+			}
+		if (u < 0 || best > PREAIM_RADIUS)
+			break;
+		done[u] = 1;
+
+		VectorCopy (nav.nodes[u].origin, tgt);
+		tgt[2] += 16;			// chest height of a player standing there
+		tr = gi.trace (eye, vec3_origin, vec3_origin, tgt, self, MASK_OPAQUE);
+		if (tr.fraction >= 1.0f)
+		{
+			VectorCopy (tgt, b->pa_look);
+			b->pa_have = true;
+			VectorCopy (tgt, out);
+			return true;
+		}
+		if (++traces >= PREAIM_TRACES)
+			break;
+
+		for (k = 0; k < nav.nodes[u].num_links; k++)
+		{
+			int		v = nav.nodes[u].links[k].to;
+			vec3_t	d;
+			float	nd;
+
+			if (v < 0 || v >= nav.num_nodes || done[v])
+				continue;
+			VectorSubtract (nav.nodes[v].origin, nav.nodes[u].origin, d);
+			nd = best + VectorLength (d);
+			if (nd < dist[v])
+				dist[v] = nd;
+		}
+	}
+	return false;
 }
 
 float Bot_NoiseTime (edict_t *who)

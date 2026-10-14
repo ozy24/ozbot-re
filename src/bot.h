@@ -242,6 +242,14 @@ typedef struct
 								// from goal_time precisely BECAUSE goal_time is
 								// advanced by that freeze and is not a clock
 	qboolean	lkp_noise;		// this sighting came from bot_hearing, not sight
+	// bot_preaim: own sighting record (pursuit consumes the LKP fields)
+	edict_t		*pa_ent;		// whose sighting (NULL = none)
+	vec3_t		pa_pos;			// their origin at the last sighting
+	vec3_t		pa_vel;			// ...and velocity then
+	float		pa_time;		// level.time of that sighting
+	float		pa_next;		// re-solve the appearance point after this
+	vec3_t		pa_look;		// cached appearance point (valid if pa_have)
+	qboolean	pa_have;
 	// bot_enemymodel: belief about the CURRENT target, from sight-legal info only
 	edict_t		*bel_ent;		// who this belief is about (NULL = none)
 	float		bel_strength;	// estimated health+armor
@@ -418,6 +426,10 @@ extern cvar_t	*bot_sjpathtest;
 extern cvar_t	*bot_hearsight;
 extern cvar_t	*bot_hearsighttest;
 qboolean Bot_HeardRecently (edict_t *who, float dist);
+extern cvar_t	*bot_preaim;
+extern cvar_t	*bot_preaimtest;
+qboolean Bot_PreaimOn (bot_t *b);
+qboolean Bot_PreaimPoint (bot_t *b, vec3_t out);
 
 // generic movement helpers shared with the playback controller
 void Bot_SetMoveYaw (bot_t *b, float yaw);

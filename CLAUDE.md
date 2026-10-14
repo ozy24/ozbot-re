@@ -559,6 +559,23 @@ failure). Visible-aim p75 73° → **49°** (pros 38°). Parity (`bot_hearsightt
 (~380 arms) — **null**. DM pickups −1.0% (16/32), frags/deaths up symmetrically.
 Same shape as `bot_pursuit`/`bot_enemymodel`: a humanness option, not strength.
 
+## Sight-legal pre-aim (`bot_preaim`, default OFF, 2026-10-14)
+
+After sight of an enemy is lost (≤4s), the gaze looks at the most likely
+**reappearance point**: Dijkstra over the nav graph from the enemy's extrapolated
+position (own sighting + 0.5s of its velocity), first node the bot's eyes can see
+(the corner they went behind, the doorway). Own sighting fields (`pa_*`) because
+pursuit consumes the LKP. q2duel5 aim vs pros: visible-aim p75 73° → **36°** (38),
+hidden-within-15° 6% → **17.5%** (19.7%), on target at onset 10% → **25%** (43%),
+react p50 0.2 → 0.1s (0.1). Humanness (q2dm1 vs MVDs): view_move_offset KS
+0.119 → **0.046**, yaw_rate 0.187 → 0.164, yaw_rate_moving 0.190 → 0.153.
+Parity (`bot_preaimtest`), three independent 190-arm banks: +3.45 [+0.68, +6.21],
++1.01, +0.97 → **pooled ≈ +1.8pt, CI ≈ [+0.1, +3.5] over 573 arms** (the first read
+was the lucky one — replicate!). **Cost: dm pickups −3.2% (5/32)**, via fight
+giveups +15%: it spots enemies sooner, so item runs get interrupted. The only
+lever so far that is both more human *and* (slightly) stronger; OFF only because
+pickups are the north star — turn it on for humanness/strength.
+
 ## Nav sinks: learned regions with no way out (2026-10-14)
 
 The learner only records traversals the bot already makes, so a region it only
