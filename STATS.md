@@ -9,51 +9,81 @@ Each snapshot runs the fastsim **repro** rig (40Hz / `sv_fps 40`, fixed seed, pi
 
 So the four columns are **shipped-solo / cold-solo** (nav quality) and **shipped-dm / cold-dm** (integration). Note 40Hz deathmatch ITEM% runs structurally below the 10Hz figure — higher kill intensity interrupts more runs.
 
-## Current state — 2026-07-22T13:54:04
+## Current state — 2026-10-17T15:10:00
 
-**all four perception levers default OFF (bot_pursuit reverted: +0.55pt CI [-2.10,+3.20] at 16 valid arms, unproven); bot_lookahead opt-in for curated navs**  
-commit `e25a1ba`  ⚠️ working tree dirty · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
+**DEFAULT ON: bot_sjpath 3 (sim path-mode strafe jumping + through fights) + bot_preaim 1**  
+commit `8e96815`  ⚠️ working tree dirty · rig: 16×90.0s game, solo 1 bot / deathmatch 5 bots, skill 0.5, seed 700
 
 ### Solo nav-collection (nav quality — 1 bot, no combat)
 
 | Map | shipped-solo | cold-solo | Pickups | Attempts | Nav |
 |---|---:|---:|---:|---:|---:|
-| q2dm1 | 82% | 71% | 172 | 211 | 511 |
-| q2dm2 | 54% | 65% | 63 | 117 | 389 |
-| q2dm3 | 55% | 58% | 62 | 113 | 265 |
-| q2dm4 | 84% | 83% | 83 | 99 | 451 |
-| q2dm5 | 74% | 74% | 88 | 119 | 468 |
-| q2dm6 | 53% | 53% | 60 | 114 | 256 |
-| q2dm7 | 92% | 53% | 190 | 207 | 266 |
-| q2dm8 | 67% | 77% | 126 | 187 | 584 |
-| **mean** | **70%** | **67%** | | | |
+| q2dm1 | 84% | 63% | 206 | 244 | 510 |
+| q2dm2 | 69% | 69% | 94 | 136 | 390 |
+| q2dm3 | 35% | 53% | 55 | 156 | 265 |
+| q2dm4 | 80% | 81% | 76 | 95 | 451 |
+| q2dm5 | 71% | 73% | 112 | 158 | 470 |
+| q2dm6 | 64% | 67% | 107 | 166 | 256 |
+| q2dm7 | 93% | 63% | 268 | 289 | 267 |
+| q2dm8 | 76% | 76% | 169 | 222 | 589 |
+| **mean** | **72%** | **68%** | | | |
 
 ### Deathmatch (integration — 5 bots, combat + contention)
 
 | Map | shipped-dm | cold-dm | Pickups | Attempts | Frags | Deaths | K/D | Nav |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| q2dm1 | 62% | 55% | 667 | 1083 | 135 | 153 | 0.88 | 512 |
-| q2dm2 | 56% | 57% | 510 | 918 | 132 | 165 | 0.8 | 392 |
-| q2dm3 | 52% | 52% | 470 | 902 | 60 | 221 | 0.27 | 267 |
-| q2dm4 | 78% | 74% | 584 | 748 | 47 | 121 | 0.39 | 457 |
-| q2dm5 | 70% | 70% | 594 | 846 | 111 | 124 | 0.9 | 474 |
-| q2dm6 | 46% | 46% | 365 | 801 | 54 | 329 | 0.16 | 259 |
-| q2dm7 | 63% | 42% | 654 | 1031 | 98 | 301 | 0.33 | 270 |
-| q2dm8 | 56% | 57% | 668 | 1183 | 222 | 262 | 0.85 | 593 |
-| **mean** | **60%** | **57%** | | | | | | |
+| q2dm1 | 63% | 57% | 782 | 1243 | 153 | 166 | 0.92 | 514 |
+| q2dm2 | 58% | 61% | 619 | 1072 | 142 | 181 | 0.78 | 392 |
+| q2dm3 | 49% | 51% | 550 | 1126 | 86 | 296 | 0.29 | 268 |
+| q2dm4 | 73% | 75% | 602 | 825 | 63 | 136 | 0.46 | 460 |
+| q2dm5 | 68% | 70% | 687 | 1012 | 123 | 145 | 0.85 | 478 |
+| q2dm6 | 44% | 46% | 366 | 835 | 48 | 372 | 0.13 | 263 |
+| q2dm7 | 63% | 46% | 754 | 1194 | 95 | 313 | 0.3 | 270 |
+| q2dm8 | 63% | 60% | 887 | 1400 | 197 | 236 | 0.83 | 594 |
+| **mean** | **60%** | **58%** | | | | | | |
 
 <details><summary>Per-item pickups (latest, shipped-dm)</summary>
 
-- **q2dm1**: 142× Armor Shard, 89× Grenades, 57× Shotgun, 40× Rocket Launcher, 35× Combat Armor, 34× Slugs, 32× Railgun, 28× Machinegun, 26× Chaingun, 25× Large Health, 23× Jacket Armor, 22× Rockets, 21× Bullets, 19× Super Shotgun, 18× Grenade Launcher, 14× Health, 10× Ammo Pack, 10× Mega Health, 8× HyperBlaster, 8× Shells, 5× Small Health, 1× Cells
-- **q2dm2**: 122× Health, 116× Grenades, 37× Shotgun, 33× Rocket Launcher, 31× Chaingun, 30× Machinegun, 29× Bullets, 26× Grenade Launcher, 23× Shells, 21× Quad Damage, 17× Super Shotgun, 15× Rockets, 6× Mega Health, 4× Cells
-- **q2dm3**: 103× Health, 65× Armor Shard, 47× Shells, 42× Jacket Armor, 37× Grenades, 30× Machinegun, 26× Shotgun, 23× Rocket Launcher, 21× HyperBlaster, 18× Grenade Launcher, 16× Railgun, 14× Bullets, 9× Cells, 9× Rockets, 8× Combat Armor, 2× 
-- **q2dm4**: 87× Health, 71× Armor Shard, 69× Grenades, 56× Shotgun, 46× Machinegun, 44× Combat Armor, 38× Small Health, 33× Chaingun, 23× BFG10K, 23× Super Shotgun, 21× Rocket Launcher, 19× Large Health, 15× Bullets, 14× Grenade Launcher, 10× Cells, 6× Body Armor, 5× Rockets, 3× Mega Health, 1× Shells
-- **q2dm5**: 91× Armor Shard, 80× Grenades, 61× Health, 49× Jacket Armor, 42× Chaingun, 32× Machinegun, 32× Super Shotgun, 31× Rocket Launcher, 31× Small Health, 31× Large Health, 30× Shotgun, 24× Grenade Launcher, 21× Railgun, 16× Quad Damage, 10× Mega Health, 5× Shells, 5× Combat Armor, 2× Bullets, 1× Ammo Pack
-- **q2dm6**: 119× Armor Shard, 54× Health, 41× Shotgun, 32× Small Health, 27× Jacket Armor, 21× Machinegun, 16× Body Armor, 12× Bullets, 9× Shells, 9× Super Shotgun, 9× Grenade Launcher, 7× Quad Damage, 5× Cells, 3× Large Health, 1× Ammo Pack
-- **q2dm7**: 126× Armor Shard, 87× Health, 47× Body Armor, 47× Small Health, 41× Grenade Launcher, 38× HyperBlaster, 38× Rocket Launcher, 38× Shotgun, 33× Grenades, 33× Shells, 33× Machinegun, 30× Bullets, 28× Rockets, 22× Cells, 13× Super Shotgun
-- **q2dm8**: 111× Grenades, 110× Armor Shard, 69× Super Shotgun, 62× Health, 57× Chaingun, 42× Large Health, 40× Combat Armor, 30× Bullets, 26× Railgun, 24× Grenade Launcher, 22× Shotgun, 20× HyperBlaster, 18× Machinegun, 12× Rocket Launcher, 11× Rockets, 10× Slugs, 2× Cells, 2× Shells
+- **q2dm1**: 157× Armor Shard, 104× Grenades, 72× Shotgun, 58× Large Health, 40× Rocket Launcher, 39× Chaingun, 35× Combat Armor, 31× Machinegun, 31× Railgun, 30× Bullets, 28× Slugs, 27× Jacket Armor, 26× Health, 20× Grenade Launcher, 19× Super Shotgun, 18× Small Health, 17× Rockets, 14× Ammo Pack, 9× Mega Health, 5× Shells, 2× HyperBlaster
+- **q2dm2**: 122× Grenades, 108× Health, 62× Shells, 56× Bullets, 42× Shotgun, 37× Machinegun, 34× Chaingun, 34× Grenade Launcher, 30× Rockets, 26× Quad Damage, 26× Rocket Launcher, 21× Super Shotgun, 18× Cells, 3× Mega Health
+- **q2dm3**: 116× Health, 101× Armor Shard, 59× Shells, 38× Grenades, 37× Shotgun, 36× Rockets, 34× Jacket Armor, 30× Machinegun, 24× HyperBlaster, 22× Cells, 21× Bullets, 14× Grenade Launcher, 14× Railgun, 2× Slugs, 1× Combat Armor, 1× Rocket Launcher
+- **q2dm4**: 97× Armor Shard, 77× Health, 75× Grenades, 57× Small Health, 53× Shotgun, 42× Machinegun, 38× Combat Armor, 28× Chaingun, 27× Super Shotgun, 26× Large Health, 21× Grenade Launcher, 20× BFG10K, 14× Rocket Launcher, 11× Bullets, 7× Cells, 5× Rockets, 2× Body Armor, 1× Mega Health, 1× Shells
+- **q2dm5**: 130× Armor Shard, 104× Grenades, 73× Health, 44× Jacket Armor, 40× Chaingun, 37× Super Shotgun, 35× Shotgun, 35× Small Health, 32× Machinegun, 31× Rocket Launcher, 30× Grenade Launcher, 28× Large Health, 19× Railgun, 15× Quad Damage, 7× Mega Health, 7× Bullets, 6× Shells, 5× Rockets, 3× Adrenaline, 3× Combat Armor, 2× Ammo Pack, 1× Slugs
+- **q2dm6**: 124× Armor Shard, 43× Shotgun, 37× Small Health, 34× Machinegun, 33× Health, 30× Jacket Armor, 14× Grenade Launcher, 11× Body Armor, 11× Shells, 8× Bullets, 6× Super Shotgun, 6× Large Health, 4× Quad Damage, 3× Cells, 2× Ammo Pack
+- **q2dm7**: 128× Armor Shard, 109× Health, 67× Rocket Launcher, 57× Small Health, 44× Shotgun, 42× Body Armor, 41× Shells, 38× HyperBlaster, 38× Grenades, 37× Machinegun, 36× Rockets, 35× Bullets, 33× Grenade Launcher, 29× Cells, 20× Super Shotgun
+- **q2dm8**: 225× Armor Shard, 135× Grenades, 95× Health, 66× Super Shotgun, 53× Chaingun, 50× Large Health, 48× Bullets, 43× Combat Armor, 30× Railgun, 27× Grenade Launcher, 26× HyperBlaster, 23× Shotgun, 21× Machinegun, 19× Slugs, 9× Shells, 8× Rocket Launcher, 7× Cells, 2× Rockets
 
 </details>
+
+### Skill parity (kill-share — bot_skilltest, 6 bots, paired control)
+
+Even ids get high skill (0.9), odd ids low (0.1). The raw even/odd kill split carries a ~0.81 id-**position** bias at low seed counts (it washes toward 0.5 at 16 seeds), so the headline is the **corrected shift** = treatment_share − control_share (paired `bot_skilltest 0` run, same seed).
+
+| Map | high-skill share | control share | corrected shift | high kills | low kills |
+|---|---:|---:|---:|---:|---:|
+| q2dm1 | 61.9% | 50.2% | +11.8pt | 153 | 94 |
+| q2dm2 | 61.3% | 39.3% | +22.0pt | 130 | 82 |
+| q2dm3 | 66.9% | 52.3% | +14.7pt | 85 | 42 |
+| q2dm4 | 73.8% | 54.2% | +19.6pt | 59 | 21 |
+| q2dm5 | 58.4% | 48.0% | +10.5pt | 111 | 79 |
+| q2dm6 | 71.1% | 48.9% | +22.2pt | 54 | 22 |
+| q2dm7 | 63.4% | 52.3% | +11.2pt | 85 | 49 |
+| q2dm8 | 66.7% | 49.5% | +17.2pt | 192 | 96 |
+| **mean** | | | **+16.1pt** | | |
+
+### Humanness (q2dm1 shipped-dm vs ladder MVD humans, 40Hz)
+
+Mean two-sample KS over the movement/view features (lower = more human), fast yaw reversals within 100ms (`microflips`), and the share of ticks turning >90° in one 25ms tick (`snaps`). Reference: `tools/humanness.py human-mvd all`.
+
+| Date | Note | mean KS | microflips/s (human) | snaps |
+|---|---|---:|---:|---:|
+| 2026-10-12 | 2026-10 campaign baseline: native Lin... | 0.1657 | 0.886 (0.085) | 1.89% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 0.1663 | 0.273 (0.085) | 0.18% |
+| 2026-10-13 | campaign shipped set: curated q2dm1 p... | 0.152 | 0.301 (0.085) | 0.39% |
+| 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 0.1459 | 0.239 (0.085) | 0.07% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 0.156 | 0.258 (0.085) | 0.08% |
+| 2026-10-14 | nav sink exits on q2dm3/5/6 (bot_sjpa... | 0.156 | 0.258 (0.085) | 0.08% |
+| 2026-10-17 | DEFAULT ON: bot_sjpath 3 (sim path-mo... | 0.1503 | 0.344 (0.085) | 0.05% |
 
 ## Solo nav-collection over time (shipped)
 
@@ -67,6 +97,14 @@ commit `e25a1ba`  ⚠️ working tree dirty · rig: 16×90.0s game, solo 1 bot /
 | 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 77% | 81% | 53% | 79% | 75% | 52% | 90% | 75% | 73% |
 | 2026-07-22 | bot_pursuit default ON (enemy last-kn... | 82% | 54% | 55% | 84% | 74% | 53% | 92% | 67% | 70% |
 | 2026-07-22 | all four perception levers default OF... | 82% | 54% | 55% | 84% | 74% | 53% | 92% | 67% | 70% |
+| 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 86% | 65% | 58% | 78% | 69% | 51% | 93% | 77% | 72% |
+| 2026-10-12 | 2026-10 campaign baseline: native Lin... | 83% | 66% | 58% | 80% | 73% | 41% | 92% | 77% | 71% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 78% | 66% | 57% | 80% | 73% | 41% | 92% | 77% | 71% |
+| 2026-10-13 | campaign shipped set: curated q2dm1 p... | 84% | 67% | 56% | 81% | 74% | 55% | 92% | 75% | 73% |
+| 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 83% | 67% | 56% | 81% | 74% | 55% | 92% | 75% | 73% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 83% | 67% | 56% | 78% | 75% | 55% | 92% | 76% | 73% |
+| 2026-10-14 | nav sink exits on q2dm3/5/6 (bot_sjpa... | 83% | 67% | 45% | 78% | 78% | 54% | 92% | 76% | 72% |
+| 2026-10-17 | DEFAULT ON: bot_sjpath 3 (sim path-mo... | 84% | 69% | 35% | 80% | 71% | 64% | 93% | 76% | 72% |
 
 <details><summary>Solo nav-collection over time (cold — from-scratch nav learning)</summary>
 
@@ -80,6 +118,14 @@ commit `e25a1ba`  ⚠️ working tree dirty · rig: 16×90.0s game, solo 1 bot /
 | 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 64% | 81% | 60% | 88% | 75% | 52% | 46% | 68% | 67% |
 | 2026-07-22 | bot_pursuit default ON (enemy last-kn... | 71% | 65% | 58% | 83% | 74% | 53% | 53% | 77% | 67% |
 | 2026-07-22 | all four perception levers default OF... | 71% | 65% | 58% | 83% | 74% | 53% | 53% | 77% | 67% |
+| 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 72% | 65% | 58% | 82% | 69% | 51% | 52% | 79% | 66% |
+| 2026-10-12 | 2026-10 campaign baseline: native Lin... | 68% | 69% | 53% | 84% | 73% | 41% | 60% | 77% | 66% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 71% | 69% | 53% | 84% | 73% | 41% | 60% | 77% | 66% |
+| 2026-10-13 | campaign shipped set: curated q2dm1 p... | 66% | 72% | 49% | 80% | 74% | 55% | 67% | 78% | 68% |
+| 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 67% | 72% | 49% | 80% | 74% | 55% | 67% | 78% | 68% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 67% | 72% | 49% | 80% | 74% | 55% | 67% | 78% | 68% |
+| 2026-10-14 | nav sink exits on q2dm3/5/6 (bot_sjpa... | 67% | 72% | 49% | 80% | 74% | 55% | 67% | 78% | 68% |
+| 2026-10-17 | DEFAULT ON: bot_sjpath 3 (sim path-mo... | 63% | 69% | 53% | 81% | 73% | 67% | 63% | 76% | 68% |
 
 </details>
 
@@ -96,6 +142,14 @@ _shipped-dm:_
 | 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 58% | 56% | 51% | 76% | 70% | 43% | 63% | 54% | 59% |
 | 2026-07-22 | bot_pursuit default ON (enemy last-kn... | 56% | 51% | 50% | 74% | 65% | 39% | 58% | 49% | 55% |
 | 2026-07-22 | all four perception levers default OF... | 62% | 56% | 52% | 78% | 70% | 46% | 63% | 56% | 60% |
+| 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 63% | 60% | 55% | 77% | 68% | 46% | 63% | 60% | 61% |
+| 2026-10-12 | 2026-10 campaign baseline: native Lin... | 62% | 62% | 55% | 78% | 69% | 47% | 63% | 60% | 62% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 62% | 62% | 55% | 78% | 69% | 47% | 63% | 60% | 62% |
+| 2026-10-13 | campaign shipped set: curated q2dm1 p... | 62% | 60% | 54% | 75% | 65% | 43% | 62% | 57% | 60% |
+| 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 64% | 60% | 53% | 75% | 65% | 43% | 62% | 57% | 60% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 63% | 56% | 54% | 77% | 64% | 43% | 61% | 60% | 60% |
+| 2026-10-14 | nav sink exits on q2dm3/5/6 (bot_sjpa... | 63% | 56% | 48% | 77% | 67% | 44% | 61% | 60% | 60% |
+| 2026-10-17 | DEFAULT ON: bot_sjpath 3 (sim path-mo... | 63% | 58% | 49% | 73% | 68% | 44% | 63% | 63% | 60% |
 
 _cold-dm:_
 | Date | Note | q2dm1 | q2dm2 | q2dm3 | q2dm4 | q2dm5 | q2dm6 | q2dm7 | q2dm8 | mean |
@@ -108,6 +162,14 @@ _cold-dm:_
 | 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 50% | 56% | 48% | 75% | 70% | 43% | 37% | 49% | 54% |
 | 2026-07-22 | bot_pursuit default ON (enemy last-kn... | 51% | 50% | 46% | 69% | 65% | 39% | 41% | 46% | 51% |
 | 2026-07-22 | all four perception levers default OF... | 55% | 57% | 52% | 74% | 70% | 46% | 42% | 57% | 57% |
+| 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 54% | 61% | 53% | 75% | 68% | 46% | 45% | 60% | 58% |
+| 2026-10-12 | 2026-10 campaign baseline: native Lin... | 55% | 60% | 51% | 76% | 69% | 47% | 46% | 60% | 58% |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 55% | 60% | 51% | 76% | 69% | 47% | 46% | 60% | 58% |
+| 2026-10-13 | campaign shipped set: curated q2dm1 p... | 54% | 59% | 51% | 72% | 65% | 43% | 44% | 57% | 56% |
+| 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 56% | 59% | 51% | 72% | 65% | 43% | 44% | 57% | 56% |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 55% | 59% | 52% | 74% | 67% | 43% | 42% | 59% | 56% |
+| 2026-10-14 | nav sink exits on q2dm3/5/6 (bot_sjpa... | 55% | 59% | 52% | 74% | 67% | 43% | 42% | 59% | 56% |
+| 2026-10-17 | DEFAULT ON: bot_sjpath 3 (sim path-mo... | 57% | 61% | 51% | 75% | 70% | 46% | 46% | 60% | 58% |
 
 </details>
 
@@ -123,6 +185,14 @@ _cold-dm:_
 | 2026-07-15 | q2dm3 mh_ladder playbook: mouth-stand... | 170 | 192 | 65 | 45 | 103 | 54 | 110 | 242 | 981 |
 | 2026-07-22 | bot_pursuit default ON (enemy last-kn... | 189 | 159 | 61 | 39 | 120 | 47 | 95 | 233 | 943 |
 | 2026-07-22 | all four perception levers default OF... | 135 | 132 | 60 | 47 | 111 | 54 | 98 | 222 | 859 |
+| 2026-07-22 | bot_commit retune 0.8 -> 6 (joint CEM... | 152 | 147 | 73 | 55 | 93 | 44 | 109 | 222 | 895 |
+| 2026-10-12 | 2026-10 campaign baseline: native Lin... | 146 | 149 | 80 | 37 | 103 | 61 | 81 | 202 | 859 |
+| 2026-10-12 | OPT-IN bot_pbalign=1 (v2, NOT shipped... | 151 | 149 | 83 | 37 | 103 | 61 | 81 | 202 | 867 |
+| 2026-10-13 | campaign shipped set: curated q2dm1 p... | 157 | 140 | 60 | 58 | 125 | 49 | 95 | 227 | 911 |
+| 2026-10-13 | shipped set + bot_pbalign 24 (view-on... | 151 | 140 | 63 | 58 | 125 | 49 | 95 | 227 | 908 |
+| 2026-10-13 | + nav grafts (q2dm4/5/7/8) + bot_slottop | 150 | 150 | 57 | 46 | 122 | 49 | 110 | 194 | 878 |
+| 2026-10-14 | nav sink exits on q2dm3/5/6 (bot_sjpa... | 150 | 150 | 90 | 46 | 118 | 33 | 110 | 194 | 891 |
+| 2026-10-17 | DEFAULT ON: bot_sjpath 3 (sim path-mo... | 153 | 142 | 86 | 63 | 123 | 48 | 95 | 197 | 907 |
 
 </details>
 

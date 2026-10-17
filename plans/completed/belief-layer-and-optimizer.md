@@ -213,3 +213,123 @@ Economy phases lead because that's where state features have confirmed wins;
 the combat phase runs last with the powered-A/B discipline pursuit taught us.
 Each shipped phase gets a benchmark snapshot and a memory entry; each rejected
 one gets a rejection-marker memory so it never gets re-derived.
+
+---
+
+# RESULTS (completed 2026-07-22, branch `belief-layer`)
+
+**One phase shipped, five rejected, one not built (gate not met).** Every rejected
+lever is left in the tree default-OFF and byte-identical (same-seed q2dm1
+telemetry md5 `38503d1a99964b23c74d2f437c06e807` verified after each), so none of
+them get re-derived.
+
+## Phase 0 — regret miner — SHIPPED (`tools/mine_regret.py`)
+
+Five counterfactual classes, per map, with replayable timestamps. Two definitions
+had to be rebuilt after their first cut was mostly false positives, and both
+lessons are baked into the tool:
+
+- a **heading-reversal** test for ping-pong flagged 1556 incidents on q2dm1 that
+  were corridor **hairpins** (heading reverses, path progress is real) → redefined
+  as *revisiting a spot on an unchanged goal* → 128.
+- **`death_near_health`** is meaningless without MOD classification, because most
+  deaths on q2dm3/4/6/7 are lava/slime.
+
+Findings that re-ranked the rest of the plan:
+1. **`ran_past_fight` ≈ 0** — 9 incidents on q2dm1, 0 on seven other maps across
+   960 bot-minutes. Combat acquisition is not a regret source; this is independent
+   support for sequencing the combat phase last.
+2. **Environmental deaths are still the majority on four maps with `bot_hazard`
+   default-ON** — q2dm6 71%, q2dm3 62%, q2dm4 60%, q2dm7 58% — and **80-94% of
+   them are AIRBORNE**, which the ground-gated steer veto structurally cannot see.
+   This produced an extra phase (below).
+
+## Phase 1 — joint cvar optimizer — SHIPPED (`tools/optimize_cvars.py`), found real headroom
+
+CEM over 10 dims, 200 evals, holdout on disjoint maps AND seeds. Training
+1578→1932 pickups; **holdout +6.8%** — and single-knob ablation attributed
+**all** of it to `bot_commit` alone. The CEM's apparent convergence on
+`bot_navvalidate`/`bot_slimeescape` was noise: worth ~0 in isolation.
+**→ `bot_commit` retuned 0.8 → 6 and SHIPPED: benchmark +9.0% total pickups,
+all four columns up (shipped-solo +16.1%), 6/8 maps.**
+
+The curve has **no interior optimum** — it rises monotonically toward the
+degenerate cheapest-first limit — so the choice of 6 is a judgement: raw count
+rises 16% to the limit while collected *value* rises only ~7%, i.e. average pickup
+quality falls the whole way. Checked rather than assumed: the need model is worth
+*more* at high commit, so the retune does not drown `bot_wpnneed`/`bot_ammoneed`.
+
+## Phase 1b (inserted, from Phase 0's finding) — `bot_airhazard` — REJECTED
+
+Ballistic arc integration (mirrors `Nav_SeedOnePush`; liquids aren't in
+`MASK_PLAYERSOLID`, so the arc is point-sampled for contents). Lava deaths
+**−30.6%**, q2dm3 pickups +6.6% / q2dm6 +1.8% — but **q2dm4 −7.5%** and overall
+pickups flat (−0.3%). **Finding: dying in lava costs about as much as refusing to
+go near it** — respawn is fast and lands you near items; braking at a ledge burns
+goal budget. Sub-results: slime must NOT be vetoed (it's an A*-priced wade), and
+mid-air salvage is a hard reject (30519 steers bought −5.2%).
+
+## Phase 2 — control timing (`bot_control`) — REJECTED, and it found a dead-code bug
+
+⚠️ **`Item_RespawnEta` gated on `FL_RESPAWN`, which `Touch_Item` CLEARS on pickup**
+(there it means "world item, don't free the edict"). It returned 99999 for every
+respawning item, so **the entire shipped `goal_timing` / `ITEM_PREEMPT_SECS`
+pre-positioning path had never once fired.** A plain A/B reported "inert" and
+would have concluded the idea doesn't work; a **telemetry funnel**
+(`timing_cand` → `timing_pick` → `timing_wait`) is what distinguished "never picks
+a timing goal" from "picks them and arrives late".
+
+With the mechanism working: control items **+5.0-5.4%**, waits **83% paid** — but
+total pickups **−1.7 to −2.0%** for flat value. It reallocates collection rather
+than adding any. Rejected on the stated criterion.
+
+## Phase 3 — danger heatmap (`bot_danger`) — REJECTED
+
+Heat kept **out of `nav_node_t` and never saved** (format/FROZEN/md5 untouched);
+**combat-only deaths**, which makes solo byte-identical with the lever ON (verified
+— 1646 pickups at every value). Symmetric read: deaths **not** reduced. Because a
+symmetric sim can't show this (everyone avoids hot ground → equilibrium shifts →
+deaths ~zero-sum), `bot_dangertest` added the id-parity read: at **24 paired arms**
+kill-share **+0.09pt, CI [−1.54, +1.72]**, deaths bias-corrected slightly UP.
+An 8-arm read had said −0.90pt and was noise. Likely cause of the null: **heat is
+a lagging indicator** and detouring around it costs position.
+
+## Phase 4 — self-playbooks (`tools/mine_selfplay.py`) — REJECTED
+
+First cut anchored takes at the `goal_item` commit — mid-run at ~300ups — which
+the executor can never align to: **solo −52.9%**, aborts exceeding engagements.
+Re-anchored to a standstill per the measured recipe; still **solo −6.8% / dm
+−12.6%**, abort 31-71%, completions *down*.
+
+**Structural finding: self-play can only capture traversals the bot ALREADY
+completes, so it unlocks nothing and only adds abort overhead.** Every playbook
+that won encodes a maneuver the bot *couldn't* do. The mining output proves it —
+with a valid anchor, the hard items (Railgun, Slugs, SSG) yield **zero takes**.
+
+## Phase 5 — enemy belief (`bot_enemymodel`) — REJECTED as a win, kept as a humanness lever
+
+**The plan's premise needed correcting:** the flee gate already reads
+`Combat_Strength(ENEMY)` — omnisciently. So the real question was what removing
+that costs. Estimator validated first (|error| p50 **7**, 91.3% flee-decision
+agreement, biased +10.5 optimistic). A/B at **40 paired arms**: kill-share
+**+0.14pt, CI [−1.25, +1.53]**; deaths bias-corrected −2.4pt. CI includes zero →
+rejected. **But the null means removing the bot's omniscience costs nothing
+measurable — a free humanness option.**
+
+## Phase 6 — learned last-leg controller — NOT BUILT (gate not met)
+
+The plan gates this on "a measurable last-leg residual". Measured, on q2dm1 dm
+(1063 item goals): 630 pickups, **173 died mid-route**, **113 gave up mid-route**
+(median **345u** from the item, 43% along the path), 84 lost to contention, and
+only **~9 (0.8%)** failed within 80u of the item. **Final-approach precision is
+not the bottleneck** — route abandonment and death are. Building a last-leg
+micro-controller would have optimized 0.8% of failures.
+
+## The through-line
+
+Three phases in a row (2, 3, 1b) produced a **working mechanism with no
+north-star movement**, and Phase 5 joined them. The only thing that paid was
+re-tuning a constant that was already in the scorer. That is worth weighing
+before the next round of new behavior: this bot's remaining headroom looks more
+like *mid-route survival and route abandonment* (289 of 433 failures) than like
+any new belief tier.

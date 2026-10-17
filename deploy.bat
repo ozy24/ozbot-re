@@ -20,5 +20,6 @@ if errorlevel 1 (
   echo [ozbot-re] Copy failed.
   exit /b 1
 )
+copy /y "data\botnames.txt" "%Q2DIR%\ozbotre\botnames.txt" >nul
 echo [ozbot-re] Deployed gamex86_64.dll to %Q2DIR%\ozbotre
 endlocal

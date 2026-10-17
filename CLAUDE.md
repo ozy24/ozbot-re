@@ -14,6 +14,25 @@ the legacy ozbot specifics when working in this repo.
   `engine/q2repro.exe` (client) + `engine/q2reproded.exe` (dedicated, fastsim
   cvar built in). **The 32-bit constraint is dead here**: `build.bat` produces
   `dist/gamex86_64.dll` (MSVC x64; verify PE `0x8664` if in doubt).
+- **Linux (the dev host since 2026-10):** `./build_linux.sh [game|engine|all]`
+  builds the headless rig natively — `engine/q2reproded` (dedicated + fastsim, from
+  `q2repro/build-linux`) and `dist/gamex86_64.so` (gcc), deployed into `engine/`.
+  `game` is the inner loop (a few seconds). The tools pick the native pair whenever
+  `engine/q2reproded` exists (`tools/rig_platform.py`), else run the `.exe` under
+  Wine. Validated: same-seed native runs are bit-identical (md5 gate holds), and
+  native q2dm1 16×90 matches the Windows DLL within seed noise (716 vs 718
+  pickups). ⚠️ **md5s are not comparable across native and Windows/Wine** —
+  different binaries; keep an A/B on one rig. The playable client (`play.bat`,
+  `record_inputs.bat`) is still the Windows build.
+  - Engine gotcha: with `-Dvariable-fps=true`, GCC 16 rejects
+    `src/server/entities.c` (`fix_old_origin` was never ported to q2proto's packed
+    state; MSVC only warned and passed a mis-typed pointer — live for human clients
+    below full server rate). Fixed on the local q2repro `ozbot-re` branch by
+    correcting `old_origin` on an unpacked copy before `PackEntity`.
+  - Game-source portability fixes (no behaviour change for bots): `<stddef.h>` for
+    `offsetof`, `process.h` guarded, `Bot_BeliefDamage` prototype in g_combat.c,
+    and `g_chase.c` read the short `pmove.origin` through `VectorScale` (as floats:
+    a garbage chase-cam origin for spectators on Windows too).
 - **Gamedir:** `engine/ozbotre/` (nav/, logs/, playbooks/). The old
   `engine/ozbot/` q2pro rig still works and is the frozen reference.
 - **Hermeticity:** q2repro auto-detects Steam/GoG installs and an OneDrive
@@ -168,7 +187,8 @@ See the `ozbot-re-resource-need-win` memory for the A/B results. The same
 mine → bake → no-runtime-JSON pattern produced the sight-loss pursuit constants
 (`tools/dm2_combat.py pursue`; see "Perception" below).
 
-`bot_commit` (default **0.8**, ON) is the goal scorer's travel-cost commitment
+`bot_commit` (default **6**, ON — retuned from 0.8, see below) is the goal
+scorer's travel-cost commitment
 discount: a re-rank pass in `Goal_Select` (`bot_goal.c`) after the `bot_pathcost`
 A*-cost pick, charging each reachable candidate the **marginal detour past the
 cheapest reachable option** (`cost += bot_commit * max(0, pcost - mincost)`), so a
@@ -179,6 +199,423 @@ near-cheapest. Attacks "reachable != completable" — it steers **selection only
 to arbitrate), **+7-12% pickups on cold-solo / shipped-dm / cold-dm**. `bot_commit
 0` = pre-lever pick, byte-identical. Keeper telemetry: the `goal_commit` event.
 See the `ozbot-re-commit-win` memory.
+
+**Retuned 0.8 → 6** by the joint search (`tools/optimize_cvars.py`); 0.8 was a
+coordinate-wise pick made with everything else held fixed and was badly
+under-set. Averaged over 8 maps × {solo,dm} × 2 seed banks, vs 0.8:
+
+| bot_commit | pickups | value collected | value per pickup |
+|---|---|---|---|
+| 3 | +7.8% | +4.7% | 28.1 |
+| **6** | **+11.4%** | **+5.6%** | **27.4** |
+| 8 | +12.7% | +6.3% | 27.2 |
+| 64 | +16.4% | +7.4% | 26.6 |
+
+There is **no interior optimum** — the metric rises monotonically toward the
+degenerate limit (`commit → ∞` = strictly-cheapest-first, value and need
+ignored). The two columns disagree on purpose: raw pickups rise 16% while
+*value* rises only ~7%, so average pickup quality falls the whole way. 6 takes
+the bulk of the real gain while staying clear of the limit where
+`Item_BaseValue` and the need model would become decorative. **Checked, not
+assumed:** `bot_wpnneed`/`bot_ammoneed` are worth *more* at high commit
+(+4450 value at 8 vs +2536 at 0.8), so the retune does not drown the need model.
+Benchmark 2×2 at 6: shipped-solo **+16.1%**, cold-solo +6.6%, shipped-dm +8.4%,
+cold-dm +8.7% (6/8 maps up; q2dm6 −7% on all four — the lava map).
+
+## Enemy belief (`bot_enemymodel`, default OFF) — a free humanness lever
+
+⚠️ **The flee gate already reads `Combat_Strength(ENEMY)` — omnisciently.** The bot
+sees its opponent's true health and armor, which no player can. `bot_enemymodel`
+replaces that with a sight-legal belief: spawn-fresh baseline, minus damage *this
+bot itself landed* (hooked in `T_Damage`'s attacker-known path), reset on our own
+death, decaying after 8s unseen.
+
+**Estimator validated before the behaviour A/B** (`bot_belieflog` logs estimate
+AND ground truth): |error| p50 **7**, 91.3% agreement with the ground-truth flee
+decision, biased **+10.5** toward thinking enemies are healthier (it never learns
+about damage others did). A/B at **40 paired arms**: kill-share **+0.14pt, CI
+[−1.25, +1.53]**, deaths bias-corrected −2.4pt. Rejected as a strength win —
+**but the null is the point: removing the bot's omniscience costs nothing
+measurable**, so this is a free humanness option whenever that work resumes.
+
+## Where item goals actually fail (measured 2026-07-22)
+
+Of 1063 item goals on q2dm1 dm: 630 pickups (59%), **173 died mid-route**, **113
+gave up mid-route** (median 345u from the item, 43% of the way along the path),
+84 lost to contention, and only **~9 (0.8%) failed on the last leg** (giveup
+within 80u). **Final-approach precision is no longer the bottleneck** — that was
+the historical framing (`ozbot-item-completion-bottleneck`) and this build has
+moved past it. Route abandonment and death dominate. Any future work aimed at
+"last-leg precision" should re-measure this split first.
+
+## Danger heatmap (`bot_danger`, default OFF — rejected)
+
+Per-nav-node **combat**-death heat (~60s decay) as a capped route-cost toll, the
+same shape as the SLIME 4× toll. Weak bots pay it, strong bots get a capped 25%
+discount to patrol contested ground. `bot_dangertest` is the id-parity arm.
+**Rejected**: symmetric read shows no death reduction (deaths +0.3/+1.2/+0.7% at
+0.5/1/2, pickups flat), and the properly-powered parity read at **24 arms** gives
+kill-share **+0.09pt, CI [−1.54, +1.72]** with deaths slightly *up*. Likely
+mechanism: heat is a **lagging** indicator, and detouring around it costs position.
+
+Two design points worth reusing even though the lever lost: heat is kept **out of
+`nav_node_t` and never saved** (so the .nav format, FROZEN semantics and the md5
+gate are untouched), and recording **only combat deaths** means solo accumulates
+no heat and stays byte-identical with the lever ON — a free correctness check.
+⚠️ An 8-arm read of this said −0.90pt and was pure noise (per-arm sd ~4pt).
+
+## Item timing (`bot_control`, default OFF) — and a dead-code bug
+
+⚠️ **`Item_RespawnEta` was broken for the entire life of the project.** It gated on
+`it->flags & FL_RESPAWN`, but `Touch_Item` **clears** that flag on pickup — there
+it means "this is a world item, don't free the edict", not "this item respawns".
+So it returned 99999 for every respawning item and the whole `goal_timing` /
+`ITEM_PREEMPT_SECS` pre-positioning path **never once fired**. The correct
+predicate is the pending `DoRespawn` think; it is gated on `bot_control` so the
+off-state still reproduces shipped behaviour byte-for-byte.
+
+`bot_control` (seconds of slack) makes a control item a candidate when
+`eta <= route_travel_estimate + slack` — timing the ROUTE rather than a flat 4s
+window. **Rejected**: control-item collection **+5%** and 83% of waits paid, but
+total pickups **−2%** with total value flat, i.e. it reallocates collection rather
+than adding any. Telemetry funnel: `timing_cand` → `timing_pick` → `timing_wait`.
+
+**Method note worth keeping:** the first A/B was perfectly inert and a plain A/B
+would have concluded "the idea doesn't work". The funnel is what distinguished
+"never picks a timing goal" from "picks them and arrives late". When a lever can
+be inert for structural reasons, instrument the funnel, not just the outcome.
+
+## Hazard: the airborne residual (`bot_airhazard`, default OFF)
+
+`bot_hazard` is default-ON and still leaves environmental deaths as the MAJORITY
+on q2dm3/4/6/7 (58-71%) — because `Bot_HazardInDir` probes the **ground** ≤128u
+ahead and its brake is gated on `groundentity`, while **80-94% of those deaths are
+AIRBORNE**. `bot_airhazard` (bitmask: 1 = refuse to commit to an arc landing in
+lava, 2 = mid-air steer, 4 = treat slime as fatal too) integrates the ballistic
+arc instead, mirroring `Nav_SeedOnePush`.
+
+**It works and it does not pay.** Lava deaths −30.6%, pickups **flat (−0.3%)**;
+q2dm3 +6.6% / q2dm6 +1.8% / q2dm7 0.0% / **q2dm4 −7.5%**. The lesson:
+*dying in lava costs about the same as refusing to go near it* — respawn is fast
+and lands you near items, while braking at a ledge burns goal budget. Default
+**0**; opt-in `1` for a lava-heavy rotation without q2dm4's route-through-lava
+geometry. Two sub-results not to re-derive: **slime must not be vetoed** (it is a
+survivable A*-priced wade — vetoing it cost q2dm7 pickups for nothing), and
+**mid-air salvage (bit 2) is a hard reject** (30519 steers bought −5.2% deaths;
+Quake air-control cannot move a committed arc). Telemetry: `bot_airhazlog`.
+
+## Diagnosis + search tooling
+
+Two tools that answer questions the headline metrics can't.
+
+**`tools/mine_regret.py` — counterfactual regret taxonomy.** Runs over ordinary
+run telemetry (no DLL change, works on historical logs) and ranks the moments
+where a *counterfactual was obviously better*, per map, with replayable
+timestamps. Classes: `ran_past_fight`, `passed_item`, `route_backtrack`,
+`death_near_health`, `goal_churn`. Pickups/ITEM%/frags cannot see "dumb"; this
+is how hazard/decisive/outnumbered-style work gets its next target.
+
+    py tools/mine_regret.py engine/ozbotre/logs/parallel_q2dm1_*.jsonl --top 6
+    py tools/mine_regret.py <logs...> --json baselines/regret_baseline.json
+
+Run it with `--cvar bot_hazlog 1` (log-only, off-state byte-identical) or the
+death classes stay unclassified — and the **death-cause readout is the highest-
+value thing it produces**. Two definition lessons are baked into the tool and
+worth not re-learning: a heading-reversal test for ping-pong is ~all false
+positives (q2dm1 corridors are full of legitimate hairpins that reverse heading
+while making real path progress — hence the revisit-based `route_backtrack`), and
+`death_near_health` is meaningless without MOD classification because most deaths
+on q2dm3/4/6/7 are lava/slime. Blind spot to remember: tick telemetry carries no
+ammo counts, so ammo need is unscorable (those passes are counted separately).
+
+**`tools/mine_selfplay.py` — bot mines its OWN traversals into playbooks.
+Built, works, REJECTED.** Structural reason worth remembering: self-play can only
+capture traversals the bot **already completes**, so it unlocks nothing and only
+adds align/abort overhead — once a valid standstill anchor is required, the
+genuinely hard items (Railgun, Slugs, SSG) yield **zero** takes. A/B: solo −6.8%,
+dm −12.6%, abort rate 31–71%. Two reusable gotchas: mine **per-worker** logs
+(the merge does not offset `slot`), and a yaw *threshold* metric reads 0.00 for a
+bot because `bot_turnrate` slews the view — use cumulative deg/s.
+**Playbook takes must anchor from a STANDSTILL** (speed 0-80): anchoring mid-run
+cost −52.9% solo pickups.
+
+**`tools/optimize_cvars.py` — joint CEM search over the tunable cvar vector.**
+Every constant here was tuned coordinate-wise; this searches them jointly, using
+the fastsim rig as the black-box fitness function it already is.
+
+    py tools/optimize_cvars.py --iters 10 --pop 20      # ~70 min, 200 evals
+    py tools/optimize_cvars.py --eval-only "bot_commit=6" --train-maps q2dm1,q2dm8
+    py tools/optimize_cvars.py --report-only baselines/optimize_trace.jsonl
+
+Rules the tool encodes, all learned the hard way:
+- **Overfit guard is the point**: holdout is disjoint maps AND disjoint seeds
+  (train q2dm1/q2dm8 @700, holdout q2dm2/q2dm5 @900). A training win that does
+  not transfer is the expected outcome, not a surprise.
+- **Aim/accuracy cvars are excluded from the space.** In a symmetric self-play
+  sim, degrading everyone's aim raises pickups by cutting the death rate — the
+  optimizer will happily exploit that while making no bot better at anything.
+- `detail` carries `pickups_by_item`, because raw pickups score a +2 Armor Shard
+  like a Rocket Launcher. **Always check composition before believing a win.**
+- **A boundary optimum is not an optimum, it is an under-sized range.** Pass 1
+  pinned `bot_commit` at its ceiling twice before the range was widened enough to
+  show the curve had no interior peak at all.
+- **Do not read CEM marginals as attribution.** The search "converged" on
+  `bot_navvalidate`/`bot_slimeescape` (Bernoulli p→0.9) that a single-knob
+  ablation showed were worth ~0. Ablate the winner knob-by-knob; in the pass that
+  produced the retune, *all* of the +6.8% holdout win was `bot_commit` alone.
+
+## Ladder MVD corpus — a 40Hz humanness reference (added 2026-10-11)
+
+The DM Duel Ladder (ladder.darkmatter-quake.com) records a Q2REX **multi-view demo**
+(`.mvd2`) of every ranked duel. Unlike a `.dm2`, it carries **both** duellists' full
+player_state at the **40Hz** server tick: origin, velocity, view angles, pm flags and
+stats. There are no usercmds. The site holds the only copy of each recording.
+
+    py tools/fetch_ladder_mvd.py                 # incremental -> demos/mvd/ (+ manifest.jsonl)
+    py tools/mvd2parse.py inspect demos/mvd/<id>.mvd2.gz
+    py tools/humanness.py human-mvd all          # 40Hz cache; --decimate 4 = 10Hz
+    py tools/humanness.py bot <40Hz merged log>  # step auto-detected; --decimate 4
+    py tools/humanness.py report <human.json> <bot.json>
+
+**Usercmd sidecars (`.ucmd`, from 2026-10-13):** Q2RED can also write every executed
+client command beside each recording (`sv_mvd_usercmds 1`, Q2RED divergence A47).
+It's a separate file because Q2REX's reader rejects unknown MVD commands, so the
+`.mvd2` stays byte-identical. Together with the `.mvd2` this gives state/action
+pairs.
+- `tools/ucmdparse.py` reads the sidecars. It was validated against the real
+  recorder's output.
+- `fetch_ladder_mvd.py` downloads them when a match has one.
+- The pipeline is in three local branches, none pushed: Q2RED
+  `host/mvd-usercmd-sidecar`, dm-tourneys `ladder/ucmd-sidecar`, and this repo.
+
+**`mvd2parse.py`** ports the site's `replay/mvd.js` and decodes player records only.
+It was validated against the server's match record: deaths match `deathLog` exactly
+in time and position.
+
+⚠️ The `STAT_SCORE` index from `mvd.js` does **not** hold the frag score. Count
+deaths from health instead.
+
+**Duellist filter:** a duellist is any slot in `PM_NORMAL` for more than half the
+frames. Spectators sit in pm_type 6 the whole time.
+
+**`humanness.py` is tick-rate aware.** `extract_features(dt=)` keeps 10Hz output
+byte-identical (verified on 40 pro q2dm1 demos).
+
+⚠️ **The bot side was silently empty on every 40Hz log before this.** The tick log is
+per server frame and `t` is printed to 2 decimals (steps read 0.02/0.03), so the old
+0.1s continuity test rejected every step.
+
+**Never compare a 40Hz cache with a 10Hz one.** Per-step rates depend on the sampling
+step. 40Hz-only features: `yaw_accel`, `yaw_flip_interval`, `yaw_microflips_per_s`.
+Samples are capped per *player* (`PER_PLAYER_CAP`), because one regular is in most
+ladder matches.
+
+**The reference is valid despite the caveats.** The ladder ran rerelease pmove under
+MMREX/Q2RE rules, the players are mid-skill, and all maps are pooled. Still, decimated
+to 10Hz it sits on top of the pro q2dm1 `.dm2` set: max KS **0.099**, mean 0.061,
+yaw autocorr lag1 0.57 vs 0.57. Movement and view texture are human-universal. The
+bot vs the pros at 10Hz has a mean KS of 0.136.
+
+**What 40Hz exposed (q2dm1, 16×90s, seed 700, Jul-22 DLL):**
+
+| | human | bot |
+|---|---|---|
+| yaw-rate reversals within 100ms, per s | 0.08 | **0.73** |
+| yaw_flip_interval p50 | 0.53s | 0.23s |
+| yaw_rate p99 | 602°/s | **7056°/s** |
+| yaw autocorr lag 0.1s | 0.43 | 0.13 |
+
+The p99 is single-tick 176° snaps, on 1.53% of live ticks, almost all inside the
+playbook **ALIGN** phase: 20% of align ticks. The bot limit-cycles on the `pos_tol`
+boundary and its view flips between the start node and the recorded heading. That
+also accounts for most of the micro-flips.
+
+See the 2026-10 campaign section for what was done about it:
+- the `bot_pbalign` bitmask (off);
+- playbook curation (shipped);
+- `bot_gazefix 2` (shipped).
+
+Caches: `demos/derived/humanness/{human_mvd_all,human_mvd_all_10hz,human_q2dm1_full,
+bot_40hz_q2dm1,bot_40hz_dec10_q2dm1}.json` plus `report_*.json`.
+
+## 2026-10 campaign tools and results (branch `campaign-2026-10`)
+
+The full record is in `plans/completed/general-improvement-2026-10.md`.
+
+### Shipped (net vs campaign baseline: shipped-solo +7.2%, cold-solo +9.8%, shipped-dm +2.8%, cold-dm +1.7%, snaps 1.89% → 0.08%)
+- **`bot_pbalign 24`** (view-only ALIGN fix):
+  - **bit 8:** slew the view during ALIGN, but gate engagement on the
+    *commanded* heading, so engage timing is unchanged.
+  - **bit 16:** replay wedge recovery keeps the recorded view and steers back onto
+    the rail with forward/side input.
+
+  Snaps 0.41% → 0.07% deathmatch, 0.80% → 0.03% solo, with pickups flat.
+- **Nav grafts (`tools/nav_graft.py`, donors in `baselines/nav_donor/`):**
+  - New items routable on q2dm4/5/7/8, q64/dm8, mm-fleshref and kaktus-re-b2,
+    each DLL-verified and A/B'd.
+  - **Graft a route; don't swap a nav.** Whole grown navs cost deathmatch pickups
+    −1% to −8%.
+- **`bot_slottop 1`:** bots take client slots top-down. Bottom-up let every human
+  joining a dedicated server take over a bot's slot. A client landing in a bot slot
+  now evicts it cleanly (`Bot_HumanConnecting`).
+- **`bot_budgetcap 15 → 12`:** 8-map sweep, solo +2.2% (22/32 map-banks up).
+  `bot_budgetbase`/`bot_budgetspeed` are exposed but flat (the cap binds).
+- **Curated q2dm1 playbook file: deathmatch +9.1%** (6/6 banks up), solo flat.
+  Per-entry outcomes showed three dead entries:
+  - `bhop_rockets`: 78 engages, 78 drift aborts.
+  - `dm1_walkway_descent` and `cg_descend`: 0 engages, all align timeouts. They are
+    dwell-gated *rescue* entries, but A* routes their cheap links as ordinary
+    shortcuts.
+  - **Measure per-entry done/align before adding playbook entries, and periodically
+    after.** The one-liner pattern is in the commit `310bd41` message.
+- **`bot_gazefix 2`** (40Hz humanness re-profile): the gaze fixation thresholds
+  doubled. Yaw, yaw-while-moving and pitch-rate KS improve on all banks; pickups
+  −1–2%, within noise. **Don't widen `bot_gazedead`**: it worsens pitch texture.
+
+### Tools
+- **`tools/lever_audit.py`:** a same-seed md5 liveness probe for every default-ON
+  lever. No dead paths. The `bot_aimtest` multipliers are inert by design.
+- **`tools/mine_giveups.py`:** giveup taxonomy. q2dm1: 37% follow a playbook abort,
+  32% slow, 25% stalled, 2% fight.
+- **`tools/ab_cvar.py`:** paired same-seed A/B on the pinned benchmark navs.
+  - ⚠️ **Never A/B on the live gamedir.** `bot_pbalign` read flat on live and −10.6%
+    solo on pinned, two navs 2 nodes apart.
+  - ⚠️ **Never launch the engine directly on an A/B source gamedir.** It autosaves
+    into that nav.
+- **`tools/ab_parity.py`:** paired id-parity strength A/B with a 95% CI.
+  - ⚠️ **If the test switch IS the treatment** (`bot_gleadtest`, `bot_wpnalltest`),
+    the control must turn the switch OFF. A "test on, lever off" control is
+    identical to the treatment and reads exactly 0.00.
+  - ⚠️ **Replicate on fresh seeds.** `bot_fleeratio 0.45` read +3.14 [+0.01, +6.27],
+    then +0.04 on new seeds.
+- **`tools/ladder_pool.py` → `POOL.md`:** the duel ladder's 17-map pool.
+  - Its 14 `gen_nav` navs reach 78–90% solo COLLECT.
+  - Maps in subfolders (`q64/dm3`) used to silently lose nav and telemetry files;
+    `Bot_MapFileName` now flattens them to `q64_dm3`.
+- **`tools/gated_items.py` → `GATED.md`:** unreachable items per map, with
+  coordinates. ⚠️ **The reach sweep used to test from the FIRST spawn only**
+  (q2dm7 read 28/29 items no_path). It now keeps the best verdict over every
+  spawn. Diagnostics only.
+- **`tools/mvd_coverage.py` → `COVERAGE.md`:** human duellists spend 91–100% of
+  grounded time within 128u of a nav node on all 13 ladder maps.
+
+### Built, measured, left OFF (byte-identical; don't re-derive)
+- **`bot_pbalign` bits 1/2/4** (re-entry facing, hold past anchor, view slew with a
+  view-based gate): every one regresses solo on the pinned nav. **Lesson: change
+  only the view, never where the bot goes or when it engages.** That is why 24
+  works and these didn't.
+- **`gen_nav` navs for q2dm4/5/6/8:** new items become routable, but deathmatch
+  pickups fall −1% to −8%. Not adopted.
+- **`bot_pbfailfast`:** pickups flat, giveups +26–92%, humanness worse.
+- **`bot_budgetext`:** pickups −2–7%. Extended attempts arrive after the item is gone.
+- **`bot_wpnall`:** GL + BFG10K in weapon selection. The stock list never named them,
+  so bots never fired either. Parity ~+1.4pt [~0.0, +2.7] over 374 arms, but
+  pickups −1.3%. The BFG "has ammo" check now means ≥ 50 cells.
+- **`bot_glead`** (grenade lob solve): rejected. It lowers the GL's value.
+- **Flee thresholds** (`bot_fleehp`/`ratio`, `bot_fleetunetest`): flat at 40Hz.
+- **Aim timing re-sweep** (`bot_aimtest` react/turn/fire ×0.6/×1.5): all flat.
+  `bot_lead` is still positive (+2.6, n.s.).
+
+### Measured facts worth keeping
+- **Deaths** (q2dm1/2/8 deathmatch): 62–67% are fights during fetches that began
+  healthy, 18–24% finishing blows on weak bots, 1–11% environmental. In symmetric
+  self-play combat deaths = frags, so they are a strength question.
+- **Stillness at 40Hz:**
+  - lift waits 37%, goal-mode stalls 31% (mostly at playbook anchors), playbook
+    16%, airborne 12%;
+  - **engaged only 1%** — the July "plant-and-shoot 46%" breakdown is obsolete.
+
+## Path-mode strafe jumping (`bot_sjpath`, default **3** since 2026-10-14)
+
+`bot_sjpath 1` replaces the runway qualification of `bot_strafejump` (which fired
+~1 hop per 17 bot-seconds on q2duel5) with a **per-hop choice by simulation**: each
+grounded tick, simulate one whole hop through `gi.Pmove` for three policies and
+fly the one that buys the most path, rejecting liquid/wall/corridor/wrong-floor
+arcs. q2duel5 share >330 u/s 11% → 24% (pros 27%), arc gain p50 +2 → +41. Pinned
+pickups solo +2.9% (20/32), dm +3.4% (23/32); q2dm6 big up, **q2dm3 solo −25%**
+(dominated by nav traps, see below). Off-state byte-identical. Two lessons baked in:
+`SJ_WISH_CAP 270` is the **10Hz** optimum (40Hz: 292.5); and any facing limit must
+live *inside* the simulated policy, or the sim stops predicting the live arc. **Bit 2** keeps the chain through fights: aim
+owns the view and the policy's world wishdir is rotated into the aim frame as an
+analog fwd/side (pmove clamps wishspeed and flattens forward, so the arc is the one
+simulated). On top of bit 1: dm pickups +2.1% (21/32), deaths −3.2%; parity
+(`bot_sjpathtest`, even ids) **+0.69pt [−2.16, +3.55], 190 arms — strength-neutral**.
+`bot_sjpath 3` puts q2duel5 at speed p90 395 (pros 392), >330 28.8% (27.4%), arc
+gain +47 (q2pro-x +47). ⚠️ `ab_cvar` and `ab_parity` share the `ozbotre_ab` staging
+gamedir — never run them concurrently. Full
+record: `plans/in progress/q2prox-replication.md`.
+
+## Hearing-gated acquisition (`bot_hearsight`, default OFF, 2026-10-14)
+
+Measured first: on q2duel5, **23% of visible-opponent samples are unacquired, and
+93% of those sit outside the ±60° `bot_fov` cone** (p50 117°). Acquired aim is
+tight (p50 5.9°), so the 73° visible-aim p75 is the cone, not aim precision.
+`bot_hearsight 1` makes a *visible* enemy acquirable outside the cone if it made a
+noise in the last second within earshot (gunfire 1000u, pickup/pain 640u, footstep
+384u; the `bot_hearing` registry). It only touches acquisition: the bot still turns
+at its normal rate, and nothing moves toward a sound (that was `bot_hearing`'s
+failure). Visible-aim p75 73° → **49°** (pros 38°). Parity (`bot_hearsighttest`):
++1.33pt [−1.54, +4.20] and a fresh-seed replication +0.35pt [−2.61, +3.32]
+(~380 arms) — **null**. DM pickups −1.0% (16/32), frags/deaths up symmetrically.
+Same shape as `bot_pursuit`/`bot_enemymodel`: a humanness option, not strength.
+
+## Sight-legal pre-aim (`bot_preaim`, default **1** since 2026-10-14)
+
+After sight of an enemy is lost (≤4s), the gaze looks at the most likely
+**reappearance point**: Dijkstra over the nav graph from the enemy's extrapolated
+position (own sighting + 0.5s of its velocity), first node the bot's eyes can see
+(the corner they went behind, the doorway). Own sighting fields (`pa_*`) because
+pursuit consumes the LKP. q2duel5 aim vs pros: visible-aim p75 73° → **36°** (38),
+hidden-within-15° 6% → **17.5%** (19.7%), on target at onset 10% → **25%** (43%),
+react p50 0.2 → 0.1s (0.1). Humanness (q2dm1 vs MVDs): view_move_offset KS
+0.119 → **0.046**, yaw_rate 0.187 → 0.164, yaw_rate_moving 0.190 → 0.153.
+Parity (`bot_preaimtest`), three independent 190-arm banks: +3.45 [+0.68, +6.21],
++1.01, +0.97 → **pooled ≈ +1.8pt, CI ≈ [+0.1, +3.5] over 573 arms** (the first read
+was the lucky one — replicate!). **Cost: dm pickups −3.2% (5/32)**, via fight
+giveups +15%: it spots enemies sooner, so item runs get interrupted. The only
+lever so far that is both more human *and* (slightly) stronger. Shipped default-ON
+by the user's call (humanness + strength over the pickup cost).
+
+⚠️ **Defaults changed 2026-10-14 (`bot_sjpath 3`, `bot_preaim 1`)**: same-seed md5s
+from before this are not comparable with defaults. The pre-change behaviour is
+`--cvar bot_sjpath 0 --cvar bot_preaim 0` (q2duel5 16×180 seed 700 md5 `429a6236`).
+Off-state gates for new levers are now taken against the new defaults.
+
+## Bot names (`bot_nameprefix`, `bot_namefile`, 2026-10-17)
+
+In-game names are `bot_nameprefix` (default `B|`) + a name from
+`<gamedir>/botnames.txt` (`bot_namefile`; versioned at `data/botnames.txt`, copied by
+`build_linux.sh` / `deploy.bat`, re-read each map). 500 pop-culture names, ≤13 chars
+so prefix + name fits the 15-char netname. The pick hashes the match seed + bot id
+(**never `random()`**, so the sim RNG is untouched — md5 unchanged) and is unique per
+server; no file → `B|Bot<id>` (the fastsim worker gamedirs). Slot ownership now
+compares names: `Bot_SlotHeldByHuman` uses `Bot_IsOurName`, the release guard
+compares `b->netname`. Verified: a human joining a full server evicts one bot cleanly
+and plays. **Telemetry still labels bots `OzBot<id>`** (keyed on id) — tools unchanged.
+
+## Nav sinks: learned regions with no way out (2026-10-14)
+
+The learner only records traversals the bot already makes, so a region it only
+ever *falls into* (or spawns in) gets no exit link. A bot inside such a **sink**
+(an SCC with no outgoing link) can never route to an item outside, so it idles
+with no goal. q2dm3 has a **spawn point on a 12-node island**: a solo bot spawning
+there idled until the run ended (4–6 of 16 instances). The shipped AND cold navs
+carry the same sinks (q2dm2/4/5/6/7 too), so grafting doesn't help.
+
+    python3 tools/stranded.py <log>          # time with no goal for >5s, and where
+    python3 tools/nav_sinks.py <nav> <bsp> [--apply out.nav]   # BSP-checked exits
+    python3 tools/ab_nav.py <map> <cand.nav> # paired nav-file A/B, pinned config
+
+`nav_sinks.py` proposes FALL links (drop ≤ 180u, under fall damage) and WALK /
+stair links (floor within 48u under every sample), checked by point LOS at knee,
+body and head height. **That is an approximation — A/B every link.** Shipped
+(pinned + live; originals as `*.pre-sinkexit`), each A/B'd on 4 banks:
+- q2dm3 76→120 FALL: solo +5.6%, dm +3.1%. The other island exit, 113→169, read
+  solo +13% but **dm −6%**, and a second sink's 176u drop cost −25% solo / −6% dm.
+  **Ending idleness is not automatically good**: an idle bot can't die.
+- q2dm5 (2 links): solo +17.0% (4/4), dm +2.4% (3/4).
+- q2dm6 (2 links): solo +8.6% (4/4), dm +1.7% (3/4).
+q2dm2/4/7 sinks have no exit within one link's reach (lifts or long stairs).
 
 ## Perception: sight-loss pursuit (demo-mined)
 

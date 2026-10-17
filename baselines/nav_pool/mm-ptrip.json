@@ -1,0 +1,107 @@
+{
+  "map": "mm-ptrip",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/mm-ptrip.nav",
+  "frozen": true,
+  "peak": {
+    "step": 5,
+    "mature_seconds": 450.0,
+    "nodes": 148,
+    "collect": 85.5,
+    "pickups": 318
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 122,
+      "collect": 90.0,
+      "pickups": 171
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 134,
+      "collect": 86.8,
+      "pickups": 310
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 137,
+      "collect": 86.1,
+      "pickups": 311
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 143,
+      "collect": 84.8,
+      "pickups": 284
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 148,
+      "collect": 85.5,
+      "pickups": 318
+    },
+    {
+      "step": 6,
+      "mature_seconds": 540.0,
+      "nodes": 152,
+      "collect": 86.2,
+      "pickups": 307
+    },
+    {
+      "step": 7,
+      "mature_seconds": 630.0,
+      "nodes": 152,
+      "collect": 85.8,
+      "pickups": 303
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Armor Shard",
+      "code": "gated"
+    },
+    {
+      "item": "Body Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenade Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenades",
+      "code": "no_path"
+    },
+    {
+      "item": "Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Railgun",
+      "code": "gated"
+    },
+    {
+      "item": "Shells",
+      "code": "no_path"
+    },
+    {
+      "item": "Slugs",
+      "code": "no_path"
+    },
+    {
+      "item": "Super Shotgun",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

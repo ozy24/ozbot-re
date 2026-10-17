@@ -1,0 +1,95 @@
+{
+  "map": "mm-rage",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/mm-rage.nav",
+  "frozen": true,
+  "peak": {
+    "step": 1,
+    "mature_seconds": 90.0,
+    "nodes": 185,
+    "collect": 80.6,
+    "pickups": 229
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 185,
+      "collect": 80.6,
+      "pickups": 229
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 203,
+      "collect": 77.0,
+      "pickups": 218
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 213,
+      "collect": 69.8,
+      "pickups": 178
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Body Armor",
+      "code": "gated"
+    },
+    {
+      "item": "Bullets",
+      "code": "gated"
+    },
+    {
+      "item": "Chaingun",
+      "code": "gated"
+    },
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenade Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenades",
+      "code": "no_path"
+    },
+    {
+      "item": "Health",
+      "code": "gated"
+    },
+    {
+      "item": "Large Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Mega Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Railgun",
+      "code": "no_path"
+    },
+    {
+      "item": "Shells",
+      "code": "gated"
+    },
+    {
+      "item": "Slugs",
+      "code": "no_path"
+    },
+    {
+      "item": "Small Health",
+      "code": "gated"
+    },
+    {
+      "item": "Super Shotgun",
+      "code": "gated"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

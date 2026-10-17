@@ -1491,6 +1491,522 @@ static qboolean SJ_SimFirstHop (bot_t *b, float heading, int side)
 	return (fwd_prog > 100 && lateral < 48);
 }
 
+//==========================================================================
+// path-mode strafe jumping (bot_sjpath bit 1)
+//
+// The runway controller above engages ~once per 20 bot-seconds on q2duel5:
+// straight/flat/collinear 256u spines barely exist in a real duel map.  Path
+// mode drops qualification altogether.  At every grounded tick it takes the
+// committed path's WALK span and forward-simulates ONE whole hop through the
+// real Pmove for a few candidate policies, then flies the best valid one (or
+// hands back to the follower).  Physics is deterministic, so the simulation is
+// the safety check: an arc that hits a wall, leaves the corridor, touches
+// liquid, or lands on the wrong floor is never flown.
+//
+// The yaw law's cap is tick-rate correct here: optimal air strafing keeps the
+// velocity's projection on wishdir at (300 - accel quantum), and the quantum
+// is 1 * frametime * 300 -- 30 ups at 10Hz (the runway's 270) but 7.5 at 40Hz.
+//==========================================================================
+
+#define SJP_ENGAGE_SPEED	200.0f	// grounded speed to start a chain
+#define SJP_CHECK_INTERVAL	0.1f	// engage-check throttle while running
+#define SJP_COOLDOWN		0.2f	// after a failed engage / hand-back
+#define SJP_SPAN_MAX		1400.0f	// path length considered per plan
+#define SJP_SPAN_UP			32.0f	// span ends at a link climbing more than this
+#define SJP_SPAN_DOWN		64.0f	// ... or dropping more than this
+#define SJP_CORRIDOR		64.0f	// landing distance from the path polyline
+#define SJP_DZ_MAX			40.0f	// landing height vs the path's height there
+#define SJP_SPEED_LOSS		40.0f	// takeoff->landing 2D speed loss = hit a wall
+#define SJP_MIN_PROGRESS	64.0f	// a hop must buy this much path
+#define SJP_OVERSHOOT		32.0f	// landing past the span end (goal end)
+#define SJP_HANDOFF_GAP		96.0f	// land this far short of a span that ends in
+									// a non-WALK transition (jump/ladder/fall):
+									// the follower takes those at run speed
+#define SJP_TURN_LOOK		160.0f	// TURN policy's lookahead along the path
+#define SJP_MAX_TICKS_10	12		// authored frames of flight simulated
+#define SJP_YAW_RATE		800.0f	// view turn-rate cap, deg/s (human p99 ~600):
+									// side flips / engage / policy switches turn
+									// over a few ticks instead of snapping
+
+#define SJP_POL_GAIN_R		0		// optimal gain, strafe right
+#define SJP_POL_GAIN_L		1		// optimal gain, strafe left
+#define SJP_POL_TURN		2		// wishdir straight at the lookahead point
+#define SJP_POL_MAX			3
+
+static void SJ_Abort (bot_t *b, const char *why);
+
+static int		sjp_base[MAX_CLIENTS + 1];	// polyline start (path index)
+static int		sjp_endnode[MAX_CLIENTS + 1];	// node at the span end (replan check)
+static float	sjp_endslack[MAX_CLIENTS + 1];	// allowed landing past the span end
+static float	sjp_vyaw[MAX_CLIENTS + 1];	// this tick's policy facing (bit 2 reads it
+											// in Bot_ApplyMovement; combat may bend move_yaw)
+
+/*
+=================
+SJP_Uncapped
+
+bot_sjpath bit 2 with an enemy: combat aim owns the real view, so the policy's
+facing is virtual -- nothing a viewer sees -- and needs no turn-rate cap.
+=================
+*/
+int SJP_Bits (bot_t *b)
+{
+	int bits = (int)bot_sjpath->value;
+
+	// bot_sjpathtest: id-parity A/B of bit 2 -- odd ids never fight-hop
+	if (bot_sjpathtest->value != 0 && (b->id % 2) != 0)
+		bits &= ~2;
+	return bits;
+}
+
+static qboolean SJP_Uncapped (bot_t *b)
+{
+	return b->enemy && (SJP_Bits (b) & 2);
+}
+static int		sjp_policy[MAX_CLIENTS + 1];
+static vec3_t	sjp_start[MAX_CLIENTS + 1];	// bot origin at plan time
+
+static float SJP_WishCap (void)
+{
+	return 300.0f - 30.0f * BOT_TICK_RATIO;
+}
+
+static int SJP_Slot (bot_t *b)
+{
+	int n = (int)(b->ent - g_edicts);
+	return (n >= 0 && n <= MAX_CLIENTS) ? n : 0;
+}
+
+/*
+=================
+SJP_PathPoint
+
+Polyline vertex i of the plan: vertex 0 is the bot's origin at plan time,
+vertex i>0 is path[base + i - 1].  Returns false past the span end.
+=================
+*/
+static qboolean SJP_PathPoint (bot_t *b, int i, vec3_t out)
+{
+	int s = SJP_Slot (b);
+
+	if (i == 0)
+	{
+		VectorCopy (sjp_start[s], out);
+		return true;
+	}
+	if (sjp_base[s] + i - 1 > b->sj_end_idx)
+		return false;
+	VectorCopy (nav.nodes[b->path[sjp_base[s] + i - 1]].origin, out);
+	return true;
+}
+
+/*
+=================
+SJP_Project
+
+Project pos onto the plan polyline (2D).  Outputs the arc length at the
+projection, the lateral distance, the polyline height there, the total span
+length, and (optionally) the point `look` units further along.  Ties go to
+the earliest segment so a hairpin can't read as a jump ahead.
+=================
+*/
+static void SJP_Project (bot_t *b, vec3_t pos, float *s_out, float *lat_out,
+	float *z_out, float *len_out, float look, vec3_t look_pt)
+{
+	vec3_t	a, c, ab, ap;
+	float	acc = 0, best = 1e18f, best_s = 0, best_z = pos[2];
+	int		i;
+
+	SJP_PathPoint (b, 0, a);
+	for (i = 1; SJP_PathPoint (b, i, c); i++)
+	{
+		float	seg, t, dx, dy, dd;
+
+		VectorSubtract (c, a, ab);
+		ab[2] = 0;
+		seg = VectorLength (ab);
+		VectorSubtract (pos, a, ap);
+		ap[2] = 0;
+		t = (seg > 0.001f) ? DotProduct (ap, ab) / (seg * seg) : 0;
+		if (t < 0)
+			t = 0;
+		else if (t > 1)
+			t = 1;
+		dx = ap[0] - ab[0] * t;
+		dy = ap[1] - ab[1] * t;
+		dd = dx * dx + dy * dy;
+		if (dd < best - 0.01f)
+		{
+			best = dd;
+			best_s = acc + seg * t;
+			best_z = a[2] + (c[2] - a[2]) * t;
+		}
+		acc += seg;
+		VectorCopy (c, a);
+	}
+	*s_out = best_s;
+	*lat_out = (float)sqrt (best);
+	*z_out = best_z;
+	*len_out = acc;
+
+	if (look_pt)
+	{
+		float	want = best_s + look;
+
+		acc = 0;
+		SJP_PathPoint (b, 0, a);
+		VectorCopy (a, look_pt);
+		for (i = 1; SJP_PathPoint (b, i, c); i++)
+		{
+			float seg;
+
+			VectorSubtract (c, a, ab);
+			ab[2] = 0;
+			seg = VectorLength (ab);
+			if (acc + seg >= want && seg > 0.001f)
+			{
+				float t = (want - acc) / seg;
+				look_pt[0] = a[0] + (c[0] - a[0]) * t;
+				look_pt[1] = a[1] + (c[1] - a[1]) * t;
+				look_pt[2] = a[2] + (c[2] - a[2]) * t;
+				return;
+			}
+			acc += seg;
+			VectorCopy (c, a);
+			VectorCopy (c, look_pt);
+		}
+	}
+}
+
+/*
+=================
+SJP_PolicyYaw
+
+The facing a policy commands from (pos, vel).  Shared by the simulation and
+the live controller so both fly the same arc.
+=================
+*/
+static float SJP_LawYaw (bot_t *b, int policy, vec3_t pos, vec3_t vel)
+{
+	vec3_t	v, look, d;
+	float	s, lat, z, len, speed, theta;
+
+	SJP_Project (b, pos, &s, &lat, &z, &len, SJP_TURN_LOOK, look);
+	VectorSubtract (look, pos, d);
+	d[2] = 0;
+	if (policy == SJP_POL_TURN || VectorLength (d) < 1)
+		return (VectorLength (d) < 1) ? vectoyaw (vel) : vectoyaw (d);
+
+	VectorCopy (vel, v);
+	v[2] = 0;
+	speed = VectorLength (v);
+	if (speed < 60)
+		return vectoyaw (d);
+	theta = (speed <= SJP_WishCap ()) ? 0
+		: (float)acos ((double)(SJP_WishCap () / speed)) * 57.295780f;
+	return vectoyaw (v) + ((policy == SJP_POL_GAIN_R) ? 1.0f : -1.0f) * (45.0f - theta);
+}
+
+static float SJP_PolicyYaw (bot_t *b, int policy, vec3_t pos, vec3_t vel, float prev_yaw)
+{
+	float	d = SJ_AngleNorm (SJP_LawYaw (b, policy, pos, vel) - prev_yaw);
+	float	cap = SJP_YAW_RATE * FRAMETIME;
+
+	if (d > cap)
+		d = cap;
+	else if (d < -cap)
+		d = -cap;
+	return prev_yaw + d;
+}
+
+static void SJP_PolicyCmd (int policy, short *fwd, short *side)
+{
+	*fwd = 400;
+	*side = (policy == SJP_POL_GAIN_R) ? 400 : (policy == SJP_POL_GAIN_L) ? -400 : 0;
+}
+
+/*
+=================
+SJP_SimHop
+
+Forward-simulate one whole hop (takeoff on this tick to landing) under a
+policy, from the live pmove state exactly as ClientThink would build it.
+Returns the path progress bought, or -1 if the arc is unsafe/useless.
+=================
+*/
+static float SJP_SimHop (bot_t *b, int policy)
+{
+	edict_t		*ent = b->ent;
+	gclient_t	*cl = ent->client;
+	pmove_t		pm;
+	vec3_t		pos, vel;
+	float		s0, s1, lat, z, len, v0, v1, prev_yaw = cl->ps.viewangles[YAW];
+	qboolean	uncapped = SJP_Uncapped (b);
+	int			i, t;
+	qboolean	landed = false;
+
+	memset (&pm, 0, sizeof(pm));
+	pm.s = cl->ps.pmove;
+	pm.s.gravity = (short)sv_gravity->value;
+	for (i = 0; i < 3; i++)
+	{
+		pm.s.origin[i]   = (short)(ent->s.origin[i] * 8);
+		pm.s.velocity[i] = (short)(ent->velocity[i] * 8);
+	}
+	pm.trace = PM_trace;
+	pm.pointcontents = gi.pointcontents;
+	pm_passent = ent;
+
+	SJP_Project (b, ent->s.origin, &s0, &lat, &z, &len, 0, NULL);
+	v0 = (float)sqrt (ent->velocity[0] * ent->velocity[0]
+		+ ent->velocity[1] * ent->velocity[1]);
+
+	for (t = 0; t < SJP_MAX_TICKS_10 * FRAMEDIV; t++)
+	{
+		float	yaw;
+
+		// mirror the live landing-lockout parity clear (bot_main.c)
+		if ((pm.s.pm_flags & PMF_TIME_LAND)
+			&& !(pm.s.pm_flags & (PMF_TIME_TELEPORT | PMF_TIME_WATERJUMP)))
+		{
+			pm.s.pm_flags &= ~PMF_TIME_LAND;
+			pm.s.pm_time = 0;
+		}
+
+		for (i = 0; i < 3; i++)
+		{
+			pos[i] = pm.s.origin[i] * 0.125f;
+			vel[i] = pm.s.velocity[i] * 0.125f;
+		}
+		yaw = uncapped ? SJP_LawYaw (b, policy, pos, vel)
+			: SJP_PolicyYaw (b, policy, pos, vel, prev_yaw);
+		prev_yaw = yaw;
+
+		memset (&pm.cmd, 0, sizeof(pm.cmd));
+		pm.cmd.msec = (byte)(FRAMETIME * 1000);
+		SJP_PolicyCmd (policy, &pm.cmd.forwardmove, &pm.cmd.sidemove);
+		pm.cmd.upmove = (t == 1) ? 0 : 350;		// the live release tick
+		pm.cmd.angles[YAW]   = (short)(ANGLE2SHORT(yaw) - pm.s.delta_angles[YAW]);
+		pm.cmd.angles[PITCH] = (short)(0 - pm.s.delta_angles[PITCH]);
+		pm.snapinitial = (t == 0) && memcmp (&cl->old_pmove, &pm.s, sizeof(pm.s));
+		gi.Pmove (&pm);
+
+		if (pm.waterlevel > 0 || (pm.watertype & (CONTENTS_LAVA | CONTENTS_SLIME)))
+			return -1;
+		if (t == 0 && pm.groundentity)
+			return -1;			// the takeoff didn't fire
+		if (t >= 2 && pm.groundentity)
+		{
+			landed = true;
+			break;
+		}
+	}
+	if (!landed)
+		return -1;
+
+	for (i = 0; i < 3; i++)
+	{
+		pos[i] = pm.s.origin[i] * 0.125f;
+		vel[i] = pm.s.velocity[i] * 0.125f;
+	}
+	SJP_Project (b, pos, &s1, &lat, &z, &len, 0, NULL);
+	if (lat > SJP_CORRIDOR || fabs (pos[2] - z) > SJP_DZ_MAX)
+		return -1;
+	if (s1 > len + sjp_endslack[SJP_Slot (b)])
+		return -1;
+	v1 = (float)sqrt (vel[0] * vel[0] + vel[1] * vel[1]);
+	if (v1 < v0 - SJP_SPEED_LOSS)
+		return -1;
+	if (s1 - s0 < SJP_MIN_PROGRESS)
+		return -1;
+	return s1 - s0;
+}
+
+/*
+=================
+SJP_Plan
+
+On a grounded tick: rebuild the WALK span from the current path position and
+pick the best simulated hop.  Returns false (no safe useful hop) to hand the
+frame back to the follower.
+=================
+*/
+static qboolean SJP_Plan (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	int		s = SJP_Slot (b), k, pol, best_pol = -1;
+	float	acc = 0, best = -1;
+	vec3_t	prev, d;
+
+	if (b->path_len <= 0 || b->path_idx >= b->path_len)
+		return false;
+
+	// span: path_idx .. last node reachable through WALK links only
+	VectorCopy (ent->s.origin, prev);
+	b->sj_end_idx = -1;
+	for (k = b->path_idx; k < b->path_len; k++)
+	{
+		int node = b->path[k];
+
+		if (node < 0 || node >= nav.num_nodes)
+			break;
+		if (nav.nodes[node].flags & (NAV_FLAG_HAZARD | NAV_FLAG_WATER | NAV_FLAG_SLIME))
+			break;
+		if (k > b->path_idx && Bot_LinkType (b->path[k - 1], node) != NAV_LINK_WALK)
+			break;
+		// a ladder or real step is the follower's job (and its near-zero 2D
+		// length would break the polyline's arc-length projection)
+		if (nav.nodes[node].origin[2] - prev[2] > SJP_SPAN_UP
+			|| prev[2] - nav.nodes[node].origin[2] > SJP_SPAN_DOWN)
+			break;
+		VectorSubtract (nav.nodes[node].origin, prev, d);
+		d[2] = 0;
+		acc += VectorLength (d);
+		VectorCopy (nav.nodes[node].origin, prev);
+		b->sj_end_idx = k;
+		if (acc > SJP_SPAN_MAX)
+			break;
+	}
+	if (b->sj_end_idx < 0)
+		return false;
+
+	sjp_base[s] = b->path_idx;
+	sjp_endnode[s] = b->path[b->sj_end_idx];
+	sjp_endslack[s] = (b->sj_end_idx == b->path_len - 1) ? SJP_OVERSHOOT : -SJP_HANDOFF_GAP;
+	VectorCopy (ent->s.origin, sjp_start[s]);
+
+	for (pol = 0; pol < SJP_POL_MAX; pol++)
+	{
+		float prog = SJP_SimHop (b, pol);
+		if (prog > best + 0.5f)
+		{
+			best = prog;
+			best_pol = pol;
+		}
+	}
+	if (best_pol < 0)
+		return false;
+	sjp_policy[s] = best_pol;
+	return true;
+}
+
+/*
+=================
+SJP_Think
+
+Path-mode body of Bot_StrafeThink.  Same contract: true while it owns this
+frame's movement intent.  No random() calls.
+=================
+*/
+static qboolean SJP_Think (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	int		s = SJP_Slot (b), k;
+	float	speed, yaw, ps, lat, z, len;
+	vec3_t	vel2, d, prev;
+
+	// bit 2: an enemy no longer ends the chain -- aim owns the view and
+	// Bot_ApplyMovement rotates the policy's wishdir into the aim frame
+	if ((b->enemy && !(SJP_Bits (b) & 2))
+		|| ent->waterlevel > 0 || b->lift_state != LIFT_NONE)
+	{
+		if (b->sj_state == SJ_ACTIVE)
+			SJ_Abort (b, b->enemy ? "abort_enemy" : "abort_env");
+		return false;
+	}
+
+	VectorCopy (ent->velocity, vel2);
+	vel2[2] = 0;
+	speed = VectorLength (vel2);
+
+	if (b->sj_state == SJ_NONE)
+	{
+		if (level.time < b->sj_cooldown || level.time < b->sj_next_check)
+			return false;
+		if (!ent->groundentity || speed < SJP_ENGAGE_SPEED)
+			return false;
+		if (ent->client->ps.pmove.pm_flags & PMF_TIME_LAND)
+			return false;
+		b->sj_next_check = level.time + SJP_CHECK_INTERVAL;
+		if (!SJP_Plan (b))
+		{
+			b->sj_cooldown = level.time + SJP_COOLDOWN;
+			return false;
+		}
+		b->sj_state = SJ_ACTIVE;
+		b->sj_hops = 0;
+		b->sj_peak = speed;
+		Bot_LogSJ (b, "engage", sjp_policy[s], speed);
+	}
+	else
+	{
+		// a replan rebuilt the path under us
+		if (b->sj_end_idx < 0 || b->sj_end_idx >= b->path_len
+			|| sjp_base[s] > b->path_idx || b->path[b->sj_end_idx] != sjp_endnode[s])
+		{
+			SJ_Abort (b, "abort_path");
+			return false;
+		}
+		if (ent->groundentity)
+		{
+			if (!SJP_Plan (b))
+			{
+				Bot_LogSJ (b, "done", b->sj_hops, b->sj_peak);
+				Bot_StrafeReset (b);
+				b->sj_cooldown = level.time + SJP_COOLDOWN;
+				return false;		// the follower steers this frame
+			}
+		}
+	}
+
+	if (ent->groundentity)
+	{
+		b->sj_air_ticks = 0;
+		b->sj_hops++;
+		b->sj_cmd_up = 350;
+		if (bot_sjlog->value != 0)
+			Bot_LogSJ (b, "hop", b->sj_hops, speed);
+	}
+	else
+	{
+		b->sj_air_ticks++;
+		b->sj_cmd_up = (b->sj_air_ticks == 1) ? 0 : 350;
+	}
+
+	// keep the follower's index on the node ahead of us, so a hand-back
+	// resumes from where the hop actually put us
+	SJP_Project (b, ent->s.origin, &ps, &lat, &z, &len, 0, NULL);
+	VectorCopy (sjp_start[s], prev);
+	{
+		float acc = 0;
+		for (k = sjp_base[s]; k <= b->sj_end_idx; k++)
+		{
+			VectorSubtract (nav.nodes[b->path[k]].origin, prev, d);
+			d[2] = 0;
+			acc += VectorLength (d);
+			VectorCopy (nav.nodes[b->path[k]].origin, prev);
+			if (acc > ps)
+				break;
+		}
+		if (k > b->sj_end_idx)
+			k = b->sj_end_idx;
+		if (k > b->path_idx)
+			b->path_idx = k;
+	}
+
+	yaw = SJP_Uncapped (b) ? SJP_LawYaw (b, sjp_policy[s], ent->s.origin, ent->velocity)
+		: SJP_PolicyYaw (b, sjp_policy[s], ent->s.origin, ent->velocity,
+			ent->client->ps.viewangles[YAW]);
+	sjp_vyaw[s] = yaw;
+	SJP_PolicyCmd (sjp_policy[s], &b->sj_cmd_fwd, &b->sj_cmd_side);
+	b->sj_side = (sjp_policy[s] == SJP_POL_GAIN_L) ? -1 : 1;
+	Bot_SetMoveYaw (b, yaw);
+
+	if (speed > b->sj_peak)
+		b->sj_peak = speed;
+	return true;
+}
+
 /*
 =================
 Bot_StrafeReset
@@ -1536,6 +2052,10 @@ qboolean Bot_StrafeThink (bot_t *b)
 			Bot_StrafeReset (b);	// cvar flipped off mid-chain
 		return false;
 	}
+
+	// bot_sjpath bit 1: per-hop simulated path mode replaces runway qualification
+	if ((int)bot_sjpath->value & 1)
+		return SJP_Think (b);
 
 	// hard vetoes: combat owns the facing; water/lift own the movement
 	if (b->enemy || ent->waterlevel > 0 || b->lift_state != LIFT_NONE)
@@ -2028,6 +2548,121 @@ static qboolean Bot_HazardInDir (edict_t *ent, const vec3_t dir, float dist)
 
 /*
 =================
+Bot_BallisticHazard  (bot_airhazard)
+
+Integrate the arc the bot would fly if it left the ground RIGHT NOW with `vel0`,
+and report whether that arc ends in -- or passes through -- lava or slime.
+
+This exists because the shipped hazard brake is structurally blind to the way
+most remaining hazard deaths actually happen.  Bot_HazardInDir probes the GROUND
+a bounded distance ahead (<=128u, Bot_HazardProbe), and the brake around it is
+gated on `groundentity`, so it only ever sees a walk-off it can still brake.  A
+regret-mining sweep (tools/mine_regret.py, bot_hazlog) put numbers on the gap:
+with bot_hazard default-ON, environmental deaths are still 71% of all deaths on
+q2dm6 (220 lava), 62% on q2dm3, 60% on q2dm4 -- and 80-94% of those bots were
+AIRBORNE when they hit the liquid.  A bot leaving a rim at 400ups covers ~280u
+before it has fallen 200u, so the pool it dies in was always beyond the probe.
+
+The integrator mirrors Nav_SeedOnePush (bot_nav.c), which already predicts jump-
+pad landings the same way: step the parabola under sv_gravity, box-trace between
+successive points, and stop at the first descending walkable floor.  The one
+difference is what we are looking for -- liquids are not in MASK_PLAYERSOLID, so
+the box trace flies straight through a lava pool and "lands" on the floor
+underneath it.  So each step also point-samples the contents at the arc position:
+that is what actually detects the pool.
+
+Returns true (and the offending point in out_hit, if given) when the arc is
+doomed; false when it reaches a safe floor, leaves the world, or runs out of
+steps.  Cheap -- a few dozen point-content calls, only on frames where the bot is
+about to commit to an arc.
+=================
+*/
+#define AIRHAZ_DT		0.05f
+#define AIRHAZ_STEPS	60		// <=3s of flight; a real fall is well under that
+#define AIRHAZ_JUMP		270.0f	// pmove's jump impulse (pm_jumpvelocity)
+
+static const vec3_t bot_pl_mins = {-16, -16, -24};
+static const vec3_t bot_pl_maxs = { 16,  16,  32};
+
+static qboolean Bot_BallisticHazard (edict_t *ent, const vec3_t vel0, vec3_t out_hit)
+{
+	vec3_t	vel, pos, next;
+	float	grav;
+	int		i, fatal;
+
+	// Lava only by default.  Bot_HazardInDir makes the same distinction and says
+	// why: "slime is a survivable, A*-priced wade -- vetoing it broke q2dm7's
+	// legitimate channel crossings".  The first cut of this guard ignored that and
+	// vetoed slime arcs too; the A/B showed exactly the predicted shape -- on
+	// q2dm7 (the slime map) it cost pickups for almost no death reduction
+	// (-16% hazard deaths, -3% pickups), while the lava maps carried the win.
+	// bit 4 restores the strict behavior for anyone who wants to measure it.
+	fatal = CONTENTS_LAVA;
+	if ((int)bot_airhazard->value & 4)
+		fatal |= CONTENTS_SLIME;
+
+	VectorCopy (vel0, vel);
+	VectorCopy (ent->s.origin, pos);
+	pos[2] += 1.0f;		// lift a hair off the floor so step 0 isn't startsolid
+	grav = sv_gravity ? sv_gravity->value : 800.0f;
+
+	for (i = 0; i < AIRHAZ_STEPS; i++)
+	{
+		trace_t	tr;
+		int		c;
+
+		next[0] = pos[0] + vel[0] * AIRHAZ_DT;
+		next[1] = pos[1] + vel[1] * AIRHAZ_DT;
+		next[2] = pos[2] + vel[2] * AIRHAZ_DT;
+
+		// the liquid test: MASK_PLAYERSOLID traces ignore lava/slime entirely,
+		// so sample the contents at the arc point itself
+		c = gi.pointcontents (next);
+		if (c & fatal)
+		{
+			if (out_hit)
+				VectorCopy (next, out_hit);
+			return true;
+		}
+
+		tr = gi.trace (pos, (float *)bot_pl_mins, (float *)bot_pl_maxs, next, ent,
+			MASK_PLAYERSOLID);
+
+		if (tr.startsolid || tr.allsolid)
+		{
+			// still clipping the ledge we are leaving: advance freely rather
+			// than calling it a landing (same as the jump-pad seeder)
+			VectorCopy (next, pos);
+			vel[2] -= grav * AIRHAZ_DT;
+			continue;
+		}
+
+		if (tr.fraction < 1.0f)
+		{
+			if (tr.plane.normal[2] > 0.7f && vel[2] <= 0.0f)
+				return false;	// descending onto a walkable floor: safe arc
+
+			// wall/ceiling: kill the component into the surface and keep going,
+			// so an arc that grazes geometry still finds what it lands in
+			{
+				float d = DotProduct (vel, tr.plane.normal);
+				VectorMA (vel, -d, tr.plane.normal, vel);
+			}
+			VectorCopy (tr.endpos, pos);
+		}
+		else
+		{
+			VectorCopy (next, pos);
+		}
+
+		vel[2] -= grav * AIRHAZ_DT;
+	}
+
+	return false;	// never resolved within the step budget: not our call
+}
+
+/*
+=================
 Bot_SlimeDropAhead  (bot_slimeescape)
 
 Like Bot_HazardInDir but for SLIME, and it fires ONLY for a DROP -- the slime
@@ -2252,6 +2887,171 @@ void Bot_ApplyMovement (bot_t *b, usercmd_t *cmd, float facing_yaw)
 		cmd->sidemove    = b->sj_cmd_side;
 		cmd->upmove      = b->sj_cmd_up;
 		return;
+	}
+
+	// bot_sjpath bit 2: hopping through a fight.  Aim owns the view, so express
+	// the policy's world wishdir (its facing + the fwd/side diagonal) in the
+	// aim frame as an analog fwd/side.  Pmove clamps wishspeed to 300 either
+	// way and flattens forward/right, so the arc is the one the plan simulated.
+	if (bot_strafejump->value != 0 && b->sj_state == SJ_ACTIVE && b->enemy
+		&& (SJP_Bits (b) & 3) == 3)
+	{
+		float	wish = sjp_vyaw[SJP_Slot (b)], a, c, sn, m;
+
+		if (b->sj_cmd_side > 0)
+			wish -= 45.0f;		// +side = right = clockwise
+		else if (b->sj_cmd_side < 0)
+			wish += 45.0f;
+		a = (wish - facing_yaw) * (float)(M_PI / 180.0);
+		c = (float)cos (a);
+		sn = (float)sin (a);
+		m = (float)(fabs (c) > fabs (sn) ? fabs (c) : fabs (sn));
+		cmd->forwardmove = (short)(400.0f * c / m);
+		cmd->sidemove    = (short)(-400.0f * sn / m);
+		cmd->upmove      = b->sj_cmd_up;
+		return;
+	}
+
+	// bot_airhazard (bit 1): refuse to COMMIT to an arc that ends in liquid.
+	// The bot_hazard brake below is gated on groundentity and probes at most
+	// 128u of ground ahead, so it can only stop a walk-off it can still brake --
+	// but 80-94% of the residual lava deaths on q2dm3/4/6 happen with the bot
+	// already AIRBORNE, launched from beyond that probe (see the header on
+	// Bot_BallisticHazard for the numbers).  This runs first and asks the
+	// different question: integrate where this motion actually lands.
+	//
+	// Two arcs are tested from the ground, because the bot commits to one of
+	// them: the one it flies if it jumps this frame, and the one it flies if it
+	// simply keeps running off the edge.  A doomed arc costs the jump and brakes
+	// the run; the resulting stall feeds the normal machinery (reroutemid
+	// penalizes the frozen hop) exactly like the lava brake's stall does.
+	//
+	// Deliberately NOT a veto on missing floor -- same discipline as
+	// Bot_HazardInDir: a long legit FALL link must stay executable, so only an
+	// arc that reaches actual lava/slime is refused.
+	if (bot_airhazard->value != 0 && ((int)bot_airhazard->value & 1)
+		&& b->ent->groundentity
+		&& !(b->ent->watertype & (CONTENTS_LAVA | CONTENTS_SLIME)))
+	{
+		vec3_t	vrun, vjump, hit;
+		qboolean doomed = false;
+
+		vrun[0] = b->ent->velocity[0];
+		vrun[1] = b->ent->velocity[1];
+		vrun[2] = 0;
+		VectorCopy (vrun, vjump);
+		vjump[2] = AIRHAZ_JUMP;
+
+		// only worth integrating when actually carrying speed somewhere
+		if (vrun[0] * vrun[0] + vrun[1] * vrun[1] > 40.0f * 40.0f)
+		{
+			// b->want_jump is the jump decision; cmd->upmove is not written
+			// until the tail of this function, so it is still stale here
+			if (b->want_jump && Bot_BallisticHazard (b->ent, vjump, hit))
+				doomed = true;
+			else if (Bot_BallisticHazard (b->ent, vrun, hit))
+				doomed = true;
+		}
+
+		if (doomed)
+		{
+			vec3_t	back;
+
+			Bot_LogAirHaz (b, "veto", hit);
+
+			// brake exactly like the lava momentum brake: reverse only onto
+			// ground whose own arc is safe, else zero and let friction bleed it
+			// (a blind reverse is what wrecked the first lava cut on q2dm6)
+			back[0] = -b->move_dir[0];
+			back[1] = -b->move_dir[1];
+			back[2] = 0;
+
+			if (VectorLength (back) > 0.1f)
+			{
+				vec3_t	vback;
+				VectorNormalize (back);
+				VectorScale (back, 200.0f, vback);
+				vback[2] = 0;
+				if (!Bot_BallisticHazard (b->ent, vback, NULL))
+				{
+					a[YAW] = facing_yaw;
+					AngleVectors (a, f, r, u);
+					f[2] = 0;
+					r[2] = 0;
+					VectorNormalize (f);
+					VectorNormalize (r);
+					cmd->forwardmove = (short)(DotProduct (back, f) * speed);
+					cmd->sidemove    = (short)(DotProduct (back, r) * speed);
+				}
+				else
+				{
+					cmd->forwardmove = 0;
+					cmd->sidemove = 0;
+				}
+			}
+			else
+			{
+				cmd->forwardmove = 0;
+				cmd->sidemove = 0;
+			}
+			cmd->upmove = 0;					// never launch into it
+			b->next_wander_time = level.time;	// turn away next frame
+			return;
+		}
+	}
+
+	// bot_airhazard (bit 2): already airborne on a doomed arc.  There is no
+	// ground to brake against, but Quake air-accel still gives real (small)
+	// lateral authority, so steer toward whichever sideways nudge makes the
+	// predicted landing safe.  This is the salvage half of the lever; bit 1 is
+	// the prevention half, and they are separately switchable precisely so the
+	// A/B can attribute the result to one or the other.
+	if (bot_airhazard->value != 0 && ((int)bot_airhazard->value & 2)
+		&& !b->ent->groundentity
+		&& !(b->ent->watertype & (CONTENTS_LAVA | CONTENTS_SLIME)))
+	{
+		vec3_t	vcur, hit;
+
+		VectorCopy (b->ent->velocity, vcur);
+		if (Bot_BallisticHazard (b->ent, vcur, hit))
+		{
+			static const float	kick = 220.0f;
+			vec3_t				side, best;
+			int					i;
+			qboolean			found = false;
+
+			// probe four lateral nudges on top of the current velocity and take
+			// the first whose arc clears the liquid
+			for (i = 0; i < 4 && !found; i++)
+			{
+				vec3_t	trial;
+				side[0] = (i == 0) ? kick : (i == 1) ? -kick : 0.0f;
+				side[1] = (i == 2) ? kick : (i == 3) ? -kick : 0.0f;
+				side[2] = 0;
+				VectorAdd (vcur, side, trial);
+				if (!Bot_BallisticHazard (b->ent, trial, NULL))
+				{
+					VectorCopy (side, best);
+					found = true;
+				}
+			}
+
+			if (found)
+			{
+				Bot_LogAirHaz (b, "steer", hit);
+				a[YAW] = facing_yaw;
+				AngleVectors (a, f, r, u);
+				f[2] = 0;
+				r[2] = 0;
+				VectorNormalize (f);
+				VectorNormalize (r);
+				VectorNormalize (best);
+				cmd->forwardmove = (short)(DotProduct (best, f) * speed);
+				cmd->sidemove    = (short)(DotProduct (best, r) * speed);
+				cmd->upmove      = 0;
+				return;
+			}
+		}
 	}
 
 	// bot_hazard: in EVERY mode, refuse to go airborne over LAVA (contents-

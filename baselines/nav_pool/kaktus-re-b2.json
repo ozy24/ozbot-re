@@ -1,0 +1,74 @@
+{
+  "map": "kaktus-re-b2",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/kaktus-re-b2.nav",
+  "frozen": true,
+  "peak": {
+    "step": 2,
+    "mature_seconds": 180.0,
+    "nodes": 194,
+    "collect": 79.9,
+    "pickups": 107
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 164,
+      "collect": 71.4,
+      "pickups": 90
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 194,
+      "collect": 79.9,
+      "pickups": 107
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 204,
+      "collect": 69.4,
+      "pickups": 86
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 213,
+      "collect": 76.2,
+      "pickups": 99
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenade Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenades",
+      "code": "no_path"
+    },
+    {
+      "item": "Jacket Armor",
+      "code": "gated"
+    },
+    {
+      "item": "Rocket Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Rockets",
+      "code": "no_path"
+    },
+    {
+      "item": "Small Health",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

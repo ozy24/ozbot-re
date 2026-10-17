@@ -1,0 +1,283 @@
+# Close the gap to q2pro-x (OpenTDM-X bots)
+
+Status: **step 0 (measurement) done 2026-10-13**; steps 1–3 not started.
+Background memory: `ozbot-re-q2prox-study` (first-session numbers whose raw demos
+were lost) and `scratchpad-is-volatile`.
+
+## What q2pro-x is
+
+Server-side bots on `91.227.18.67:27950` ("OpenTDM-X bots duel", gamedir
+`opentdm-x`, 10Hz server, no download). They are named after real players
+(Purri-X, Polosatiy-X, God-X[250], Noob-X[50] ...), each with a skill tag and an
+announced style (default / defence / chaotic / arcade). Watching them, they move like
+strong humans — chained strafe-jumps everywhere, no visible thrashing — and aim
+very precisely. Example: Polosatiy-X beat a human (Spojler) 13+–0, mostly with rail.
+
+How they are built is unknown. Evidence so far:
+- **No verbatim replay of public demos.** 2s path windows match the 599 human
+  q2duel5 demos *worse* than humans match each other (p50 32u vs 23.6u).
+- **Probably not per-player cloning.** Purri-X ranks real Purri 11/18 on map occupancy.
+  Humans self-rank top-2 on that test.
+- **Skills that transfer across maps look computed:** per-tick optimal strafe and
+  tight tracking.
+- **Map knowledge may not transfer.** The pre-aim edge seen on q2duel5 vanished on
+  ztn2dm3.
+
+**Goal:** replicate the *observable behaviour* (distributions), not their code.
+Stay sight-legal: no omniscience is to be added; see `bot_enemymodel` in CLAUDE.md.
+
+## Measurements
+
+All measurements come from `tools/q2prox_profile.py`: one yardstick, 10Hz steps,
+BSP line-of-sight and PVS. The `report` subcommand prints these tables.
+
+### q2duel5 (Mortal Coil)
+
+| | pros (60 demos) | ozbot (16 duels × 180s, seed 700) | q2pro-x (session 1, lost; memory) |
+|---|---|---|---|
+| speed p50/90/99 | 301/392/488 | 300/**332**/422 | 295/378/463 |
+| share >330 u/s | 27% | **11%** | 19% |
+| strafe gain per airborne arc, p50 | +13 | **+2** | +47 |
+| arcs gaining | 59% | 53% | 76% |
+| dither share | 0.20% | 0.18% | 0.82% |
+| aim err visible p50 / p75 | 16.8° / 38° | 11.2° / **73°** | 6.4° / 23° |
+| hidden-in-PVS within 15° | 20% | **6%** | 27% |
+| on target at visibility onset (<15°) | 43% | **10%** | 68% (n=19, weak) |
+| react time to <10°, p50 | 0.1s | 0.2s | 0.0s |
+| yaw rate while visible, p90 | 211°/s | 343°/s | 309°/s |
+
+### ztn2dm3 (The Rage): q2pro-x chunk 1 (769s moving, 134 onsets) vs 60 pro demos
+
+| | pros | q2pro-x |
+|---|---|---|
+| speed p90 | 410 | 370 |
+| share >330 u/s | 31% | 19% |
+| arc gain p50 | +21 | +69 (89% gaining in partial checks) |
+| aim err visible p50 | 14.1° | 6.3° |
+| on target at onset | 50% | 44% |
+| hidden within 15° | 29% | 47% |
+
+Ozbot has **not** been profiled on ztn2dm3 yet. It needs a nav: run
+`py tools/gen_nav.py ztn2dm3`; the map is already in `engine/baseq2/maps/`.
+
+### What the numbers say
+
+1. **Movement is the clearest gap.**
+   - Ozbot almost never builds speed in the air (arc gain p50 +2).
+   - `bot_strafejump` already has the right per-tick law, `θ* = acos(cap/speed)`
+     in `SJ_FacingYaw` (`src/bot_move.c`).
+   - But `SJ_QualifyRunway` only engages on straight, flat, collinear WALK spines
+     at least 256u long.
+   - `Bot_StrafeThink` aborts on `b->enemy` (`abort_enemy`).
+   - q2pro-x is airborne about 40% of the time, through curves and fights.
+2. **Thrashing is NOT a gap.** Ozbot dithers at the human rate, thanks to
+   `bot_commit 6`. Don't work on it.
+3. **Aim: precision is fine; orientation and anticipation are not.**
+   - The p75 of 73° says ozbot often doesn't face a visible enemy at all.
+   - First suspect: `Combat_FindEnemy` only acquires inside the ±60° `bot_fov`
+     cone (`BOT_FOV_HALF`, `src/bot_combat.c`). An enemy beside or behind the bot
+     stays unacquired until the bot happens to turn.
+     - Measure it before changing anything: the share of visible-target frames with
+       `enemy == -1` in the tick log, and their angle.
+     - Humans can't see behind either. The pros' p75 is 38°, so the question is
+       turn/acquire latency, not wallhacks.
+   - Pre-aim (10% vs pros 43%) is the second gap.
+   - Sight-legal ingredients already exist: last-known-position fields from
+     `bot_pursuit` (`Bot_PursueTry`, LKP on `bot_t`) and the nav graph.
+
+## Step 1 design (2026-10-14): `bot_sjpath` path-mode hopping
+
+Baseline re-run 2026-10-14 reproduces the handover bit-for-bit (arc gain p50 +2,
+>330 share 0.108). The `bot_sjlog 2` funnel on q2duel5 (16×180s): 487 qualify
+calls die as short 456 / trace 167 / turn 114 / dz 107, 298 engages, **341 hops in
+5760 bot-seconds** (~1 hop per engage). The runway controller is effectively off.
+
+Also found: `SJ_WISH_CAP 270` is the **10Hz** optimum (300 − the 30-ups air-accel
+quantum per 100ms; Q2 air accel is `1 * frametime * 300`). At 40Hz the quantum is
+7.5, so the optimum is 292.5 — a raw per-tick constant. Path mode uses
+`300 − 30·BOT_TICK_RATIO`; the old runway mode keeps 270 for byte-identity.
+
+Design (`bot_sjpath`, bitmask, default 0, needs `bot_strafejump 1`):
+- **bit 1 — path mode.** Replace runway qualification with a per-hop *choice by
+  simulation*. On every grounded tick (engage, or each landing mid-chain) take the
+  committed path's WALK span (stop at the first non-WALK link or hazard/water
+  node), then forward-simulate one whole hop through the real `gi.Pmove`, from the
+  live pmove state, for three policies: optimal-gain yaw law on side +1, the same
+  on side −1, and a TURN policy (wishdir at a lookahead point on the path).
+  Score = progress along the path polyline at landing. Reject any arc that touches
+  liquid, lands > 40u off the path's height, lands > 64u off the polyline, bleeds
+  > 40 ups (it hit a wall), or overshoots the span end. Fly the best one, or hand
+  back to the follower if none is valid. Physics is deterministic, so the live hop
+  flies exactly the simulated arc unless another player interferes. No runway
+  length/collinearity/flatness rules are needed: the sim is the rule.
+- **bit 2 — keep hopping with an enemy** (aim owns facing; the controller writes
+  an analog fwd/side so the wishdir is still the law's). Separate A/B.
+
+### Step 1 results (2026-10-14, bit 1 built, default OFF)
+
+Shipped as opt-in `bot_sjpath 1` (off-state md5 `429a6236` = pre-change, q2duel5
+16×180 seed 700). Additions beyond the design: `SJP_YAW_RATE` 800°/s view cap
+inside the policy (shared by sim and live, so the sim stays exact); span ends at
+links climbing >32u / dropping >64u (ladders broke the arc-length projection);
+landings must stop 96u short of a span that ends in a non-WALK transition (the
+follower takes jumps/ladders at run speed — this flipped q2dm7 solo −12% → +4%);
+the gaze layer owns pitch while hopping (pmove uses pitch/3 for air wishdir, so
+the effect on the arc is ≤ ~1°).
+
+| q2duel5 | pros | off | `bot_sjpath 1` | q2pro-x |
+|---|---|---|---|---|
+| speed p90 | 392 | 332 | 381 | 378 |
+| share >330 | 27% | 11% | 24% | 19% |
+| arc gain p50 | +13 | +2 | +41 | +47 |
+| arcs gaining | 59% | 53% | 70% | 76% |
+| yaw snaps >45°/tick | | 0.12% | 0.07% | |
+
+Pinned-nav `ab_cvar` (8 maps × 4 banks): **solo +2.9% (20/32), dm +3.4% (23/32)**;
+q2dm6 solo +74% / dm +12%, q2dm7 +4%/+4%, q2dm8 dm +8%. Losers: **q2dm3 solo −25%
+(0/4, reproduced over 6 banks)**, q2dm8 solo −6%, q2dm4 dm −2%. Humanness (q2dm1 dm vs
+ladder MVDs, KS): speed2d 0.150→0.086, yaw_accel 0.102→0.045, still_episode
+0.377→0.353 better; yaw_rate 0.187→0.209 worse; pitch fixed after the v3 read.
+
+q2dm3 solo diagnosis: not hop-caused (no hops near the stalls). Its solo collection
+is dominated by pre-existing nav traps that strand whole instances in both arms —
+a spawn point on a 12-node **nav island with no outgoing links** (bots spawning
+there idle until the run ends: 4–6 of 16 instances), and a follower stall at the
+101→231→4 triple near the HyperBlaster. Path mode changes *which* instances fall in.
+Adding BSP-verified FALL links 113→169 and 76→120 cut island time ~10× and pickups
++3.8% (5/6 banks) with sjpath 0 — see the nav-trap follow-up.
+
+Tool: `tools/goal_outcomes.py` (per-goal done/giveup/superseded/death + durations).
+
+### Step 1 bit 2 (2026-10-14): hop through fights
+
+`bot_sjpath 3`: an enemy no longer ends the chain. Aim owns the view; the policy
+facing becomes virtual (no rate cap: nobody sees it) and Bot_ApplyMovement rotates
+its world wishdir into the aim frame as analog fwd/side. Bit 1 alone stays
+byte-identical (md5 00206877 before/after). q2duel5: speed p90 395, >330 28.8%,
+arc gain p50 +47, arcs gaining 74% — on the pros / q2pro-x targets; aim on target
+at onset 10.6% → 7.6%. DM pickups vs bit 1: +2.1% (21/32), deaths −3.2%. Parity
+(`bot_sjpathtest`): +0.69pt [−2.16, +3.55], 190 arms — neutral.
+
+**Recommendation:** `bot_sjpath 3` is a net pickup gain in dm (~+5% vs off) and
+moves movement texture onto the human/q2pro-x targets at no strength cost. The
+blocker for default-ON is q2dm3 solo (−25%, nav-trap dominated). Step 3 (aim
+orientation) is next and is where q2pro-x's real edge is.
+
+### Step 3a result (2026-10-14): the cone, confirmed — `bot_hearsight`
+
+23% of visible-opponent samples unacquired, 93% of them outside ±60° (p50 117°).
+`bot_hearsight 1` (hearing-gated out-of-cone acquisition): visible aim p75 73° → 49°;
+parity null over ~380 arms; dm pickups −1.0%. Default OFF (humanness option).
+On target at onset is unchanged (10%) — that gap is pre-aim (3b), not acquisition.
+
+### Step 3b result (2026-10-14): `bot_preaim`
+
+Reappearance-point gaze (see CLAUDE.md). On target at onset 10% → 25% (pros 43%,
+q2pro-x 68%/44%), hidden-within-15° 6% → 17.5% (pros 20%, q2pro-x 27%/47%).
+Parity ≈ +1.8pt over 573 arms (marginal), dm pickups −3.2% (more fights).
+Remaining gap to q2pro-x is onset precision — they are on target before the
+enemy appears far more often; a next step would rank candidate reappearance
+points by the enemy's likely route (item timers / the routes it was taking)
+rather than nearest-visible-first.
+
+### 2026-10-14: shipped default-ON
+
+At the user's call: `bot_sjpath 3` and `bot_preaim 1` are now the defaults
+(default run md5 == explicit-cvar run md5, `a478d056` on q2duel5 16×90 seed 700).
+Open issues carried forward: q2dm3 solo −25% under path mode (nav traps); pre-aim's
+−3.2% dm pickups (more fights).
+
+## Work plan (in order)
+
+### Step 1: strafe-jump as the default travel mode
+
+- **Replace runway qualification with per-tick air steering.**
+  - Keep the `SJ_FacingYaw` law.
+  - Choose the side and offset so the velocity curves toward a lookahead point on
+    the committed A* path.
+  - Re-jump on the first grounded tick; the PMF_TIME_LAND clear is already there.
+- **Safety:** predict the arc before committing a hop.
+  - Use the ballistic integration pattern of `Nav_SeedOnePush` / `bot_airhazard`.
+  - Refuse arcs that hit a wall or leave the path corridor.
+  - Treat lava as a veto. Slime is NOT a veto (CLAUDE.md: the airhazard lessons).
+- **Fights:** stay in the hop chain with an enemy (the dodge) once that's safe, as
+  a separate bit so it can be A/B'd on its own.
+- **Tick rate:** physics and steering run at 40Hz. Scale every constant with
+  `BOT_TICK_RATIO` / `Bot_TickGain`.
+- **Gate it behind a new cvar value or bitmask.** The off-state must be
+  byte-identical (same-seed telemetry md5).
+- **Success criteria:**
+  - q2duel5 arc gain p50 moves from +2 toward +13…+47, and share >330 from 11%
+    toward 19–27%;
+  - pickups not down: `tools/ab_cvar.py` solo + dm, pinned navs, 8 q2dm maps;
+  - hazard deaths not up on q2dm3/4/6/7 (`mine_regret.py` with `--cvar bot_hazlog 1`);
+  - humanness not worse: `tools/humanness.py` vs the ladder MVD cache.
+
+### Step 2: smoothed lines
+
+- Fit a smooth curve through the A* path and steer the air controller along it,
+  hull-trace checked.
+- Earlier work: `bot_lookahead` gained shipped-solo +4.5% but lost cold-solo −6.6%,
+  because off-graph cuts are only safe on dense navs. Any fix must check the curve
+  against the map with traces, not trust the graph.
+
+### Step 3: aim orientation, then sight-legal pre-aim
+
+- **3a. Measure the acquisition gap first** (see point 3 above). If it's the FOV
+  cone, test the remedies below with the parity harness:
+  - turning toward noises or damage (careful: `bot_hearing` was negative because a
+    noise has no heading);
+  - faster idle scanning;
+  - a slightly wider cone.
+- **3b. Pre-aim while the enemy is unseen.**
+  - Predict the enemy's likely route from their last-known position and velocity
+    over the nav graph.
+  - Aim at the first point on that route that is visible from the bot's
+    position/path.
+  - Metric: "on target at onset" and "hidden within 15°".
+- **Strength A/B: `tools/ab_parity.py`.**
+  - Use **40+ paired arms**, replicate on fresh seeds, and stick to
+    q2dm1/2/5/8 (scores go negative elsewhere).
+  - Pickups can't see aim changes in symmetric self-play.
+  - Never put aim cvars into `optimize_cvars.py`.
+
+## Tools and assets (built 2026-10-13, uncommitted at handover)
+
+| path | what |
+|---|---|
+| `tools/q2prox_profile.py` | `q2prox` / `pros` / `bot` / `report` modes. Bot mode splits merged logs per server (`bot // 1000`) and PVS-filters targets. See the docstring for metric definitions |
+| `tools/q2bsp.py` | BSP v38 reader: `contents`, `los` (4u sampling), `pvs`, `pvs_box`. pvs_box agrees with what the server sent 92.5% of the time; servers also send PHS/sound entities |
+| `tools/demo_pov.py` | rewrites a spectator .dm2 into one player's first-person view (from entity origin/angles + vwep) |
+| `engine/ozbotre/nav/q2duel5.nav` | gen_nav, frozen, 121 nodes, 78.8% solo COLLECT. Quad unreachable (`baselines/gen_nav_q2duel5.json`) |
+| `engine/baseq2/maps/{q2duel5,ztn2dm3}.bsp` | stock files (md5 16d872…bd83 / 5a3b9f…683e) |
+| `demos/q2prox/q2prox_20261013_*.dm2` | ~32 min of q2pro-x on ztn2dm3 (chunk 3 cut short by a map vote) |
+| `demos/derived/q2prox/*.json` | profile caches: pros q2duel5/ztn2dm3, ozbot q2duel5, q2prox ztn2dm3 chunk 1 |
+| `~/Games/q2pro/` | q2pro client (github.com/q2pro/q2pro @601a8df). `record_session.sh <chunks> <min>` spectates and records into `demos/q2prox/`; `render_demo.sh <demo> <mm:ss> <secs> <out.mp4>` renders offscreen (Xvfb) |
+
+Reproduce the ozbot baseline:
+
+    py tools/run_parallel.py --repro --fastsim --instances 16 --seconds 180 --bots 2 \
+        --seed 700 --map q2duel5 --cvar sv_fps 40 --no-analyze
+    py tools/q2prox_profile.py bot engine/ozbotre/logs/parallel_q2duel5_<stamp>.jsonl --json out.json
+    py tools/q2prox_profile.py report demos/derived/q2prox/pros_q2duel5_60.json out.json
+
+## Rules and gotchas
+
+- **q2duel5 and ztn2dm3 are not in the pinned benchmark navs.**
+  - Before any A/B on them, copy the navs into a pinned/scratch gamedir; never A/B
+    on the live gamedir (CLAUDE.md).
+  - The headline gates stay the standard 8-map benchmark / `ab_cvar` on pinned navs.
+- **The q2pro-x side is thin.** Session-1 q2duel5 numbers survive only in memory, and
+  the q2duel5 pre-aim number has n=19 against a human.
+  - Do not tune toward a single q2pro-x number.
+  - Treat it as a direction: "more airborne speed, more anticipation".
+- **Recording more needs the user's go-ahead.** Connecting to the external server
+  auto-seats you and holds their matches in warmup.
+  - `record_session.sh` re-spectates automatically.
+  - It does **not** restart recording after a map change. Fix that first.
+  - The most valuable missing data: q2pro-x vs humans on q2duel5, and bot-vs-bot on
+    q2duel5, so opponent type matches across maps.
+- **Keep captures and code out of the scratchpad.** `/tmp` is tmpfs and a reboot
+  already destroyed one session.
+- **Off-state byte-identical, default OFF until measured, and commit the tools
+  before building on them.**

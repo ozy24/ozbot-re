@@ -32,6 +32,12 @@ float Bot_TickGain (float gain10);
 #define BOT_GOAL_BUDGET_SPEED	100.0f	// effective travel speed (cost units/sec)
 #define BOT_GOAL_BUDGET_MAX		20.0f	// cap fallback if bot_budgetcap <= 0
 
+// bot_control: longest wait-on-spot allowed for a respawning control item.
+// Timing the route is meant to land the bot there AS it spawns, so a long wait
+// means the estimate was wrong; shared because Goal_Select sets the timing goal
+// and bot_main.c enforces the cap.
+#define CONTROL_WAIT_CAP		4.0f
+
 // bot behavior mode
 #define BOT_MODE_EXPLORE	0	// wander, growing the nav graph
 #define BOT_MODE_GOAL		1	// follow an A* path to a goal node
@@ -100,6 +106,7 @@ typedef struct
 	edict_t		*steer_item;	// bot_decisive: sticky Goal_NearestItem target
 								// (explore steering hysteresis between goals)
 	qboolean	goal_timing;	// pre-positioning for an item about to respawn
+	float		timing_began;	// bot_control: when the wait-on-spot started (0 = not waiting)
 	int			path[BOT_MAX_PATH];
 	int			path_len;
 	int			path_idx;		// index of the next node to reach
@@ -107,6 +114,15 @@ typedef struct
 	float		goal_time;		// level.time the current goal was set
 	float		goal_cost;		// A* g-cost of the committed route (0 = unknown)
 	float		goal_best;		// closest we've come to the goal node this attempt
+	// giveup diagnostics only (never read by decisions): wall-clock attempt
+	// start (goal_time is shifted by traversal freezes), seconds spent with an
+	// enemy during the attempt, and when goal_best last improved by >8u
+	float		goal_start;
+	float		goal_fight;
+	float		goal_best_time;
+	// bot_budgetext: last path_idx seen this attempt and when it advanced
+	int			goal_idx_last;
+	float		goal_idx_time;
 	int			pending_link;	// link type to record on next learn step
 	// mid-attempt reroute (bot_reroutemid): watch path_idx for a pure-nav stall
 	int			reroute_last_idx;	// path_idx at the last observed advance
@@ -226,6 +242,19 @@ typedef struct
 								// from goal_time precisely BECAUSE goal_time is
 								// advanced by that freeze and is not a clock
 	qboolean	lkp_noise;		// this sighting came from bot_hearing, not sight
+	char		netname[16];	// the in-game name this bot was given (Bot_Add)
+	// bot_preaim: own sighting record (pursuit consumes the LKP fields)
+	edict_t		*pa_ent;		// whose sighting (NULL = none)
+	vec3_t		pa_pos;			// their origin at the last sighting
+	vec3_t		pa_vel;			// ...and velocity then
+	float		pa_time;		// level.time of that sighting
+	float		pa_next;		// re-solve the appearance point after this
+	vec3_t		pa_look;		// cached appearance point (valid if pa_have)
+	qboolean	pa_have;
+	// bot_enemymodel: belief about the CURRENT target, from sight-legal info only
+	edict_t		*bel_ent;		// who this belief is about (NULL = none)
+	float		bel_strength;	// estimated health+armor
+	float		bel_time;		// last time the estimate was refreshed
 								// (telemetry only -- the chase gates are identical)
 
 	// engagement movement style (bot_combatmove)
@@ -264,6 +293,7 @@ void Bot_Shutdown (void);		// called from ShutdownGame()
 void Bot_RunFrame (void);		// called from the top of G_RunFrame()
 qboolean Bot_ServerCommand (void);	// handle "sv bot_*"; returns true if consumed
 qboolean Bot_IsClient (edict_t *ent);	// true for DLL-driven bots (no net client)
+bot_t *Bot_ForEdict (edict_t *ent);	// the bot behind a client edict, or NULL
 void G_UnicastClient (edict_t *ent, qboolean reliable);	// gi.unicast, skips bots
 // true if some OTHER active bot already has 'it' as its current goal_item
 qboolean Bot_ItemClaimed (edict_t *it, bot_t *self);
@@ -284,6 +314,17 @@ extern cvar_t	*bot_claim;
 extern cvar_t	*bot_decisive;
 extern cvar_t	*bot_pathcost;
 extern cvar_t	*bot_goalbudget;
+extern cvar_t	*bot_control;		// time the ROUTE to a control item, not a flat 4s window
+qboolean Bot_EnvDeathMod (int mod);	// bot_danger: deaths bot_hazard already owns
+extern cvar_t	*bot_danger;		// per-node combat-death heat -> route cost (0 = off)
+extern cvar_t	*bot_dangerlog;
+extern cvar_t	*bot_dangertest;	// id-parity A/B: even ids fear hot ground, odd control
+extern cvar_t	*bot_enemymodel;	// estimate enemy strength from sight-legal info
+extern cvar_t	*bot_enemymodeltest;
+extern cvar_t	*bot_belieflog;
+void Bot_BeliefDamage (edict_t *attacker, edict_t *targ, int amount);
+float Bot_BeliefStrength (bot_t *b, edict_t *enemy);
+void Bot_BeliefReset (bot_t *b);
 extern cvar_t	*bot_budgetcap;
 extern cvar_t	*bot_itemfail;
 extern cvar_t	*bot_navmask;
@@ -315,6 +356,8 @@ extern cvar_t	*bot_jumppad;		// route through trigger_push jump pads (seeded PUS
 									// to a ballistic landing; the launch is automatic on touch)
 extern cvar_t	*bot_ladder;		// the ladder capability: climb CONTENTS_LADDER surfaces
 extern cvar_t	*bot_slimeescape;	// submerged in slime: abandon the goal and climb/swim out
+extern cvar_t	*bot_airhazard;		// bitmask: 1 = veto an arc that lands in liquid, 2 = mid-air steer
+extern cvar_t	*bot_airhazlog;		// per-veto/steer diagnostic
 extern cvar_t	*bot_liftcommit;	// commit to riding a rising plat (don't step off mid-ride)
 extern cvar_t	*bot_liftlog;
 extern cvar_t	*bot_inputlog;
@@ -379,6 +422,17 @@ qboolean Bot_StrafeThink (bot_t *b);
 void Bot_StrafeReset (bot_t *b);
 extern cvar_t	*bot_strafejump;
 extern cvar_t	*bot_sjlog;
+extern cvar_t	*bot_sjpath;
+extern cvar_t	*bot_sjpathtest;
+extern cvar_t	*bot_hearsight;
+extern cvar_t	*bot_hearsighttest;
+qboolean Bot_HeardRecently (edict_t *who, float dist);
+extern cvar_t	*bot_preaim;
+extern cvar_t	*bot_nameprefix;
+extern cvar_t	*bot_namefile;
+extern cvar_t	*bot_preaimtest;
+qboolean Bot_PreaimOn (bot_t *b);
+qboolean Bot_PreaimPoint (bot_t *b, vec3_t out);
 
 // generic movement helpers shared with the playback controller
 void Bot_SetMoveYaw (bot_t *b, float yaw);
@@ -390,10 +444,20 @@ int Bot_LinkType (int from, int to);	// NAV_LINK_* of from->to, or -1
 // skips path following/stuck recovery and freezes the goal-budget clock --
 // align waiting must not be billed, like a lift wait).
 void Playbook_Load (const char *mapname);	// parse <gamedir>/playbooks/<map>.pbk
+qboolean Playbook_StandingStart (bot_t *b);	// active entry is a standing start
 void Playbook_Register (void);				// seed nodes + inject PLAYBOOK links
 qboolean Bot_PlaybackThink (bot_t *b);
 void Bot_PlaybackReset (bot_t *b);
 extern cvar_t	*bot_playbook;
+extern cvar_t	*bot_pbalign;
+extern cvar_t	*bot_gazefix;
+extern cvar_t	*bot_gazedead;
+extern cvar_t	*bot_budgetext;
+extern cvar_t	*bot_slottop;
+void Bot_HumanConnecting (edict_t *ent);
+extern cvar_t	*bot_budgetbase;
+extern cvar_t	*bot_budgetspeed;
+extern cvar_t	*bot_pbfailfast;
 
 // strafe-jump qualification funnel (diagnosis only; bot_sjlog >= 2)
 #define SJ_DIAG_QUALIFY		0	// SJ_QualifyRunway calls
@@ -451,6 +515,13 @@ extern cvar_t	*bot_lead;
 extern cvar_t	*bot_leadtest;
 extern cvar_t	*bot_flee;
 extern cvar_t	*bot_fleetest;
+extern cvar_t	*bot_glead;
+extern cvar_t	*bot_wpnall;
+extern cvar_t	*bot_wpnalltest;
+extern cvar_t	*bot_gleadtest;
+extern cvar_t	*bot_fleehp;
+extern cvar_t	*bot_fleeratio;
+extern cvar_t	*bot_fleetunetest;
 extern cvar_t	*bot_outnumbered;		// retreat from a 2+ enemy crossfire (bot_combat.c)
 extern cvar_t	*bot_outnumberedtest;	// id-parity A/B for bot_outnumbered
 // enemy last-known-position pursuit: investigate where a lost enemy was
@@ -540,10 +611,11 @@ void Goal_SaveFails (const char *mapname);	// write item_fails>0 to <map>.fail (
 // bot_log.c
 //
 const char *Bot_GameDir (void);
+const char *Bot_MapFileName (const char *mapname);
 const char *Bot_ItemName (edict_t *ent);	// telemetry label; disambiguates the item_health_* family (all share one "Health" gitem -- key off the edict classname)
 void Bot_LogItemEvent (bot_t *b, const char *event, const char *item);
 void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fighting,
-	const char *navq);	// navq: oracle verdict on the goal at giveup time
+	const char *navq, float budget);	// navq: oracle verdict on the goal at giveup time
 // one reach-sweep record (bot_reachlog; plans/nav-oracle.md Phase C)
 void Bot_LogReach (const char *when, const char *item, const char *classname,
 	vec3_t org, const char *code, const char *gate, float cost);
@@ -559,6 +631,12 @@ void Bot_LogEngage (bot_t *b, const char *weapon, float range, int intent);	// b
 void Bot_LogPursueStart (bot_t *b, float cost, float dist, const char *src);
 void Bot_LogPursueEnd (bot_t *b, const char *reason, float dur);
 void Bot_LogHear (bot_t *b, int kind, float dist);	// bot_hearlog
+void Bot_LogAirHaz (bot_t *b, const char *what, const vec3_t hit);	// bot_airhazlog
+void Bot_LogTimingWait (bot_t *b, const char *item, float dur, qboolean paid);	// bot_control
+void Bot_LogTimingPick (bot_t *b, const char *item, float eta, float travel);	// bot_control
+void Bot_LogTimingCand (bot_t *b, const char *item, float eta);	// bot_control funnel
+void Bot_LogDanger (bot_t *b, const char *what, const vec3_t org);	// bot_dangerlog
+void Bot_LogBelief (bot_t *b, float est, float truth, float mine);	// bot_belieflog
 void Bot_LogCMove (bot_t *b, int style, float range);	// bot_cmlog
 void Bot_LogLookahead (bot_t *b, float w, float dist);	// bot_lookahead (throttled)
 void Bot_LogWpnSel (bot_t *b, const char *chosen, const char *held, float dist);	// bot_wpnsellog

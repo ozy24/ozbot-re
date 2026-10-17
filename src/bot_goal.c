@@ -67,7 +67,7 @@ static qboolean		fail_key_set[MAX_EDICTS];
 static void Fail_Path (const char *mapname, char *out, int outsize)
 {
 	Com_sprintf (out, outsize, "%s/nav/%s.fail",
-		Bot_GameDir(), (mapname && mapname[0]) ? mapname : "unknown");
+		Bot_GameDir(), Bot_MapFileName (mapname));
 }
 
 // snapshot the (classname, origin) key of every live item edict, indexed the
@@ -257,6 +257,12 @@ void Goal_ReachSweep (const char *when)
 	if (bot_reachlog->value == 0)
 		return;
 
+	// judge from EVERY deathmatch spawn, keeping each item's best verdict
+	// (ok > gated > no_path > uncovered).  The sweep used to test only the
+	// FIRST spawn, so a map whose first spawn sits in a one-way pocket read
+	// almost everything as no_path (q2dm7: 28 of 29 items, while bots
+	// collected 92% of attempts) -- misleading GATED lists and gen_nav's
+	// gated-item report.  Diagnostics only: no decision reads this.
 	spawn = G_Find (NULL, FOFS (classname), "info_player_deathmatch");
 	if (!spawn)
 		spawn = G_Find (NULL, FOFS (classname), "info_player_start");
@@ -276,7 +282,27 @@ void Goal_ReachSweep (const char *when)
 		if (it->spawnflags & DROPPED_ITEM)
 			continue;	// weapons dropped at death spots aren't map item spots
 
-		code = Nav_QueryPath (spawn->s.origin, it->s.origin, base, &cost, &gate);
+		{
+			edict_t	*sp = NULL;
+			const char *cls = spawn->classname;
+			int		best = -1, c2, g2;
+			float	cost2;
+			while ((sp = G_Find (sp, FOFS (classname), cls)) != NULL)
+			{
+				int score;
+				cost2 = 0;
+				g2 = 0;
+				c2 = Nav_QueryPath (sp->s.origin, it->s.origin, base, &cost2, &g2);
+				score = (c2 == NAVQ_OK) ? 3 : (c2 == NAVQ_GATED) ? 2 : (c2 == NAVQ_NO_PATH) ? 1 : 0;
+				if (score > best || (score == best && score >= 2 && cost2 < cost))
+				{
+					best = score;
+					code = c2;
+					cost = cost2;
+					gate = g2;
+				}
+			}
+		}
 		Nav_MaskNames (gate, gates, sizeof(gates));
 		nm = Bot_ItemName (it);
 
@@ -629,6 +655,22 @@ static float Item_Score (bot_t *b, edict_t *it, float *out_dist)
 // how far ahead of a respawn we'll start moving to "time" a control item
 #define ITEM_PREEMPT_SECS	4.0f
 
+// bot_control: real control play times the ROUTE, not the last few seconds.  The
+// shipped window is a flat ITEM_PREEMPT_SECS, so a Megahealth 12s out is invisible
+// even when the trip there takes 12s -- the bot can only ever time items it is
+// already standing next to.  With bot_control on, a control item becomes a
+// candidate when `eta <= travel_estimate + bot_control` seconds, i.e. leave now,
+// arrive as it spawns.
+//
+// Travel estimate reuses BOT_GOAL_BUDGET_SPEED, which is the calibration the
+// giveup clock already trusts to turn A* g-cost into seconds -- deliberately not
+// a second, independently-drifting constant.  Gather-time uses the straight-line
+// distance (no A* yet at that point); the pick loop re-gates on the true route
+// cost once A* has run, because straight line UNDER-estimates travel and would
+// otherwise admit items the bot cannot actually arrive in time for.
+#define CONTROL_MAX_ETA		20.0f	// never pre-position for something further out
+#define CONTROL_WAIT_FALLOFF	4.0f	// a 4s predicted wait halves the item's score
+
 /*
 =================
 Item_HighValue
@@ -654,6 +696,28 @@ static float Item_RespawnEta (edict_t *it)
 {
 	if (Goal_ItemAvailable (it))
 		return 0;
+
+	// BUG (found by the bot_control funnel telemetry, 2026-07-22): the shipped
+	// test below is `!(it->flags & FL_RESPAWN)`, and FL_RESPAWN is NEVER set on
+	// an item that is waiting to respawn.  SetRespawn sets it, but Touch_Item
+	// then CLEARS it on the way out (g_items.c: "if (ent->flags & FL_RESPAWN)
+	// ent->flags &= ~FL_RESPAWN; else G_FreeEdict (ent);") -- there it means
+	// "this is a world item, do not free the edict", not "this item respawns".
+	// So this function has always returned 99999 for every respawning item, which
+	// means the whole goal_timing / ITEM_PREEMPT_SECS pre-positioning path has
+	// never once fired since it was written.
+	//
+	// The correct predicate is the pending DoRespawn think.  It is gated on
+	// bot_control so the lever's OFF state reproduces the shipped (broken)
+	// behaviour byte-for-byte and every existing baseline stays comparable;
+	// turning bot_control on is what makes respawn timing exist at all.
+	if (bot_control->value != 0)
+	{
+		if (it->think != DoRespawn || it->nextthink <= level.time)
+			return 99999.0f;
+		return it->nextthink - level.time;
+	}
+
 	if (!(it->flags & FL_RESPAWN) || it->nextthink <= 0)
 		return 99999.0f;
 	return it->nextthink - level.time;
@@ -698,6 +762,7 @@ qboolean Goal_Select (bot_t *b)
 	edict_t	*cand[GOAL_MAX_CAND];
 	float	score[GOAL_MAX_CAND];
 	float	sldist[GOAL_MAX_CAND];
+	float	etas[GOAL_MAX_CAND];	// bot_control: respawn eta of a timing candidate
 	byte	timing[GOAL_MAX_CAND];
 	byte	rejected[GOAL_MAX_CAND];
 	int		ncand = 0;
@@ -726,14 +791,31 @@ qboolean Goal_Select (bot_t *b)
 			continue;	// bot_hazard: sunken weapon drops are bait, not goals
 
 		avail = Goal_ItemAvailable (it);
+		eta = 0;
 		if (!avail)
 		{
 			if (!Item_HighValue (it))
 				continue;
 			eta = Item_RespawnEta (it);
-			if (eta <= 0 || eta > ITEM_PREEMPT_SECS)
+			if (eta <= 0)
 				continue;
+			if (bot_control->value != 0)
+			{
+				// time the ROUTE: leave now if the trip is about as long as the
+				// wait.  Straight-line here (A* has not run yet); the pick loop
+				// re-gates on the real cost below.
+				vec3_t	sd;
+				float	sl, travel;
+				VectorSubtract (it->s.origin, b->ent->s.origin, sd);
+				sl = VectorLength (sd);
+				travel = sl / BOT_GOAL_BUDGET_SPEED;
+				if (eta > travel + bot_control->value || eta > CONTROL_MAX_ETA)
+					continue;
+			}
+			else if (eta > ITEM_PREEMPT_SECS)
+				continue;	// shipped behaviour: a flat window, byte-identical
 			tm = true;
+			Bot_LogTimingCand (b, Bot_ItemName (it), eta);
 		}
 
 		// nav graph must cover the item spot (bot_goalnode: with a routable
@@ -749,11 +831,25 @@ qboolean Goal_Select (bot_t *b)
 		if (s <= 0)
 			continue;
 		if (tm)
-			s *= 0.9f;
+		{
+			// a control item you must STAND AND WAIT for is worth less than one
+			// you walk onto: discount by the predicted idle time, so a live item
+			// nearby outranks camping a spawn.  bot_control 0 keeps the flat 0.9.
+			if (bot_control->value != 0)
+			{
+				float wait = eta - dist / BOT_GOAL_BUDGET_SPEED;
+				if (wait < 0)
+					wait = 0;
+				s *= 0.9f / (1.0f + wait / CONTROL_WAIT_FALLOFF);
+			}
+			else
+				s *= 0.9f;
+		}
 
 		cand[ncand] = it;
 		score[ncand] = s;
 		sldist[ncand] = dist;
+		etas[ncand] = eta;
 		timing[ncand] = tm;
 		rejected[ncand] = 0;
 		ncand++;
@@ -810,15 +906,30 @@ qboolean Goal_Select (bot_t *b)
 			{
 				float cap = (bot_budgetcap->value > 0) ? bot_budgetcap->value
 													   : BOT_GOAL_BUDGET_MAX;
-				if (BOT_GOAL_BUDGET_BASE + Nav_LastPathCost () / BOT_GOAL_BUDGET_SPEED
+				if (bot_budgetbase->value + Nav_LastPathCost () / bot_budgetspeed->value
 					> cap * 1.5f)
 					continue;	// not fundable: try the next best
+			}
+
+			// bot_control: now that A* has costed the route, re-gate the timing
+			// candidate on the REAL travel time.  Straight-line under-estimates
+			// (the route bends), so this is where an item the bot could not
+			// actually arrive in time for gets dropped -- without it the bot
+			// commits to control items it will always reach late.
+			if (bot_control->value != 0 && timing[best])
+			{
+				float travel = Nav_LastPathCost () / BOT_GOAL_BUDGET_SPEED;
+				if (etas[best] > travel + bot_control->value)
+					continue;	// cannot make it for the spawn; try the next best
 			}
 
 			if (bot_pathcost->value == 0)
 			{
 				b->goal_item = cand[best];
 				b->goal_timing = timing[best];
+				if (timing[best])
+					Bot_LogTimingPick (b, Bot_ItemName (cand[best]), etas[best],
+						Nav_LastPathCost () / BOT_GOAL_BUDGET_SPEED);
 				return true;
 			}
 
@@ -885,6 +996,9 @@ qboolean Goal_Select (bot_t *b)
 		{
 			b->goal_item = cand[pickcand];
 			b->goal_timing = timing[pickcand];
+			if (timing[pickcand])
+				Bot_LogTimingPick (b, Bot_ItemName (cand[pickcand]), etas[pickcand],
+					pcost[pickcand] / BOT_GOAL_BUDGET_SPEED);
 			return true;
 		}
 	}

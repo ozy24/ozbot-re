@@ -1,0 +1,68 @@
+{
+  "map": "mm-pkill",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/mm-pkill.nav",
+  "frozen": true,
+  "peak": {
+    "step": 4,
+    "mature_seconds": 360.0,
+    "nodes": 190,
+    "collect": 79.4,
+    "pickups": 243
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 148,
+      "collect": 75.1,
+      "pickups": 145
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 166,
+      "collect": 72.2,
+      "pickups": 184
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 180,
+      "collect": 75.6,
+      "pickups": 204
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 190,
+      "collect": 79.4,
+      "pickups": 243
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 194,
+      "collect": 73.8,
+      "pickups": 186
+    },
+    {
+      "step": 6,
+      "mature_seconds": 540.0,
+      "nodes": 195,
+      "collect": 75.4,
+      "pickups": 199
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Adrenaline",
+      "code": "no_path"
+    },
+    {
+      "item": "Large Health",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

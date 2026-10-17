@@ -18,7 +18,12 @@ uses A* over that graph to travel point-to-point between goal nodes.
 #include "bot_nav.h"
 
 #include <time.h>
+#ifdef _WIN32
 #include <process.h>	// _getpid (per-process rng entropy)
+#else
+#include <unistd.h>
+#define _getpid getpid
+#endif
 
 cvar_t	*bot_count;
 cvar_t	*bot_forwardspeed;
@@ -36,6 +41,13 @@ cvar_t	*bot_losfinal;
 cvar_t	*bot_survivetest;
 cvar_t	*bot_pathcost;
 cvar_t	*bot_goalbudget;
+cvar_t	*bot_control;
+cvar_t	*bot_danger;
+cvar_t	*bot_dangerlog;
+cvar_t	*bot_dangertest;
+cvar_t	*bot_enemymodel;
+cvar_t	*bot_enemymodeltest;
+cvar_t	*bot_belieflog;
 cvar_t	*bot_budgetcap;
 cvar_t	*bot_itemfail;
 cvar_t	*bot_navmask;
@@ -55,10 +67,20 @@ cvar_t	*bot_teleport;		// route through misc_teleporters (seeded TELEPORT links)
 cvar_t	*bot_jumppad;		// route through trigger_push jump pads (seeded PUSH links)
 cvar_t	*bot_ladder;		// climb CONTENTS_LADDER surfaces -- see bot_move.c
 cvar_t	*bot_slimeescape;	// submerged in slime: climb/swim out (see bot_move.c)
+cvar_t	*bot_airhazard;		// ballistic liquid guard (see bot_move.c Bot_BallisticHazard)
+cvar_t	*bot_airhazlog;
 cvar_t	*bot_liftcommit;	// once on a rising plat, commit to the ride (don't step off)
 cvar_t	*bot_liftlog;
 cvar_t	*bot_strafejump;
 cvar_t	*bot_sjlog;
+cvar_t	*bot_sjpath;
+cvar_t	*bot_sjpathtest;
+cvar_t	*bot_hearsight;
+cvar_t	*bot_hearsighttest;
+cvar_t	*bot_preaim;
+cvar_t	*bot_nameprefix;
+cvar_t	*bot_namefile;
+cvar_t	*bot_preaimtest;
 cvar_t	*bot_inputlog;
 cvar_t	*bot_ammoneed;
 cvar_t	*bot_healthneed;
@@ -72,6 +94,12 @@ static char		bot_logged_map[MAX_QPATH];	// map the current log/nav is for
 // when each client slot last made weapon noise (bot_fov hearing; kept out of
 // gclient_t deliberately -- no vanilla struct edits)
 static float	bot_noise_time[MAX_CLIENTS];
+static unsigned	bot_name_seed;		// the match's RNG seed, reused for name picks
+#define BOT_NAMES_MAX	1024
+#define BOT_NAME_LEN	16		// == sizeof(pers.netname)
+
+static char		bot_names[BOT_NAMES_MAX][BOT_NAME_LEN];
+static int		bot_num_names = -1;	// -1 = not loaded yet
 // bot_hearing: the generalized registry beside the legacy weapon-fire slot
 static float	bot_noise_at[MAX_CLIENTS];		// when the last noise happened
 static int		bot_noise_kind[MAX_CLIENTS];	// NOISE_*
@@ -163,7 +191,29 @@ void Bot_Init (void)
 															// pickups +45%, ITEM +6pts, 5/5 seeds)
 	bot_pathcost     = gi.cvar ("bot_pathcost", "1", 0);	// score items by A* route cost, not straight-line distance
 	bot_goalbudget   = gi.cvar ("bot_goalbudget", "1", 0);	// goal timeout scaled to route cost, not flat 12s
-	bot_budgetcap    = gi.cvar ("bot_budgetcap", "15", 0);	// max seconds to fund any one goal route
+	// bot_control: seconds of slack on top of the ROUTE travel estimate when
+	// deciding whether to leave now for a control item that is still respawning.
+	// 0 = the shipped flat ITEM_PREEMPT_SECS window (byte-identical).
+	bot_control      = gi.cvar ("bot_control", "0", 0);
+	// bot_danger: generalizes bot_hazard from "lava kills" to "fights kill".
+	// Value scales the per-node death-heat toll on route cost when weak (and a
+	// capped discount when strong, to patrol contested ground).  0 = off.
+	bot_danger       = gi.cvar ("bot_danger", "0", 0);
+	bot_dangerlog    = gi.cvar ("bot_dangerlog", "0", 0);
+	// id-parity head-to-head.  A symmetric sim CANNOT show this lever working:
+	// when every bot avoids hot ground the equilibrium just shifts and total
+	// deaths are ~zero-sum.  Even ids fear heat, odd ids are the control.
+	bot_dangertest   = gi.cvar ("bot_dangertest", "0", 0);
+	// bot_enemymodel: replace the OMNISCIENT Combat_Strength(enemy) read in the
+	// flee comparison with a belief built only from sight-legal information --
+	// damage this bot itself landed, plus a spawn baseline, decaying to unknown.
+	bot_enemymodel     = gi.cvar ("bot_enemymodel", "0", 0);
+	bot_enemymodeltest = gi.cvar ("bot_enemymodeltest", "0", 0);
+	bot_belieflog      = gi.cvar ("bot_belieflog", "0", 0);
+	bot_slottop      = gi.cvar ("bot_slottop", "1", 0);		// bots take client slots top-down (humans get the low ones)
+	bot_budgetbase   = gi.cvar ("bot_budgetbase", "6", 0);	// goal budget: seconds of slack (BOT_GOAL_BUDGET_BASE)
+	bot_budgetspeed  = gi.cvar ("bot_budgetspeed", "100", 0);	// goal budget: route cost units per second (BOT_GOAL_BUDGET_SPEED)
+	bot_budgetcap    = gi.cvar ("bot_budgetcap", "12", 0);	// max seconds to fund any one goal route (15 -> 12: 2026-10 8-map sweep)
 	bot_itemfail     = gi.cvar ("bot_itemfail", "1", 0);	// escalating shared blacklist for items bots keep failing
 															// (2 = also fast-track items whose route evaporated, per
 															// the giveup-time oracle verdict; plans/nav-oracle.md)
@@ -172,10 +222,21 @@ void Bot_Init (void)
 	bot_reachlog     = gi.cvar ("bot_reachlog", "1", 0);	// map-load item reachability sweep (oracle diagnostics)
 	bot_goalnode     = gi.cvar ("bot_goalnode", "0", 0);	// resolve item goal nodes to CONNECTED nodes (skip
 															// in-degree-0 orphans that shadow real coverage)
-	bot_commit       = gi.cvar ("bot_commit", "0.8", 0);	// travel-cost commitment discount (default-ON): penalize
+	bot_commit       = gi.cvar ("bot_commit", "6", 0);	// travel-cost commitment discount (default-ON): penalize
 															// the detour past the cheapest reachable item so far/hard
 															// items only win when idle or themselves close. Net +pickups
-															// (strong in deathmatch contention; 0 = pre-lever, bit-exact)
+															// (strong in deathmatch contention; 0 = pre-lever, bit-exact).
+															// RETUNED 0.8 -> 6 by the joint search (tools/optimize_cvars.py):
+															// 0.8 was a coordinate-wise pick and badly under-set.  Measured
+															// over 8 maps x {solo,dm} x 2 seed banks, avg vs 0.8:
+															//   3: +7.8% pickups / +4.7% value   6: +11.4% / +5.6%
+															//   8: +12.7% / +6.3%              64: +16.4% / +7.4%
+															// No interior optimum -- it rises monotonically toward the
+															// degenerate limit (strictly-cheapest-first).  But value rises
+															// only ~7% while COUNT rises 16%, i.e. average pickup quality
+															// falls the whole way (28.9 -> 26.6 per item).  6 takes the
+															// bulk of the real gain and stays clear of the limit, where
+															// Item_BaseValue and the need model would be decorative.
 	bot_navlearn     = gi.cvar ("bot_navlearn", "1", 0);	// runtime nav learning + autosave master switch;
 															// FROZEN-flagged graphs ignore it and never grow/save
 	bot_navvalidate  = gi.cvar ("bot_navvalidate", "0", 0);	// P1: at load, drop learned fluke WALK links (steep,
@@ -233,6 +294,12 @@ void Bot_Init (void)
 															// controller, 3D column arrival, level-aware homing
 	bot_ladder       = gi.cvar ("bot_ladder", "1", 0);		// the ladder capability: face + climb
 															// CONTENTS_LADDER surfaces toward a higher/lower goal
+	// bot_airhazard: the hazard brake is ground-gated and probes <=128u ahead, so
+	// it cannot see the arc a bot is already on -- and 80-94% of the residual lava
+	// deaths on q2dm3/4/6 are AIRBORNE.  Bitmask: 1 = refuse to commit to an arc
+	// that lands in lava/slime, 2 = steer mid-air off a doomed one.  Default OFF.
+	bot_airhazard    = gi.cvar ("bot_airhazard", "0", 0);
+	bot_airhazlog    = gi.cvar ("bot_airhazlog", "0", 0);	// per-veto/steer diagnostic
 	bot_slimeescape  = gi.cvar ("bot_slimeescape", "0", 0);	// submerged in slime: abandon the item goal and
 															// climb the nearest ladder / swim to the nearest dry
 															// node (q2dm7 slime deaths were 57% of all deaths)
@@ -265,20 +332,40 @@ void Bot_Init (void)
 	bot_liftlog      = gi.cvar ("bot_liftlog", "0", 0);		// diagnosis telemetry near func_plats (plans/lift-riding.md)
 	bot_strafejump   = gi.cvar ("bot_strafejump", "1", 0);	// chained strafe-jump travel on clear runways (Phase 19:
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)
+	bot_sjpath       = gi.cvar ("bot_sjpath", "3", 0);		// path-mode strafe jumping, bitmask (1 path mode, 2 through fights) (plans/in progress/q2prox-replication.md)
+	bot_sjpathtest   = gi.cvar ("bot_sjpathtest", "0", 0);	// id-parity A/B of bot_sjpath bit 2 (odd ids: off)
+	bot_hearsight    = gi.cvar ("bot_hearsight", "0", 0);	// out-of-cone acquisition of a visible enemy we just heard
+	bot_hearsighttest = gi.cvar ("bot_hearsighttest", "0", 0);	// id-parity A/B of bot_hearsight (odd ids: off)
+	bot_nameprefix   = gi.cvar ("bot_nameprefix", "B|", 0);	// in-game name prefix ("" = none)
+	bot_namefile     = gi.cvar ("bot_namefile", "botnames.txt", 0);	// <gamedir>/<file>: one name per line
+	bot_preaim       = gi.cvar ("bot_preaim", "1", 0);		// look where a lost enemy will reappear (sight-legal pre-aim)
+	bot_preaimtest   = gi.cvar ("bot_preaimtest", "0", 0);	// id-parity A/B of bot_preaim (odd ids: off)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)
+	bot_budgetext    = gi.cvar ("bot_budgetext", "0", 0);	// extend an expired goal budget while the route still advances (s; 0 = off)
+	bot_pbfailfast   = gi.cvar ("bot_pbfailfast", "0", 0);	// end the goal attempt as soon as its playbook fails
+	bot_pbalign      = gi.cvar ("bot_pbalign", "24", 0);		// playbook ALIGN settle fix + slewed facing (0 = pre-fix, byte-identical)
 	bot_playbook     = gi.cvar ("bot_playbook", "1", 0);	// recorded maneuvers as nav links (Phase R4;
 															// inert unless playbooks/<map>.pbk exists)
 	bot_cmdlog       = gi.cvar ("bot_cmdlog", "0", 0);		// log BOT usercmds in the input-log schema
 															// (playbook pipeline validation)
 	bot_gaze         = gi.cvar ("bot_gaze", "1", 0);		// humanization: path look-ahead, glances, live pitch
-	bot_turnrate     = gi.cvar ("bot_turnrate", "1", 0);	// humanization: slew-limited view turns
+	bot_turnrate     = gi.cvar ("bot_turnrate", "1", 0);
+	bot_gazefix      = gi.cvar ("bot_gazefix", "2", 0);		// gaze fixation threshold multiplier: 2 = 40Hz re-profile vs MVD humans (1 = the 10Hz fit)
+	bot_gazedead     = gi.cvar ("bot_gazedead", "2", 0);	// gaze slew deadband, degrees	// humanization: slew-limited view turns
 	bot_humantest    = gi.cvar ("bot_humantest", "0", 0);	// head-to-head: even ids humanized, odd stock
 	bot_skilltest    = gi.cvar ("bot_skilltest", "0", 0);
 	bot_lead         = gi.cvar ("bot_lead", "1", 0);		// lead moving targets by projectile flight time
-	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);	// head-to-head: even bot ids lead, odd don't
+	bot_leadtest     = gi.cvar ("bot_leadtest", "0", 0);
+	bot_wpnall       = gi.cvar ("bot_wpnall", "0", 0);		// weapon selection includes the GL and BFG10K
+	bot_wpnalltest   = gi.cvar ("bot_wpnalltest", "0", 0);	// id-parity: even ids use bot_wpnall, odd control
+	bot_glead        = gi.cvar ("bot_glead", "0", 0);		// grenade launcher lob solve + lead
+	bot_gleadtest    = gi.cvar ("bot_gleadtest", "0", 0);	// id-parity: even ids glead, odd control	// head-to-head: even bot ids lead, odd don't
 	bot_flee         = gi.cvar ("bot_flee", "1", 0);		// retreat + fetch health/armor when outmatched
-	bot_fleetest     = gi.cvar ("bot_fleetest", "0", 0);	// head-to-head: even bot ids flee, odd don't
+	bot_fleetest     = gi.cvar ("bot_fleetest", "0", 0);
+	bot_fleehp       = gi.cvar ("bot_fleehp", "75", 0);		// flee trigger: own strength below this...
+	bot_fleeratio    = gi.cvar ("bot_fleeratio", "0.65", 0);	// ...and below this fraction of the enemy's
+	bot_fleetunetest = gi.cvar ("bot_fleetunetest", "0", 0);	// id-parity: even ids use bot_fleehp/ratio, odd 75/0.65	// head-to-head: even bot ids flee, odd don't
 	bot_outnumbered     = gi.cvar ("bot_outnumbered", "0", 0);	// break off + retreat from a LOSING 2+ enemy crossfire
 															// (strength-gated).  Default OFF: parity A/B is marginal/
 															// mixed (q2dm1/6 net-positive, q2dm8 regresses) -- promising
@@ -399,10 +486,12 @@ void Bot_Init (void)
 			? (unsigned)bot_seed->value
 			: (unsigned)(time(NULL) ^ ((unsigned)_getpid() << 16));
 		srand (seed);
+		bot_name_seed = seed;
 		gi.dprintf ("ozbot: rng seed %u\n", seed);
 	}
 
 	memset (bots, 0, sizeof(bots));
+	bot_num_names = -1;	// re-read the name file each game
 	bot_next_id = 0;
 	bot_logged_map[0] = 0;
 
@@ -434,6 +523,26 @@ connection (ClientConnect is called from the DLL), so gi.unicast to them
 spams "PF_Unicast to a free/zombie client" in q2pro.
 =================
 */
+/*
+=================
+Bot_ForEdict
+
+The bot_t behind a client edict, or NULL.  Needed by the belief layer, which is
+called from the shared T_Damage path and only has the attacker edict.
+=================
+*/
+bot_t *Bot_ForEdict (edict_t *ent)
+{
+	int	i;
+
+	if (!ent || !ent->client || !ent->inuse)
+		return NULL;
+	i = ent - g_edicts - 1;
+	if (i < 0 || i >= game.maxclients)
+		return NULL;
+	return (bots[i].inuse && bots[i].ent == ent) ? &bots[i] : NULL;
+}
+
 qboolean Bot_IsClient (edict_t *ent)
 {
 	int	i;
@@ -476,6 +585,7 @@ static void Bot_ResetNavState (bot_t *b)
 	b->goal_item = NULL;
 	b->steer_item = NULL;
 	b->goal_timing = false;
+	b->timing_began = 0;
 	b->goal_cost = 0;
 	b->flee      = false;
 	b->path_len  = 0;
@@ -491,6 +601,9 @@ static void Bot_ResetNavState (bot_t *b)
 	b->lkp_ent      = NULL;
 	b->lkp_time     = 0;
 	VectorClear (b->lkp_pos);
+	b->pa_ent       = NULL;
+	b->pa_time      = 0;
+	b->pa_have      = false;
 	VectorClear (b->lkp_vel);
 	Bot_LiftReset (b);
 	Bot_TrainReset (b);
@@ -512,6 +625,12 @@ static void Bot_ResetNavState (bot_t *b)
 		b->enemy = NULL;
 	b->threat_ent = NULL;
 	b->threat_time = 0;
+	// bot_enemymodel: a belief about who we were fighting does not survive our
+	// own death -- and whoever it was about has almost certainly changed state
+	// by the time we are back.  Gated so a cvars-off build is RNG/behaviour
+	// identical to stock.
+	if (bot_enemymodel->value != 0 || bot_enemymodeltest->value != 0)
+		Bot_BeliefReset (b);
 	b->aim_err[YAW] = b->aim_err[PITCH] = 0;
 	b->aim_sweep_sign = 0;
 	if (b->ent)
@@ -593,9 +712,50 @@ path-eligible).  Takes the bot so a future per-bot capability-parity harness
 (bot_skilltest-style) gets the right signature for free.
 =================
 */
+/*
+=================
+Bot_EnvDeathMod
+
+True for deaths bot_hazard already owns (liquids, falls, crush, trigger_hurt,
+telefrag, suicide).  bot_danger records only what is left: deaths somebody
+inflicted.
+=================
+*/
+qboolean Bot_EnvDeathMod (int mod)
+{
+	switch (mod)
+	{
+	case MOD_WATER: case MOD_SLIME: case MOD_LAVA: case MOD_CRUSH:
+	case MOD_TELEFRAG: case MOD_FALLING: case MOD_SUICIDE:
+	case MOD_EXPLOSIVE: case MOD_BARREL: case MOD_BOMB:
+	case MOD_EXIT: case MOD_SPLASH: case MOD_TRIGGER_HURT:
+		return true;
+	}
+	return false;
+}
+
 int Bot_NavMask (bot_t *b)
 {
 	int	mask = NAV_MASK_ALL;
+
+	// bot_danger: every A* call in the bot goes through this function to derive
+	// its per-bot capability mask, which makes it the one natural choke point for
+	// the other piece of per-bot routing context -- how much this bot should fear
+	// hot ground right now.  Weak bots pay the toll; strong bots get a capped
+	// discount so they patrol where the fights are.  Scale 0 when the lever is
+	// off makes the A* branch a no-op (and the off-state byte-identical).
+	{
+		float dv = 0;
+		if (b && b->ent)
+		{
+			if (bot_dangertest && bot_dangertest->value != 0)
+				dv = ((b->id % 2) == 0) ? bot_dangertest->value : 0.0f;
+			else if (bot_danger && bot_danger->value != 0)
+				dv = bot_danger->value;
+		}
+		Nav_SetDangerScale (dv == 0 ? 0
+			: (Combat_Strength (b->ent) < BOT_PURSUE_MINSTR ? dv : -dv * 0.25f));
+	}
 
 	if (bot_navmask->value == 0)
 		return mask;
@@ -722,6 +882,162 @@ void Bot_NoteNoiseEx (edict_t *who, int kind, vec3_t origin)
 	VectorCopy (origin, bot_noise_pos[i]);
 }
 
+/*
+=================
+Bot_HeardRecently  (bot_hearsight)
+
+Did `who` make a noise in the last second that a listener `dist` away would
+notice?  Radii by kind: gunfire carries furthest, a footfall only up close.
+Feeds ACQUISITION only (Combat_FindEnemy's out-of-cone exception) -- the
+target must still be visible; this never moves the bot (bot_hearing's
+noise-driven pursuit was the rejected design: a noise carries no heading).
+=================
+*/
+qboolean Bot_HeardRecently (edict_t *who, float dist)
+{
+	int		i;
+	float	r;
+
+	if (!who || !who->client)
+		return false;
+	i = who - g_edicts - 1;
+	if (i < 0 || i >= MAX_CLIENTS)
+		return false;
+	if (level.time - bot_noise_at[i] > 1.0f)
+		return false;
+	switch (bot_noise_kind[i])
+	{
+	case NOISE_WEAPON:	r = 1000.0f; break;
+	case NOISE_PICKUP:	r = 640.0f; break;
+	case NOISE_PAIN:	r = 640.0f; break;
+	case NOISE_STEP:	r = 384.0f; break;
+	default:			return false;
+	}
+	return dist < r;
+}
+
+/*
+=================
+Bot_PreaimOn / Bot_PreaimPoint  (bot_preaim)
+
+Sight-legal pre-aim.  While an enemy is visible the combat keyframe records
+where it was and how it was moving (Combat_Aim).  After sight is lost, for
+PREAIM_SECS, the gaze layer looks at the most likely REAPPEARANCE point: walk
+the nav graph outward from the enemy's extrapolated position, in order of
+graph distance, and take the first node our eyes can see.  If they went behind
+a corner, that is the corner; if they went through a door, the doorway.  Uses
+only our own sighting plus the map -- no live enemy position, ever.
+=================
+*/
+#define PREAIM_SECS		4.0f	// a sighting older than this is stale
+#define PREAIM_LEAD		0.5f	// seconds of velocity extrapolation
+#define PREAIM_RADIUS	1400.0f	// graph search horizon from the sighting
+#define PREAIM_TRACES	64		// visibility traces per solve
+#define PREAIM_RESOLVE	0.1f	// re-solve cadence (10Hz, like the brain)
+
+qboolean Bot_PreaimOn (bot_t *b)
+{
+	if (bot_preaim->value == 0 || !Bot_Humanized (b))
+		return false;
+	if (bot_preaimtest->value != 0 && (b->id % 2) != 0)
+		return false;
+	return true;
+}
+
+qboolean Bot_PreaimPoint (bot_t *b, vec3_t out)
+{
+	static float	dist[NAV_MAX_NODES];
+	static byte		done[NAV_MAX_NODES];
+	edict_t	*self = b->ent;
+	vec3_t	from, eye;
+	float	dt;
+	int		start, i, traces = 0;
+
+	if (!b->pa_ent || !b->pa_ent->inuse || b->pa_ent->health <= 0
+		|| level.time - b->pa_time > PREAIM_SECS || nav.num_nodes <= 0)
+	{
+		b->pa_have = false;
+		return false;
+	}
+	if (level.time < b->pa_next)
+	{
+		if (b->pa_have)
+			VectorCopy (b->pa_look, out);
+		return b->pa_have;
+	}
+	b->pa_next = level.time + PREAIM_RESOLVE;
+	b->pa_have = false;
+
+	dt = level.time - b->pa_time;
+	if (dt > PREAIM_LEAD)
+		dt = PREAIM_LEAD;
+	VectorMA (b->pa_pos, dt, b->pa_vel, from);
+	start = Nav_NearestNode (from);
+	if (start < 0)
+		start = Nav_NearestNode (b->pa_pos);
+	if (start < 0)
+		return false;
+
+	VectorCopy (self->s.origin, eye);
+	eye[2] += self->viewheight;
+
+	// Dijkstra by straight-line link length, settled in distance order; the
+	// first settled node with a clear sightline is the reappearance point
+	for (i = 0; i < nav.num_nodes; i++)
+	{
+		dist[i] = 1e18f;
+		done[i] = 0;
+	}
+	dist[start] = 0;
+	for (;;)
+	{
+		int		u = -1, k;
+		float	best = 1e18f;
+		trace_t	tr;
+		vec3_t	tgt;
+
+		// linear extract-min: graphs are a few hundred nodes and this runs
+		// at 10Hz only while a sighting is fresh
+		for (k = 0; k < nav.num_nodes; k++)
+			if (!done[k] && dist[k] < best)
+			{
+				best = dist[k];
+				u = k;
+			}
+		if (u < 0 || best > PREAIM_RADIUS)
+			break;
+		done[u] = 1;
+
+		VectorCopy (nav.nodes[u].origin, tgt);
+		tgt[2] += 16;			// chest height of a player standing there
+		tr = gi.trace (eye, vec3_origin, vec3_origin, tgt, self, MASK_OPAQUE);
+		if (tr.fraction >= 1.0f)
+		{
+			VectorCopy (tgt, b->pa_look);
+			b->pa_have = true;
+			VectorCopy (tgt, out);
+			return true;
+		}
+		if (++traces >= PREAIM_TRACES)
+			break;
+
+		for (k = 0; k < nav.nodes[u].num_links; k++)
+		{
+			int		v = nav.nodes[u].links[k].to;
+			vec3_t	d;
+			float	nd;
+
+			if (v < 0 || v >= nav.num_nodes || done[v])
+				continue;
+			VectorSubtract (nav.nodes[v].origin, nav.nodes[u].origin, d);
+			nd = best + VectorLength (d);
+			if (nd < dist[v])
+				dist[v] = nd;
+		}
+	}
+	return false;
+}
+
 float Bot_NoiseTime (edict_t *who)
 {
 	int	i;
@@ -791,22 +1107,142 @@ engine does NOT re-run ClientConnect on a level change ("Changing levels will
 NOT cause this to be called again", p_client.c), so the host's real userinfo is
 never re-applied, yet the host stays connected and keeps its client slot.  If
 Bot_Add grabbed that slot in the frames before the host's ClientBegin it would
-overwrite game.clients[i].pers with bot data (netname "OzBot<id>"); because the
+overwrite game.clients[i].pers with bot data (a bot netname); because the
 host's userinfo is never re-sent, the netname-release guard in Bot_RunFrame
 could then never detect the collision and the bot think-loop would drive
-(puppet) the human.  Bots always carry an "OzBot" netname, so a *connected*
+(puppet) the human.  Bots always carry a name from Bot_PickName, so a *connected*
 slot whose name is NOT ours is a human we must never claim.  Dedicated fastsim
 servers have no connected humans at map start, so this is inert there (the
 same-seed measurement gate is unaffected).
 =================
 */
+/*
+=================
+Bot names (bot_nameprefix / bot_namefile)
+
+In-game names are <prefix><name>, the name drawn from <gamedir>/<bot_namefile>
+(one per line, '#' comments and blanks ignored, loaded once).  The pick is a
+hash of the match's RNG seed and the bot id -- it never calls random(), so the
+simulation's RNG stream is untouched -- probed forward past names already in
+use, so a server never shows two bots with one name.  Without a usable file
+the name is <prefix>Bot<id>.  Names are clipped so prefix + name fits the
+15-character netname.  Telemetry keeps its own OzBot<id> label (keyed on id),
+so the analysis tools are unaffected.
+=================
+*/
+
+static void Bot_CopyName (char *dst, const char *src)
+{
+	strncpy (dst, src, BOT_NAME_LEN - 1);
+	dst[BOT_NAME_LEN - 1] = 0;
+}
+
+static void Bot_LoadNames (void)
+{
+	char	path[MAX_OSPATH], line[128];
+	FILE	*f;
+
+	bot_num_names = 0;
+	Com_sprintf (path, sizeof(path), "%s/%s", Bot_GameDir (), bot_namefile->string);
+	f = fopen (path, "r");
+	if (!f)
+	{
+		gi.dprintf ("ozbot: no bot name file %s (using Bot<id>)\n", path);
+		return;
+	}
+	while (bot_num_names < BOT_NAMES_MAX && fgets (line, sizeof(line), f))
+	{
+		char	*p = line, *e;
+
+		while (*p == ' ' || *p == '\t')
+			p++;
+		e = p + strlen (p);
+		while (e > p && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\t'))
+			*--e = 0;
+		if (!*p || *p == '#')
+			continue;
+		// userinfo can't carry these
+		if (strchr (p, '\\') || strchr (p, '"') || strchr (p, ';'))
+			continue;
+		Bot_CopyName (bot_names[bot_num_names], p);
+		bot_num_names++;
+	}
+	fclose (f);
+	gi.dprintf ("ozbot: loaded %d bot names from %s\n", bot_num_names, path);
+}
+
+static qboolean Bot_NameInUse (const char *nm)
+{
+	int	i;
+
+	for (i = 0; i < MAX_CLIENTS; i++)
+		if (bots[i].inuse && !strcmp (bots[i].netname, nm))
+			return true;
+	return false;
+}
+
+// the full in-game name, clipped to the netname size
+static void Bot_FullName (char *out, const char *base)
+{
+	char	tmp[64];
+
+	Com_sprintf (tmp, sizeof(tmp), "%s%s", bot_nameprefix->string, base);
+	Bot_CopyName (out, tmp);
+}
+
+static void Bot_PickName (bot_t *b, char *out)
+{
+	int	k;
+
+	if (bot_num_names < 0)
+		Bot_LoadNames ();
+	if (bot_num_names > 0)
+	{
+		unsigned h = bot_name_seed * 2654435761u + (unsigned)b->id * 40503u + 0x9e3779b9u;
+		h ^= h >> 15;
+		h *= 2246822519u;
+		h ^= h >> 13;
+		for (k = 0; k < bot_num_names; k++)
+		{
+			Bot_FullName (out, bot_names[(h + (unsigned)k) % (unsigned)bot_num_names]);
+			if (!Bot_NameInUse (out))
+				return;
+		}
+	}
+	{
+		char	base[32];
+		Com_sprintf (base, sizeof(base), "Bot%d", b->id);
+		Bot_FullName (out, base);
+	}
+}
+
+// is this a name a bot of ours could carry?  (slot ownership, Bot_SlotHeldByHuman)
+static qboolean Bot_IsOurName (const char *nm)
+{
+	char	full[BOT_NAME_LEN];
+	int		k;
+
+	if (!strncmp (nm, "OzBot", 5))
+		return true;			// a bot named by a pre-names build (map change)
+	if (bot_num_names < 0)
+		Bot_LoadNames ();
+	for (k = 0; k < bot_num_names; k++)
+	{
+		Bot_FullName (full, bot_names[k]);
+		if (!strcmp (nm, full))
+			return true;
+	}
+	Bot_FullName (full, "Bot");
+	return !strncmp (nm, full, strlen (full));
+}
+
 static qboolean Bot_SlotHeldByHuman (int i)
 {
 	gclient_t	*cl = &game.clients[i];
 
 	if (!cl->pers.connected)
 		return false;
-	return strncmp (cl->pers.netname, "OzBot", 5) != 0;
+	return !Bot_IsOurName (cl->pers.netname);
 }
 
 /*
@@ -814,10 +1250,12 @@ static qboolean Bot_SlotHeldByHuman (int i)
 Bot_Add
 =================
 */
+static qboolean bot_adding;	// true while Bot_Add runs ClientConnect for a bot
+
 static qboolean Bot_Add (void)
 {
 	edict_t	*ent;
-	int		i;
+	int		i, k;
 	char	userinfo[MAX_INFO_STRING];
 	char	name[32];
 	bot_t	*b;
@@ -828,8 +1266,16 @@ static qboolean Bot_Add (void)
 		return false;
 	}
 
-	for (i = 0; i < game.maxclients; i++)
+	// bot_slottop: claim client slots from the TOP down.  A bot is a game-side
+	// client the engine does not know about, so the engine hands a connecting
+	// human the lowest free slot -- with bottom-up bots that was a bot's slot:
+	// the human took over its edict, the bot record went dead and the manager
+	// spawned a replacement (seen 2026-10-13 on a dedicated mm-mcoil server:
+	// OzBot0 stopped ticking the instant a spectator joined).  Top-down, bots
+	// and humans only meet when the server is full (Bot_HumanConnecting).
+	for (k = 0; k < game.maxclients; k++)
 	{
+		i = (bot_slottop->value != 0) ? game.maxclients - 1 - k : k;
 		// On a listen server the local host permanently owns client slot 0.
 		// Reserve it: a bot must never claim slot 0 even in the frames after a
 		// map load before the host's ClientBegin marks the edict inuse -- that
@@ -846,7 +1292,7 @@ static qboolean Bot_Add (void)
 		if (!ent->inuse && !bots[i].inuse && !Bot_SlotHeldByHuman (i))
 			break;
 	}
-	if (i == game.maxclients)
+	if (k == game.maxclients)
 		return false;	// no free slots
 
 	b = &bots[i];
@@ -863,14 +1309,18 @@ static qboolean Bot_Add (void)
 		? (((b->id % 2) == 0) ? 0.9f : 0.1f)
 		: -1.0f;
 
-	Com_sprintf (name, sizeof(name), "OzBot%d", b->id);
+	Bot_PickName (b, name);
+	Bot_CopyName (b->netname, name);
 	userinfo[0] = 0;
 	Info_SetValueForKey (userinfo, "name", name);
 	Info_SetValueForKey (userinfo, "skin", "male/grunt");
 	Info_SetValueForKey (userinfo, "hand", "2");
 	Info_SetValueForKey (userinfo, "fov", "90");
 
-	if (!ClientConnect (ent, userinfo))
+	bot_adding = true;
+	k = ClientConnect (ent, userinfo);
+	bot_adding = false;
+	if (!k)
 	{
 		gi.dprintf ("ozbot: ClientConnect refused bot\n");
 		memset (b, 0, sizeof(*b));
@@ -913,14 +1363,41 @@ static void Bot_RemoveSlot (int i)
 
 /*
 =================
+Bot_HumanConnecting
+
+Called from ClientConnect.  If a real client is connecting into a slot a bot
+holds (only possible on a full server once bot_slottop allocates bots from the
+top), remove that bot cleanly first -- otherwise its record stays inuse with
+no body, it never ticks again and the slot count leaks.
+=================
+*/
+void Bot_HumanConnecting (edict_t *ent)
+{
+	int i;
+
+	if (bot_adding || !ent)
+		return;
+	i = (int)(ent - g_edicts) - 1;
+	if (i < 0 || i >= game.maxclients || !bots[i].inuse)
+		return;
+	gi.dprintf ("ozbot: a client is connecting into bot slot %d -- removing %s\n",
+		i, bots[i].netname);
+	Bot_RemoveSlot (i);
+}
+
+/*
+=================
 Bot_RemoveOne
 =================
 */
 static qboolean Bot_RemoveOne (void)
 {
-	int i;
-	for (i = game.maxclients - 1; i >= 0; i--)
+	int i, k;
+	// remove the most recently added bot: the lowest slot when allocating
+	// top-down (bot_slottop), the highest otherwise
+	for (k = 0; k < game.maxclients; k++)
 	{
+		i = (bot_slottop->value != 0) ? k : game.maxclients - 1 - k;
 		if (bots[i].inuse)
 		{
 			Bot_RemoveSlot (i);
@@ -964,6 +1441,7 @@ static void Bot_GoExplore (bot_t *b)
 	b->goal_node = -1;
 	b->goal_item = NULL;
 	b->goal_timing = false;
+	b->timing_began = 0;
 	b->goal_cost = 0;
 	b->path_len  = 0;
 	b->path_idx  = 0;
@@ -1206,6 +1684,11 @@ static qboolean Bot_PursueTry (bot_t *b)
 	b->goal_time     = level.time;
 	b->goal_cost     = cost;
 	b->goal_best     = 99999;
+	b->goal_start    = level.time;
+	b->goal_fight    = 0;
+	b->goal_best_time = level.time;
+	b->goal_idx_last = 0;
+	b->goal_idx_time = level.time;
 	b->reroute_fired = false;
 	b->reroute_last_idx = 0;
 	b->reroute_idx_time = level.time;
@@ -1380,8 +1863,17 @@ static void Bot_Navigate (bot_t *b)
 			VectorSubtract (nav.nodes[b->goal_node].origin, ent->s.origin, gd);
 			gd[2] = 0;
 			ghd = VectorLength (gd);
+			if (ghd < b->goal_best - 8.0f)
+				b->goal_best_time = level.time;
 			if (ghd < b->goal_best)
 				b->goal_best = ghd;
+			if (b->enemy)
+				b->goal_fight += FRAMETIME;
+			if (b->path_idx != b->goal_idx_last)
+			{
+				b->goal_idx_last = b->path_idx;
+				b->goal_idx_time = level.time;
+			}
 		}
 
 		// resolve item state: grabbed/taken, or still waiting on a respawn
@@ -1393,7 +1885,16 @@ static void Bot_Navigate (bot_t *b)
 			{
 				// pre-positioning for a respawn: stop "timing" once it's live
 				if (avail)
+				{
 					b->goal_timing = false;
+					// the wait paid off -- it spawned while we stood here
+					if (b->timing_began)
+					{
+						Bot_LogTimingWait (b, Bot_ItemName (b->goal_item),
+							level.time - b->timing_began, true);
+						b->timing_began = 0;
+					}
+				}
 				// otherwise keep navigating to the spot and wait (below)
 			}
 			else if (!avail)
@@ -1449,11 +1950,28 @@ static void Bot_Navigate (bot_t *b)
 			if (bot_goalbudget->value != 0 && b->goal_cost > 0)
 			{
 				float cap = (bot_budgetcap->value > 0) ? bot_budgetcap->value : BOT_GOAL_BUDGET_MAX;
-				budget = BOT_GOAL_BUDGET_BASE + b->goal_cost / BOT_GOAL_BUDGET_SPEED;
+				budget = bot_budgetbase->value + b->goal_cost / bot_budgetspeed->value;
 				if (budget > cap)
 					budget = cap;
 			}
-			if (level.time - b->goal_time > budget)
+			// bot_budgetext: a budget that expires while the bot is still
+			// walking its route (a path hop within the last 2s) is extended,
+			// up to bot_budgetext seconds.  32% of q2dm1 giveups were this
+			// "slow" class -- 13 of 22 hops done when the 15s cap fired.  A
+			// stalled bot (no hop for 2s) still gives up on time.
+			if (bot_budgetext->value > 0 && level.time - b->goal_time > budget
+				&& level.time - b->goal_time <= budget + bot_budgetext->value
+				&& level.time - b->goal_idx_time < 2.0f
+				&& b->path_idx < b->path_len)
+				budget = level.time - b->goal_time + 1.0f;	// not yet
+			// bot_pbfailfast: a failed playbook attempt leaves PB_FAILED stuck
+			// for the rest of the goal attempt, and path following cannot
+			// execute a PLAYBOOK link -- so the bot stood on the anchor until
+			// the budget expired (the top still-frame cells on q2dm1 are the
+			// dm1_walkway_descent / cg_descend / djump_rockets anchors; 25%
+			// of giveups were this "stalled" class).  End the attempt now.
+			qboolean pbfail = (bot_pbfailfast->value != 0 && b->pb_state == PB_FAILED);
+			if (pbfail || level.time - b->goal_time > budget)
 			{
 			vec3_t	tgt, d;
 			int		atnode = (b->path_idx >= b->path_len) ? 1 : 0;
@@ -1473,7 +1991,7 @@ static void Bot_Navigate (bot_t *b)
 					NAV_MASK_ALL, NULL, NULL);
 			Bot_LogGiveup (b, (float)sqrt(d[0]*d[0] + d[1]*d[1]), d[2],
 				atnode, b->enemy ? 1 : 0,
-				b->goal_item ? Nav_QueryName (navq) : "");
+				b->goal_item ? Nav_QueryName (navq) : "", budget);
 			// execution-failure reroute (bot_reroute): we stalled mid-route
 			// (not at the goal node) while a route still existed (navq ok) and
 			// were not in a fight -- the "graph claims a route the bot can't
@@ -1481,7 +1999,9 @@ static void Bot_Navigate (bot_t *b)
 			// attempt reroutes around it instead of re-selling the same
 			// unexecutable link.  Gated on !enemy so combat-interrupted giveups
 			// (20% of them) never erode a good link.
-			if (bot_reroute && bot_reroute->value != 0 && !atnode
+			// (not after a playbook failure: Playbook_Abort already penalized
+			// what deserves it, and align misses must never erode the link)
+			if (bot_reroute && bot_reroute->value != 0 && !atnode && !pbfail
 				&& navq == NAVQ_OK && !b->enemy
 				&& b->path_idx > 0 && b->path_idx < b->path_len)
 			{
@@ -1610,6 +2130,27 @@ static void Bot_Navigate (bot_t *b)
 				// home in on the item (or hold on the spot while we wait for it
 				// to respawn) until we touch it or time out
 				qboolean waiting = b->goal_timing && !Goal_ItemAvailable (b->goal_item);
+				// bot_control: cap the wait-on-spot.  Timing the route is meant to
+				// land the bot here as the item spawns, so a LONG wait means the
+				// estimate was wrong -- and a bot camped on a spawn that never pays
+				// is strictly worse than one collecting.  Bail out and let the
+				// scorer re-pick; the unpaid record is the phase's kill criterion.
+				if (waiting && bot_control->value != 0)
+				{
+					if (!b->timing_began)
+						b->timing_began = level.time;
+					else if (level.time - b->timing_began > CONTROL_WAIT_CAP)
+					{
+						Bot_LogTimingWait (b, Bot_ItemName (b->goal_item),
+							level.time - b->timing_began, false);
+						b->timing_began = 0;
+						b->goal_timing = false;
+						Bot_GoExplore (b);
+						Bot_DecisiveReplan (b, 0.2f);
+						Bot_Wander (b);
+						return;
+					}
+				}
 				Bot_SteerToPoint (b, b->goal_item->s.origin);
 				if (waiting)
 					Bot_Fidget (b, b->goal_item->s.origin);	// humanization: no statue waits
@@ -1747,6 +2288,11 @@ static void Bot_Navigate (bot_t *b)
 				b->goal_time     = level.time;
 				b->goal_cost     = Nav_LastPathCost ();
 				b->goal_best     = 99999;
+				b->goal_start    = level.time;
+				b->goal_fight    = 0;
+				b->goal_best_time = level.time;
+				b->goal_idx_last = 0;
+				b->goal_idx_time = level.time;
 				b->reroute_fired = false;	// new attempt: allow one mid-reroute
 				b->reroute_last_idx = 0;
 				b->reroute_idx_time = level.time;
@@ -1815,6 +2361,14 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 	{
 		facing_yaw = b->pb_yaw;
 		facing_pitch = b->pb_pitch;
+		// bot_pbalign: ALIGN only steers onto the anchor, so turn the view
+		// like a player instead of snapping it.  REPLAY must stay exact --
+		// the recorded yaw IS the maneuver.
+		if (b->pb_state == PB_ALIGN
+			&& (((int)bot_pbalign->value & 8)
+				|| (((int)bot_pbalign->value & 4) && Playbook_StandingStart (b))))
+			facing_yaw = Bot_SlewAngle (ent->client->ps.viewangles[YAW],
+				b->pb_yaw, 0.5f, 45.0f);
 	}
 	else if (!Combat_Aim (b, cmd, &facing_yaw, &facing_pitch))
 	{
@@ -1823,8 +2377,17 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 		// corrupt it.  The sweep it produces is the human-looking motion.
 		if (bot_strafejump->value != 0 && b->sj_state == SJ_ACTIVE)
 		{
+			// bot_sjpath: pitch can't touch the hop (PM_AirMove flattens
+			// forward/right), so let the gaze layer own it -- a hopping view
+			// pinned level read as the worst pitch KS vs the ladder MVDs
+			if ((int)bot_sjpath->value & 1)
+			{
+				float gaze_yaw;
+				Bot_GazeThink (b, &gaze_yaw, &facing_pitch);
+			}
+			else
+				facing_pitch = 0;
 			facing_yaw = b->move_yaw;
-			facing_pitch = 0;
 		}
 		else
 			Bot_GazeThink (b, &facing_yaw, &facing_pitch);
@@ -1942,6 +2505,7 @@ void Bot_RunFrame (void)
 									// stale times would hold the hearing gate open
 		Bot_LogBeginLevel (level.mapname);
 		Nav_Init (level.mapname);
+		Nav_DangerReset ();		// bot_danger: heat is in-match only, never persisted
 		Goal_SeedNavNodes ();		// ensure item spots are covered + routable
 		Goal_LoadFails (level.mapname);	// P4a: restore hard-item blacklist for this map
 		Nav_TagPlatLinks ();		// bot_lift: retag learned lift columns
@@ -2006,9 +2570,7 @@ void Bot_RunFrame (void)
 		// the slot, so we never drive (fight) a real player's edict.  Bot_Add
 		// then refills the population in a genuinely free slot.
 		{
-			char	nm[32];
-			Com_sprintf (nm, sizeof(nm), "OzBot%d", b->id);
-			if (strcmp (ent->client->pers.netname, nm) != 0)
+			if (strcmp (ent->client->pers.netname, b->netname) != 0)
 			{
 				memset (b, 0, sizeof(*b));
 				continue;
@@ -2062,6 +2624,17 @@ void Bot_RunFrame (void)
 					&& b->path_idx > 0 && b->path_idx < b->path_len);
 				Bot_LogHazDeath (b, b->death_mod, penalized);
 			}
+			// bot_danger: stamp heat where COMBAT kills people.  Environmental
+			// deaths are excluded on purpose -- bot_hazard already prices those
+			// via NAV_FLAG_HAZARD/SLIME, so folding them in would double-count
+			// and make the two levers inseparable in an A/B.  It also keeps the
+			// solo rig (combat impossible) byte-identical with the lever on.
+			if ((bot_danger->value != 0 || bot_dangertest->value != 0)
+				&& !Bot_EnvDeathMod (b->death_mod))
+			{
+				Nav_DangerRecord (ent->s.origin);
+				Bot_LogDanger (b, "heat", ent->s.origin);
+			}
 			b->death_mod = 0;
 			Bot_LogEvent (b, "death");
 		}
@@ -2102,6 +2675,8 @@ void Bot_RunFrame (void)
 		Bot_LogLiftTick (b);
 	}
 
+	if (bot_danger->value != 0 || bot_dangertest->value != 0)
+		Nav_DangerDecay (level.time);
 	Bot_DebugDraw ();
 	Bot_LogSJDiag ();
 	Nav_MaybeSave (bot_logged_map);

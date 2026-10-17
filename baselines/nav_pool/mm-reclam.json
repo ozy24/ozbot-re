@@ -1,0 +1,105 @@
+{
+  "map": "mm-reclam",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/mm-reclam.nav",
+  "frozen": true,
+  "peak": {
+    "step": 3,
+    "mature_seconds": 270.0,
+    "nodes": 134,
+    "collect": 90.1,
+    "pickups": 300
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 89,
+      "collect": 90.7,
+      "pickups": 204
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 117,
+      "collect": 85.1,
+      "pickups": 234
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 134,
+      "collect": 90.1,
+      "pickups": 300
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 139,
+      "collect": 84.6,
+      "pickups": 241
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 145,
+      "collect": 88.1,
+      "pickups": 274
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Armor Shard",
+      "code": "no_path"
+    },
+    {
+      "item": "Bullets",
+      "code": "no_path"
+    },
+    {
+      "item": "Chaingun",
+      "code": "no_path"
+    },
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenade Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenades",
+      "code": "no_path"
+    },
+    {
+      "item": "Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Jacket Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Large Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Railgun",
+      "code": "no_path"
+    },
+    {
+      "item": "Rocket Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Rockets",
+      "code": "no_path"
+    },
+    {
+      "item": "Slugs",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

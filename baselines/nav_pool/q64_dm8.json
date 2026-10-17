@@ -1,0 +1,115 @@
+{
+  "map": "q64/dm8",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/q64_dm8.nav",
+  "frozen": true,
+  "peak": {
+    "step": 5,
+    "mature_seconds": 450.0,
+    "nodes": 231,
+    "collect": 89.6,
+    "pickups": 406
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 200,
+      "collect": 87.8,
+      "pickups": 231
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 213,
+      "collect": 93.3,
+      "pickups": 319
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 224,
+      "collect": 88.8,
+      "pickups": 348
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 230,
+      "collect": 88.8,
+      "pickups": 397
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 231,
+      "collect": 89.6,
+      "pickups": 406
+    },
+    {
+      "step": 6,
+      "mature_seconds": 540.0,
+      "nodes": 237,
+      "collect": 89.4,
+      "pickups": 396
+    },
+    {
+      "step": 7,
+      "mature_seconds": 630.0,
+      "nodes": 240,
+      "collect": 88.6,
+      "pickups": 380
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "BFG10K",
+      "code": "no_path"
+    },
+    {
+      "item": "Body Armor",
+      "code": "gated"
+    },
+    {
+      "item": "Cells",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenades",
+      "code": "gated"
+    },
+    {
+      "item": "Health",
+      "code": "no_path"
+    },
+    {
+      "item": "HyperBlaster",
+      "code": "gated"
+    },
+    {
+      "item": "Invulnerability",
+      "code": "gated"
+    },
+    {
+      "item": "Quad Damage",
+      "code": "gated"
+    },
+    {
+      "item": "Rocket Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Rockets",
+      "code": "no_path"
+    },
+    {
+      "item": "Shells",
+      "code": "gated"
+    },
+    {
+      "item": "Super Shotgun",
+      "code": "gated"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

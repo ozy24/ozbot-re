@@ -1,0 +1,78 @@
+{
+  "map": "q64/dm4",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/q64_dm4.nav",
+  "frozen": true,
+  "peak": {
+    "step": 2,
+    "mature_seconds": 180.0,
+    "nodes": 180,
+    "collect": 88.1,
+    "pickups": 317
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 166,
+      "collect": 85.3,
+      "pickups": 238
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 180,
+      "collect": 88.1,
+      "pickups": 317
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 187,
+      "collect": 83.8,
+      "pickups": 279
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 196,
+      "collect": 83.1,
+      "pickups": 270
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Bullets",
+      "code": "no_path"
+    },
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenade Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Grenades",
+      "code": "no_path"
+    },
+    {
+      "item": "Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Large Health",
+      "code": "no_path"
+    },
+    {
+      "item": "Rocket Launcher",
+      "code": "no_path"
+    },
+    {
+      "item": "Rockets",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

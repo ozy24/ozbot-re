@@ -1449,6 +1449,9 @@ qboolean ClientConnect (edict_t *ent, char *userinfo)
 		return false;
 	}
 
+	// a real client landing in a bot's slot (full server): evict the bot first
+	Bot_HumanConnecting (ent);
+
 	// check for a spectator
 	value = Info_ValueForKey (userinfo, "spectator");
 	if (deathmatch->value && *value && strcmp(value, "0")) {

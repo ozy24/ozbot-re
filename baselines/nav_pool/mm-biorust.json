@@ -1,0 +1,69 @@
+{
+  "map": "mm-biorust",
+  "ok": true,
+  "out": "/home/chris/Code/Projects/ozbot-re/baselines/nav_pool/mm-biorust.nav",
+  "frozen": true,
+  "peak": {
+    "step": 3,
+    "mature_seconds": 270.0,
+    "nodes": 185,
+    "collect": 85.4,
+    "pickups": 311
+  },
+  "checkpoints": [
+    {
+      "step": 1,
+      "mature_seconds": 90.0,
+      "nodes": 140,
+      "collect": 85.0,
+      "pickups": 272
+    },
+    {
+      "step": 2,
+      "mature_seconds": 180.0,
+      "nodes": 175,
+      "collect": 87.2,
+      "pickups": 306
+    },
+    {
+      "step": 3,
+      "mature_seconds": 270.0,
+      "nodes": 185,
+      "collect": 85.4,
+      "pickups": 311
+    },
+    {
+      "step": 4,
+      "mature_seconds": 360.0,
+      "nodes": 195,
+      "collect": 82.8,
+      "pickups": 298
+    },
+    {
+      "step": 5,
+      "mature_seconds": 450.0,
+      "nodes": 200,
+      "collect": 81.9,
+      "pickups": 290
+    }
+  ],
+  "gated_items": [
+    {
+      "item": "Adrenaline",
+      "code": "no_path"
+    },
+    {
+      "item": "Combat Armor",
+      "code": "no_path"
+    },
+    {
+      "item": "Railgun",
+      "code": "no_path"
+    },
+    {
+      "item": "Slugs",
+      "code": "no_path"
+    }
+  ],
+  "note": "gated_items need a playbook or a surgical nav_edit.py link."
+}

@@ -51,6 +51,29 @@ const char *Bot_GameDir (void)
 
 /*
 =================
+Bot_MapFileName
+
+The map name as a flat file-name stem: maps in a subfolder (the rerelease's
+"q64/dm3") would otherwise point nav/log/playbook paths into a directory that
+never exists, and every save would silently fail.  '/' and '\\' become '_'
+("q64_dm3"); a stock name passes through unchanged.  Returns a static buffer.
+=================
+*/
+const char *Bot_MapFileName (const char *mapname)
+{
+	static char	buf[MAX_QPATH];
+	int			i;
+
+	if (!mapname || !mapname[0])
+		return "unknown";
+	for (i = 0; mapname[i] && i < (int)sizeof(buf) - 1; i++)
+		buf[i] = (mapname[i] == '/' || mapname[i] == '\\') ? '_' : mapname[i];
+	buf[i] = 0;
+	return buf;
+}
+
+/*
+=================
 Bot_LogBeginLevel
 
 Opens a fresh telemetry file for the given map.  Closes any previous file.
@@ -77,7 +100,7 @@ void Bot_LogBeginLevel (const char *mapname)
 	OZ_MKDIR (dir);	// ignore "already exists"
 
 	Com_sprintf (path, sizeof(path), "%s/%s_%s.jsonl",
-		dir, (mapname && mapname[0]) ? mapname : "unknown", stamp);
+		dir, Bot_MapFileName (mapname), stamp);
 
 	log_fp = fopen (path, "w");
 	if (!log_fp)
@@ -327,6 +350,136 @@ void Bot_LogHear (bot_t *b, int kind, float dist)
 
 /*
 =================
+Bot_LogAirHaz
+
+bot_airhazlog: one record per bot_airhazard veto ("veto" -- refused to commit to
+an arc) or salvage ("steer" -- nudged an in-flight arc off the liquid), with the
+PREDICTED impact point.  That impact point is the diagnostic that matters: it
+says whether the guard is refusing real pools or hallucinating them, and
+clustering it against the hazclass death spots shows directly which deaths the
+lever removed.  Gated on the cvar so the off-state telemetry is byte-identical.
+=================
+*/
+void Bot_LogAirHaz (bot_t *b, const char *what, const vec3_t hit)
+{
+	if (!log_fp || !b || !b->ent || !bot_airhazlog || bot_airhazlog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"airhaz\",\"t\":%.2f,\"bot\":%d,\"what\":\"%s\","
+		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,"
+		"\"hx\":%.1f,\"hy\":%.1f,\"hz\":%.1f,\"spd\":%.0f}\n",
+		level.time, b->id, what,
+		b->ent->s.origin[0], b->ent->s.origin[1], b->ent->s.origin[2],
+		hit ? hit[0] : 0.0f, hit ? hit[1] : 0.0f, hit ? hit[2] : 0.0f,
+		(float)sqrt (b->ent->velocity[0] * b->ent->velocity[0]
+				   + b->ent->velocity[1] * b->ent->velocity[1]));
+}
+
+/*
+=================
+Bot_LogTimingWait
+
+bot_control: one record per completed wait-on-spot for a respawning control item.
+`paid` is the whole diagnostic -- a timing goal that ends with the item in hand is
+control play, one that times out is a bot standing on a spawn doing nothing, which
+is strictly worse than collecting.  The phase's kill criterion is stated in terms
+of this ratio, so it is logged unconditionally with the lever (no separate cvar):
+with bot_control 0 no wait is ever started, so the off-state stays byte-identical.
+=================
+*/
+void Bot_LogTimingWait (bot_t *b, const char *item, float dur, qboolean paid)
+{
+	if (!log_fp || !b || !b->ent || !bot_control || bot_control->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"timing_wait\",\"t\":%.2f,\"bot\":%d,\"item\":\"%s\","
+		"\"dur\":%.2f,\"paid\":%s}\n",
+		level.time, b->id, item ? item : "", dur, paid ? "true" : "false");
+}
+
+/*
+=================
+Bot_LogTimingPick
+
+bot_control: fires when a respawn-timing goal is actually SELECTED, with the eta
+and the route travel estimate that justified it.  Separate from Bot_LogTimingWait
+because the two answer different questions and the first A/B needed exactly this
+distinction: zero waits can mean "the lever never picks a timing goal" OR "it
+picks them and always arrives after the spawn", and those have opposite fixes.
+=================
+*/
+/*
+=================
+Bot_LogTimingCand
+
+bot_control: a control item passed the timing gate and entered the candidate
+set.  Together with timing_pick and timing_wait this is a funnel -- gathered ->
+selected -> waited -> paid -- and the first A/B needed exactly that shape to
+tell an inert lever from an unlucky one.
+=================
+*/
+void Bot_LogTimingCand (bot_t *b, const char *item, float eta)
+{
+	if (!log_fp || !b || !b->ent || !bot_control || bot_control->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"timing_cand\",\"t\":%.2f,\"bot\":%d,\"item\":\"%s\","
+		"\"eta\":%.2f}\n",
+		level.time, b->id, item ? item : "", eta);
+}
+
+void Bot_LogTimingPick (bot_t *b, const char *item, float eta, float travel)
+{
+	if (!log_fp || !b || !b->ent || !bot_control || bot_control->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"timing_pick\",\"t\":%.2f,\"bot\":%d,\"item\":\"%s\","
+		"\"eta\":%.2f,\"travel\":%.2f}\n",
+		level.time, b->id, item ? item : "", eta, travel);
+}
+
+/*
+=================
+Bot_LogDanger
+
+bot_dangerlog: where bot_danger stamped combat-death heat.  Clustering these
+against the resulting route changes is how you tell "the heatmap learned the
+contested rooms" from "the heatmap learned the spawn points".
+=================
+*/
+void Bot_LogDanger (bot_t *b, const char *what, const vec3_t org)
+{
+	if (!log_fp || !b || !bot_dangerlog || bot_dangerlog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"danger\",\"t\":%.2f,\"bot\":%d,\"what\":\"%s\","
+		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f}\n",
+		level.time, b->id, what,
+		org ? org[0] : 0.0f, org ? org[1] : 0.0f, org ? org[2] : 0.0f);
+}
+
+/*
+=================
+Bot_LogBelief
+
+bot_belieflog: the estimated enemy strength AND the sim's ground truth, side by
+side, every time the flee comparison consults the belief.  The plan's rule is
+that a bad estimator invalidates the whole behaviour A/B, so the estimator gets
+validated offline from these records BEFORE the behaviour result is believed.
+=================
+*/
+void Bot_LogBelief (bot_t *b, float est, float truth, float mine)
+{
+	if (!log_fp || !b || !bot_belieflog || bot_belieflog->value == 0)
+		return;
+	fprintf (log_fp,
+		"{\"type\":\"belief\",\"t\":%.2f,\"bot\":%d,"
+		"\"est\":%.1f,\"truth\":%.1f,\"mine\":%.1f}\n",
+		level.time, b->id, est, truth, mine);
+}
+
+/*
+=================
 Bot_LogCMove
 
 bot_cmlog: one record per engagement-movement style transition, so an A/B can
@@ -542,7 +695,7 @@ pruned it mid-attempt).
 =================
 */
 void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fighting,
-	const char *navq)
+	const char *navq, float budget)
 {
 	edict_t	*ent;
 
@@ -554,12 +707,17 @@ void Bot_LogGiveup (bot_t *b, float gdist, float gvdist, int atnode, int fightin
 		"{\"type\":\"event\",\"event\":\"giveup\",\"t\":%.2f,\"bot\":%d,"
 		"\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,"
 		"\"gdist\":%.0f,\"gvdist\":%.0f,\"atnode\":%d,\"fighting\":%d,"
-		"\"pidx\":%d,\"plen\":%d,\"gbest\":%.0f,\"navq\":\"%s\"}\n",
+		"\"pidx\":%d,\"plen\":%d,\"gbest\":%.0f,\"navq\":\"%s\","
+		"\"budget\":%.2f,\"elapsed\":%.2f,\"frozen\":%.2f,\"fight\":%.2f,"
+		"\"noprog\":%.2f,\"cost\":%.0f,\"rerouted\":%d}\n",
 		level.time, b->id,
 		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
 		gdist, gvdist, atnode, fighting,
 		b->path_idx, b->path_len, b->goal_best,
-		navq ? navq : "");
+		navq ? navq : "",
+		budget, level.time - b->goal_start, b->goal_time - b->goal_start,
+		b->goal_fight, level.time - b->goal_best_time, b->goal_cost,
+		b->reroute_fired ? 1 : 0);
 }
 
 /*
