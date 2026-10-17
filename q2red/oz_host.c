@@ -82,6 +82,7 @@ typedef struct
 	int		prev_health;		// clients: last frame's health (pain/death)
 	qboolean	was_dead;
 	qboolean	have_spawn;		// entity-string data matched this map
+	int		team;				// sv_entity_t team: 0 none, else the team
 } oz_extra_t;
 
 static oz_extra_t	oz_extra[MAX_EDICTS];
@@ -1105,6 +1106,7 @@ static void OZ_MirrorEntity (int num, qboolean full)
 	if (s.ground_entity >= MAX_EDICTS)
 		e->groundentity = g_edicts;
 	e->spawnflags = (int)s.spawnflags;
+	x->team = s.team;
 
 	cls = OZ_Intern (s.classname);
 	if (cls != e->classname || full)
@@ -1236,6 +1238,22 @@ edict_t *OzHost_AddBot (char *userinfo)
 	return &g_edicts[num];
 }
 
+/*
+Teammates: both clients carry the same nonzero team.  The rerelease publishes
+0 for no team (free-for-all), a team index in team modes, and puts every
+player on one team in coop-style modes (Horde included).
+*/
+qboolean OzHost_IsTeammate (edict_t *a, edict_t *b)
+{
+	int	ta, tb;
+
+	if (!a || !b || a == b || !a->client || !b->client)
+		return false;
+	ta = oz_extra[a - g_edicts].team;
+	tb = oz_extra[b - g_edicts].team;
+	return ta != 0 && ta == tb;
+}
+
 qboolean OzHost_IsBot (edict_t *ent)
 {
 	return host->is_bot ((int)(ent - g_edicts)) ? true : false;
@@ -1335,6 +1353,8 @@ static void OZ_Perceive (void)
 					vec3_t	d;
 					float	dist;
 					if (a == e || !a->inuse || !a->client || a->deadflag)
+						continue;
+					if (OzHost_IsTeammate (a, e))
 						continue;
 					if (Bot_NoiseTime (a) < level.time - 0.3f)
 						continue;

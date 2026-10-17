@@ -1643,6 +1643,10 @@ static void Bot_HearThink (bot_t *b)
 			continue;
 		if (who->deadflag || who->health <= 0 || who->client->resp.spectator)
 			continue;
+#ifdef OZBOT_Q2RED
+		if (OzHost_IsTeammate (self, who))
+			continue;		// a teammate's noise is not a lead
+#endif
 
 		radius = Bot_NoiseRadius (bot_noise_kind[i]);
 		VectorSubtract (bot_noise_pos[i], eyes, d);

@@ -666,6 +666,7 @@ void Bot_LogSJ (bot_t *b, const char *phase, int hops, float peak);
 // q2red host adapter (q2red/oz_host.c)
 edict_t		*OzHost_AddBot (char *userinfo);
 qboolean	OzHost_IsBot (edict_t *ent);
+qboolean	OzHost_IsTeammate (edict_t *a, edict_t *b);
 qboolean	OzHost_TelemetryOn (void);
 void		Bot_ForgetSlot (edict_t *ent);
 #endif

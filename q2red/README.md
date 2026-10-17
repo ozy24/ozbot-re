@@ -90,6 +90,23 @@ Cost: about 5% of one core and 26 MB for 5 bots, including the game simulating f
 more players. These are rerelease rules, not q2repro's 3.19 game code, so the numbers
 are a new epoch. They are not comparable with `STATS.md`.
 
+## Game types
+
+- **Teams.** Bots never target a teammate, and they ignore teammates' noise. Two
+  clients are teammates when the server publishes the same non-zero `sv_entity_t`
+  team for both. That covers TDM, CTF and arena; coop-style modes put every player on
+  one team. Free-for-all publishes team 0, so everyone stays fair game.
+- **Monsters.** In Horde and coop-style modes, bots target living monsters as they do
+  players: nearest visible first, with the same view cone. A monster that is attacking
+  the bot is acquired even from behind, the way gunfire is. Measured on 2026-10-17: on
+  MuffMode Horde, 91 of 92 sampled engagements were against monsters; on MMREX, 75 of
+  75 (team checks: every TDM engagement on both mods was cross-team).
+- **No objectives.** Bots don't carry or chase CTF flags, and they have no Horde tactics
+  beyond fighting. They roam for items and fight.
+- **MMREX Horde needs a human.** MMREX ends a Horde match that has no playing human
+  ("ALL FIGHTERS LOST", `MM_Horde_CheckDesertionDefeat`), so bots alone cannot run it.
+  That is MMREX's design, not a bot bug.
+
 ## Known limits
 
 - **Frags are not counted on MuffMode or MMREX.** Telemetry `score` reads `STAT_FRAGS`
