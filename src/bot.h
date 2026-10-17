@@ -252,7 +252,9 @@ typedef struct
 	int			ctf_fail_kind;	// an objective the graph could not route to...
 	edict_t		*ctf_fail_ent;
 	float		ctf_fail_until;	// ...is not picked again before this
+	qboolean	ctf_fail_touch;	// ...because the mod would not let us take it
 	qboolean	ctf_approach;	// no route: this leg only gets as near as it can
+	float		ctf_touch_time;	// level.time this leg first reached its flag
 #endif
 	char		netname[16];	// the in-game name this bot was given (Bot_Add)
 	// bot_preaim: own sighting record (pursuit consumes the LKP fields)

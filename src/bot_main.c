@@ -596,6 +596,12 @@ static void Bot_ResetNavState (bot_t *b)
 #ifdef OZBOT_Q2RED
 	b->ctf_kind     = CTF_NONE;
 	b->ctf_ent      = NULL;
+	b->ctf_approach = false;
+	b->ctf_fail_kind = CTF_NONE;	// level.time restarts on a new map, and
+	b->ctf_fail_ent = NULL;			// edicts are reused: no cooldown carries over
+	b->ctf_fail_until = 0;
+	b->ctf_fail_touch = false;
+	b->ctf_touch_time = 0;
 #endif
 	b->pursue_until = 0;
 	b->pursue_began = 0;
@@ -1544,6 +1550,7 @@ static void Bot_GoExplore (bot_t *b)
 #ifdef OZBOT_Q2RED
 	b->ctf_kind      = CTF_NONE;	// the CTF objective rode on this leg
 	b->ctf_ent       = NULL;
+	b->ctf_approach  = false;
 #endif
 	// bot_pursuit: every goal teardown ends any chase riding on that goal leg.
 	// The sighting is dropped with it so a chase can never be resumed from a

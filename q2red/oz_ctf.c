@@ -37,9 +37,11 @@ q2repro DLL.
 #include "../src/bot_nav.h"
 
 #define CTF_TEAMS			3		// index by team: 1 red, 2 blue
-#define CTF_TAKE_NEAR		1200.0f	// an enemy flag this close is worth taking unarmed
+#define CTF_TAKE_NEAR		500.0f 	// an enemy flag this close is worth taking unarmed
 #define CTF_HUNT_REAIM		384.0f	// re-route a hunt when the carrier moves this far
 #define CTF_HUNT_SECS		3.0f	// ...or after this long on one route
+#define CTF_TOUCH_DIST		40.0f	// on the flag
+#define CTF_UNTOUCHABLE_SECS	30.0f	// a flag we stood on without taking it
 
 typedef struct
 {
@@ -300,6 +302,26 @@ qboolean Ctf_LegStale (bot_t *b)
 	}
 	if (b->ctf_approach && b->path_idx >= b->path_len)
 		return true;	// at the edge of the graph: push on (Ctf_SteerTarget)
+	if (want == CTF_TAKE || want == CTF_RETURN)
+	{
+		// standing on the flag and it is still there: the mod will not let us
+		// have it (Capture Strike's defenders cannot touch the flag).  Leave
+		// it alone for a while instead of camping it.
+		VectorSubtract (ent->s.origin, b->ent->s.origin, d);
+		if (VectorLength (d) > CTF_TOUCH_DIST)
+			b->ctf_touch_time = 0;
+		else if (!b->ctf_touch_time)
+			b->ctf_touch_time = level.time;
+		else if (level.time - b->ctf_touch_time > 1.0f)
+		{
+			b->ctf_fail_kind = want;
+			b->ctf_fail_ent = ent;
+			b->ctf_fail_until = level.time + CTF_UNTOUCHABLE_SECS;
+			b->ctf_fail_touch = true;
+			b->ctf_touch_time = 0;
+			return true;
+		}
+	}
 	if (want == CTF_HUNT)
 	{
 		VectorSubtract (ent->s.origin, b->ctf_point, d);
@@ -397,6 +419,7 @@ qboolean Ctf_Pick (bot_t *b, int start, int *goal)
 		b->ctf_fail_kind = want;
 		b->ctf_fail_ent = ent;
 		b->ctf_fail_until = level.time + CTF_FAIL_SECS;
+		b->ctf_fail_touch = false;
 		node = Ctf_ApproachNode (b, start, ent->s.origin);
 		if (node < 0)
 			return false;
@@ -406,6 +429,7 @@ qboolean Ctf_Pick (bot_t *b, int start, int *goal)
 	b->ctf_kind = want;
 	b->ctf_ent = ent;
 	b->ctf_time = level.time;
+	b->ctf_touch_time = 0;
 	VectorCopy (ent->s.origin, b->ctf_point);
 	// a hunt routes to where the carrier is now and owns no item; nor does
 	// an approach, which ends at the edge of the graph
@@ -448,7 +472,7 @@ edict_t *Ctf_SteerTarget (bot_t *b, float maxdist)
 	// out of the graph's reach just now: head straight for it from wherever
 	// the approach left us (stuck recovery takes over at a wall)
 	if (ent == b->ctf_fail_ent && level.time < b->ctf_fail_until)
-		return ent;
+		return b->ctf_fail_touch ? NULL : ent;
 	// else only one in sight and near
 	VectorSubtract (ent->s.origin, b->ent->s.origin, d);
 	if (VectorLength (d) > maxdist || !visible (b->ent, ent))

@@ -146,6 +146,10 @@ pool were rebaked on 2026-10-17 under CTF rules, seeded with those navs (see abo
   Items don't publish their spawnflags, so the home flag is told from a dropped one
   by remembering the first flag entity of each team seen on the map. It is inert on
   maps without flags.
+- **Capture Strike** (MuffMode `g_gametype 7`, the same maps): rounds play out, and
+  attackers take the flag. The rerelease doesn't publish which side is attacking, so
+  defenders also try to take the flag until they have stood on it without getting it.
+  After that they leave it alone for 30 s.
 - **No Horde tactics** beyond fighting.
 - **MMREX Horde needs a human.** MMREX ends a Horde match that has no playing human
   ("ALL FIGHTERS LOST", `MM_Horde_CheckDesertionDefeat`), so bots alone cannot run it.
