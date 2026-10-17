@@ -324,11 +324,11 @@ void Bot_Init (void)
 	bot_liftlog      = gi.cvar ("bot_liftlog", "0", 0);		// diagnosis telemetry near func_plats (plans/lift-riding.md)
 	bot_strafejump   = gi.cvar ("bot_strafejump", "1", 0);	// chained strafe-jump travel on clear runways (Phase 19:
 															// +6% pickups, giveups -11%, frags flat, 8-seed A/B)
-	bot_sjpath       = gi.cvar ("bot_sjpath", "0", 0);		// path-mode strafe jumping, bitmask (plans/in progress/q2prox-replication.md)
+	bot_sjpath       = gi.cvar ("bot_sjpath", "3", 0);		// path-mode strafe jumping, bitmask (1 path mode, 2 through fights) (plans/in progress/q2prox-replication.md)
 	bot_sjpathtest   = gi.cvar ("bot_sjpathtest", "0", 0);	// id-parity A/B of bot_sjpath bit 2 (odd ids: off)
 	bot_hearsight    = gi.cvar ("bot_hearsight", "0", 0);	// out-of-cone acquisition of a visible enemy we just heard
 	bot_hearsighttest = gi.cvar ("bot_hearsighttest", "0", 0);	// id-parity A/B of bot_hearsight (odd ids: off)
-	bot_preaim       = gi.cvar ("bot_preaim", "0", 0);		// look where a lost enemy will reappear (sight-legal pre-aim)
+	bot_preaim       = gi.cvar ("bot_preaim", "1", 0);		// look where a lost enemy will reappear (sight-legal pre-aim)
 	bot_preaimtest   = gi.cvar ("bot_preaimtest", "0", 0);	// id-parity A/B of bot_preaim (odd ids: off)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
 	bot_inputlog     = gi.cvar ("bot_inputlog", "0", 0);	// 1 = log real players' per-frame usercmd (jump analysis; see ozbot-input-logger memory)

@@ -180,6 +180,13 @@ enemy appears far more often; a next step would rank candidate reappearance
 points by the enemy's likely route (item timers / the routes it was taking)
 rather than nearest-visible-first.
 
+### 2026-10-14: shipped default-ON
+
+At the user's call: `bot_sjpath 3` and `bot_preaim 1` are now the defaults
+(default run md5 == explicit-cvar run md5, `a478d056` on q2duel5 16×90 seed 700).
+Open issues carried forward: q2dm3 solo −25% under path mode (nav traps); pre-aim's
+−3.2% dm pickups (more fights).
+
 ## Work plan (in order)
 
 ### Step 1: strafe-jump as the default travel mode

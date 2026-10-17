@@ -525,7 +525,7 @@ The full record is in `plans/completed/general-improvement-2026-10.md`.
     16%, airborne 12%;
   - **engaged only 1%** — the July "plant-and-shoot 46%" breakdown is obsolete.
 
-## Path-mode strafe jumping (`bot_sjpath`, default OFF, 2026-10-14)
+## Path-mode strafe jumping (`bot_sjpath`, default **3** since 2026-10-14)
 
 `bot_sjpath 1` replaces the runway qualification of `bot_strafejump` (which fired
 ~1 hop per 17 bot-seconds on q2duel5) with a **per-hop choice by simulation**: each
@@ -559,7 +559,7 @@ failure). Visible-aim p75 73° → **49°** (pros 38°). Parity (`bot_hearsightt
 (~380 arms) — **null**. DM pickups −1.0% (16/32), frags/deaths up symmetrically.
 Same shape as `bot_pursuit`/`bot_enemymodel`: a humanness option, not strength.
 
-## Sight-legal pre-aim (`bot_preaim`, default OFF, 2026-10-14)
+## Sight-legal pre-aim (`bot_preaim`, default **1** since 2026-10-14)
 
 After sight of an enemy is lost (≤4s), the gaze looks at the most likely
 **reappearance point**: Dijkstra over the nav graph from the enemy's extrapolated
@@ -573,8 +573,13 @@ Parity (`bot_preaimtest`), three independent 190-arm banks: +3.45 [+0.68, +6.21]
 +1.01, +0.97 → **pooled ≈ +1.8pt, CI ≈ [+0.1, +3.5] over 573 arms** (the first read
 was the lucky one — replicate!). **Cost: dm pickups −3.2% (5/32)**, via fight
 giveups +15%: it spots enemies sooner, so item runs get interrupted. The only
-lever so far that is both more human *and* (slightly) stronger; OFF only because
-pickups are the north star — turn it on for humanness/strength.
+lever so far that is both more human *and* (slightly) stronger. Shipped default-ON
+by the user's call (humanness + strength over the pickup cost).
+
+⚠️ **Defaults changed 2026-10-14 (`bot_sjpath 3`, `bot_preaim 1`)**: same-seed md5s
+from before this are not comparable with defaults. The pre-change behaviour is
+`--cvar bot_sjpath 0 --cvar bot_preaim 0` (q2duel5 16×180 seed 700 md5 `429a6236`).
+Off-state gates for new levers are now taken against the new defaults.
 
 ## Nav sinks: learned regions with no way out (2026-10-14)
 
