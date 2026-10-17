@@ -242,6 +242,20 @@ typedef struct
 								// from goal_time precisely BECAUSE goal_time is
 								// advanced by that freeze and is not a clock
 	qboolean	lkp_noise;		// this sighting came from bot_hearing, not sight
+#ifdef OZBOT_Q2RED
+	// CTF objective of the current GOAL leg (q2red/oz_ctf.c); CTF_NONE on an
+	// item route, a roam or a chase
+	int			ctf_kind;
+	edict_t		*ctf_ent;		// the flag to touch, or the carrier hunted
+	vec3_t		ctf_point;		// where it was when the leg was routed
+	float		ctf_time;		// level.time the leg was routed
+	int			ctf_fail_kind;	// an objective the graph could not route to...
+	edict_t		*ctf_fail_ent;
+	float		ctf_fail_until;	// ...is not picked again before this
+	qboolean	ctf_fail_touch;	// ...because the mod would not let us take it
+	qboolean	ctf_approach;	// no route: this leg only gets as near as it can
+	float		ctf_touch_time;	// level.time this leg first reached its flag
+#endif
 	char		netname[16];	// the in-game name this bot was given (Bot_Add)
 	// bot_preaim: own sighting record (pursuit consumes the LKP fields)
 	edict_t		*pa_ent;		// whose sighting (NULL = none)
@@ -669,6 +683,21 @@ qboolean	OzHost_IsBot (edict_t *ent);
 qboolean	OzHost_IsTeammate (edict_t *a, edict_t *b);
 qboolean	OzHost_TelemetryOn (void);
 void		Bot_ForgetSlot (edict_t *ent);
+
+// capture the flag (q2red/oz_ctf.c)
+enum { CTF_NONE, CTF_TAKE, CTF_CAPTURE, CTF_HOLD, CTF_RETURN, CTF_HUNT };
+void		Ctf_MapBegin (void);
+void		Ctf_Frame (void);
+qboolean	Ctf_Active (void);
+qboolean	Ctf_IsFlag (edict_t *it);
+qboolean	Ctf_CarriesFlagOf (edict_t *o, int team);
+int			Ctf_TeamOf (edict_t *ent);
+qboolean	Ctf_LegStale (bot_t *b);
+qboolean	Ctf_Pick (bot_t *b, int start, int *goal);
+edict_t		*Ctf_SteerTarget (bot_t *b, float maxdist);
+float		Ctf_ReplanDelay (bot_t *b);
+const char	*Ctf_KindName (int kind);
+qboolean	Bot_CtfClaimed (bot_t *self, int kind, edict_t *ent);
 #endif
 
 #endif // OZBOT_BOT_H

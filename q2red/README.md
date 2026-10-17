@@ -98,11 +98,28 @@ mature-to-peak method. q2red runs faster than real time under `timescale`, so 64
 about 20 minutes. Maps that already have a nav are kept (use `--force` to rebake). Keep the
 rig path short: q2red builds map paths in a 128-byte buffer.
 
+**CTF maps need a CTF bake.** CTF spawns everyone in their own base and the learner only
+grows the graph where bots go, so a CTF-rules bake from nothing gives two bases with no
+link between them, and a deathmatch bake knows the middle but not the flag stands.
+Seed the CTF bake with the deathmatch navs and rank checkpoints by flag runs:
+
+```bash
+py tools/q2red_navs.py --rig /tmp/q2bb --maps ctfpool.txt -j 6 --force --score ctf \
+    --seed-dir <deathmatch navs> --max-seconds 1080 --patience 3 \
+    --set g_entity_override_dir=maps --set g_gametype=4 --set g_dm_do_warmup=0 \
+    --set g_dm_do_readyup=0 --set g_dm_allow_no_humans=1 --set g_match_lock=0 \
+    --set capturelimit=0
+```
+
+The score line only ranks checkpoints, so check the result for a flag-to-flag route, not
+by the score.
+
 `baselines/nav_q2red_bloodyblastard/` holds the 64 navs deployed to Bloody Blastard on
 2026-10-17. They were baked against MuffMode 0.60 with its entity overrides. `POOL.txt` is
 the union of every `g_map_list` and `g_map_pool` in its `gt-*.cfg`. q2dm1-8 are the curated
 `nav_shipped` graphs, still learnable. Weak maps after a 4-bot, 90 s play test: `rdm4` (14
-pickups), `q2ctf1-3` (9-25); everything else collects 20-90.
+pickups), `q2ctf1-3` (9-25); everything else collects 20-90. The 15 maps of its CTF
+pool were rebaked on 2026-10-17 under CTF rules, seeded with those navs (see above).
 
 
 - **Teams.** Bots never target a teammate, and they ignore teammates' noise. Two
@@ -114,13 +131,39 @@ pickups), `q2ctf1-3` (9-25); everything else collects 20-90.
   the bot is acquired even from behind, the way gunfire is. Measured on 2026-10-17: on
   MuffMode Horde, 91 of 92 sampled engagements were against monsters; on MMREX, 75 of
   75 (team checks: every TDM engagement on both mods was cross-team).
-- **No objectives.** Bots don't carry or chase CTF flags, and they have no Horde tactics
-  beyond fighting. They roam for items and fight.
+- **Capture the flag** (`oz_ctf.c`). On a map with flags each bot takes, in order:
+  1. carrying the enemy flag: run home and capture, or wait on its own stand if its
+     flag is not home;
+  2. its own flag lying dropped: go and return it;
+  3. an enemy carrying its flag: hunt the carrier;
+  4. the enemy flag home or dropped: go and take it. Only one bot per team attacks a
+     home flag, and it fetches a weapon first unless the flag is close.
+
+  Otherwise it plays items as in deathmatch, and in a fight the enemy carrier comes
+  first. A flag the graph cannot route to gets an approach instead: the bot routes to
+  the node nearest the flag, then walks straight at it. This works with id's,
+  MuffMode's and MMREX's flags (`item_flag_team1`/`2`, `item_flag_team_red`/`blue`).
+  Items don't publish their spawnflags, so the home flag is told from a dropped one
+  by remembering the first flag entity of each team seen on the map. It is inert on
+  maps without flags.
+- **Capture Strike** (MuffMode `g_gametype 7`, the same maps): rounds play out, and
+  attackers take the flag. The rerelease doesn't publish which side is attacking, so
+  defenders also try to take the flag until they have stood on it without getting it.
+  After that they leave it alone for 30 s.
+- **No Horde tactics** beyond fighting.
 - **MMREX Horde needs a human.** MMREX ends a Horde match that has no playing human
   ("ALL FIGHTERS LOST", `MM_Horde_CheckDesertionDefeat`), so bots alone cannot run it.
   That is MMREX's design, not a bot bug.
 
 ## Known limits
+
+- **No CTF on q2ctf1.** Its bases join the middle only through underwater channels and
+  a ladder. ozbot's learner has never produced a water route on any map in the pool, so
+  the baked graph has the two bases cut off, and bots there roam for items. The other
+  14 maps in Bloody Blastard's CTF pool are joined base to base (CTF bake of
+  2026-10-17). The gaps could be closed by adding the missing links to the graph by
+  hand with `tools/nav_edit.py add-link`, following the rerelease's own
+  `bots/navigation/q2ctf1.nav`.
 
 - **Frags are not counted on MuffMode or MMREX.** Telemetry `score` reads `STAT_FRAGS`
   at id's index (14), which those mods lay out differently. The kills happen (see the

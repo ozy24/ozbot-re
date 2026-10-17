@@ -100,7 +100,7 @@ class Slot:
 
 
 def telemetry_metrics(path):
-    pickups = goals = 0
+    pickups = goals = takes = caps = 0
     with open(path) as f:
         for line in f:
             try:
@@ -112,7 +112,11 @@ def telemetry_metrics(path):
                 pickups += 1
             elif ev == "goal_item":
                 goals += 1
-    return pickups, goals
+            elif ev == "ctf_took":
+                takes += 1
+            elif ev == "ctf_captured":
+                caps += 1
+    return pickups, goals, takes, caps
 
 
 def bake(mapname, slot, args, log):
@@ -125,6 +129,14 @@ def bake(mapname, slot, args, log):
         return {"map": mapname, "result": "kept"}
     if os.path.exists(nav):
         os.remove(nav)
+    if args.seed_dir:
+        # grow from an earlier graph instead of from nothing (e.g. a CTF bake
+        # on top of the deathmatch nav, which already knows the middle of the
+        # map); the seed is unfrozen so the learner can extend it
+        seed = os.path.join(args.seed_dir, map_file(mapname) + ".nav")
+        if os.path.exists(seed):
+            nodes, flags = ne.load(seed)
+            ne.save(nav + ".work", nodes, flags & ~ne.NAVHDR_FROZEN)
 
     best = None
     curve = []
@@ -143,22 +155,27 @@ def bake(mapname, slot, args, log):
         nodes, flags = ne.load(work)
 
         ne.save(nav, nodes, flags | ne.NAVHDR_FROZEN)
-        pickups = goals = 0
+        pickups = goals = takes = caps = 0
         for k in range(args.probe_seeds):
             for old in glob.glob(os.path.join(logs, map_file(mapname) + "_*.jsonl")):
                 os.remove(old)
             slot.run(mapname, args.probe_seconds, 1, args.seed + 1000 + k, args, telemetry=True)
             for path in glob.glob(os.path.join(logs, map_file(mapname) + "_*.jsonl")):
-                p, g = telemetry_metrics(path)
+                p, g, t, c = telemetry_metrics(path)
                 pickups += p
                 goals += g
+                takes += t
+                caps += c
                 os.remove(path)
         collect = round(100.0 * pickups / goals, 1) if goals else 0.0
         cp = {"mature_seconds": mature_total, "nodes": len(nodes), "pickups": pickups,
-              "collect": collect}
+              "collect": collect, "ctf_took": takes, "ctf_captured": caps}
         curve.append(cp)
-        log(f"{mapname}: {mature_total:.0f}s  nodes={len(nodes)}  pickups={pickups}  collect={collect}%")
-        score = (pickups, collect)
+        log(f"{mapname}: {mature_total:.0f}s  nodes={len(nodes)}  pickups={pickups}  collect={collect}%"
+            + (f"  took={takes}  captured={caps}" if args.score == "ctf" else ""))
+        # --score ctf: a CTF nav is judged by flag runs first (a capture needs
+        # a route between the bases both ways), then by the item economy
+        score = (caps, takes, pickups, collect) if args.score == "ctf" else (pickups, collect)
         if best is None or score > best["score"]:
             best = {"score": score, "cp": cp, "nodes": nodes, "flags": flags}
             stale = 0
@@ -195,6 +212,11 @@ def main(argv):
     ap.add_argument("--seed", type=int, default=700)
     ap.add_argument("--skill", type=float, default=0.5)
     ap.add_argument("--base-port", type=int, default=28100)
+    ap.add_argument("--score", choices=["items", "ctf"], default="items",
+                    help="rank checkpoints by item pickups, or by CTF captures then flag takes "
+                         "(bake CTF maps under CTF rules: --set g_gametype=4 ...)")
+    ap.add_argument("--seed-dir", help="start each map from the nav of the same name in this "
+                    "directory (unfrozen) rather than from nothing")
     ap.add_argument("--force", action="store_true", help="rebake maps that already have a nav")
     ap.add_argument("--set", action="append", help="extra server cvar, name=value (repeatable)")
     ap.add_argument("--report", help="write a JSON report here")

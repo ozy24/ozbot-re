@@ -23,7 +23,7 @@ gcc -O2 -fPIC -shared -std=gnu11 -fno-strict-aliasing -fvisibility=hidden \
     -DNDEBUG -DC_ONLY -DOZBOT_Q2RED -Wall -Wno-unused-variable -Wno-unused-but-set-variable \
     -Wno-misleading-indentation -Wno-dangling-else -Wno-parentheses -Wno-missing-braces \
     -Wno-unused-function -Wl,--no-undefined \
-    -o dist/ozbot_x64.so src/bot_*.c src/q_shared.c q2red/oz_host.c -lm
+    -o dist/ozbot_x64.so src/bot_*.c src/q_shared.c q2red/oz_host.c q2red/oz_ctf.c -lm
 nm -D --defined-only dist/ozbot_x64.so | grep -q ' Q2RED_GetBotBrainAPI$' \
     || { echo "[ozbot-re] Q2RED_GetBotBrainAPI is not exported"; exit 1; }
 echo "[ozbot-re] Built dist/ozbot_x64.so"

@@ -584,6 +584,11 @@ static float Item_Score (bot_t *b, edict_t *it, float *out_dist)
 	dist = VectorLength (d);
 	*out_dist = dist;
 
+#ifdef OZBOT_Q2RED
+	if (Ctf_IsFlag (it))
+		return 0;	// flags are objectives, not pickups (q2red/oz_ctf.c)
+#endif
+
 	if (flags & IT_WEAPON)
 	{
 		if (bot->client->pers.inventory[ITEM_INDEX(item)] > 0)
