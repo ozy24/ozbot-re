@@ -88,6 +88,12 @@ void Bot_LogBeginLevel (const char *mapname)
 	struct tm	*lt;
 
 	Bot_LogEndLevel ();
+#ifdef OZBOT_Q2RED
+	// q2red: a dedicated server runs unattended, so the per-tick telemetry
+	// is opt-in (bot_telemetry 1) rather than always on
+	if (!OzHost_TelemetryOn ())
+		return;
+#endif
 
 	now = time (NULL);
 	lt = localtime (&now);

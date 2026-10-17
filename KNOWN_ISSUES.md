@@ -219,3 +219,10 @@ three movers/spectator paths were missed and only bit at 40Hz (all fixed 2026-07
   the archive site's certificate is expired.
 - Real spectator/player interaction has known-fixed gotchas (slot collisions, respawn edge
   cases) — see the memory notes referenced in `PLAN.md` if a new one appears.
+
+## q2red host (`q2red/`)
+
+The q2red build has its own list of known limits: frag counter on MuffMode/MMREX, the ±4096-unit
+sim range, no strafe-jump landing hack, guessed attacker and death cause, a 1024-entity mirror,
+and engine goal requests left unanswered. See `q2red/README.md`, "Known limits".
+
