@@ -51,6 +51,24 @@ the legacy ozbot specifics when working in this repo.
   (see bot.h) or keyframe it with FRAMESYNC — never leave a raw per-tick
   constant, it will be 4x off at 40Hz.
 
+## The q2red host (`q2red/`, `build_q2red.sh`)
+
+The same brain also builds as a **q2red bot brain**, `dist/ozbot_x64.so`, loaded by the
+q2red Linux dedicated server (`+set sv_bot_brain ozbot`). It plays on any Quake II
+Rerelease game module (id's, MuffMode, MMREX). `q2red/oz_host.c` rebuilds the 3.19
+world from the server's entity snapshots, and the module's own Pmove does the movement.
+Read `q2red/README.md` before touching it.
+
+- **Keep q2repro byte-identical.** Hosted-only lines in `src/` go under
+  `#ifdef OZBOT_Q2RED`, and the q2repro objects must not change. Check it by compiling
+  every `src/*.c` with and without your change and comparing the objects.
+- **The contract is pinned.** `q2red/q2red_bot_brain.h` is a copy of q2red's
+  `src/include/q2red_bot_brain.h`. Update it only when q2red changes the version.
+- **A different metrics epoch again.** On q2red the game is rerelease rules, so q2red
+  numbers are not comparable with `STATS.md`.
+- **Two cvars exist only on q2red:** `bot_minplayers` (fill mode) and `bot_telemetry`
+  (logs are off by default there).
+
 ## Sim / measurement rig
 
 ```

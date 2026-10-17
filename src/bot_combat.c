@@ -174,6 +174,33 @@ static qboolean Combat_WaterSurfaceBlocks (edict_t *self, edict_t *other)
 	return w1 != w2;		// eyes on opposite sides of the surface -> no sightline
 }
 
+#ifdef OZBOT_Q2RED
+/*
+=================
+Combat_Hostile  (q2red)
+
+Rerelease modules have teams (TDM, CTF, arena; coop-style modes like Horde
+put every player on one) and monsters.  A target is a living, playing client
+the server does not put on our team, or a living monster.  On q2repro the
+brain is free-for-all against clients only, and this is not compiled.
+=================
+*/
+static qboolean Combat_Hostile (edict_t *self, edict_t *o)
+{
+	if (o == self || !o->inuse)
+		return false;
+	if (o->client)
+	{
+		if (o->deadflag || o->health <= 0 || o->client->resp.spectator)
+			return false;
+		return !OzHost_IsTeammate (self, o);
+	}
+	if (!(o->svflags & SVF_MONSTER) || (o->svflags & SVF_DEADMONSTER))
+		return false;
+	return !o->deadflag && o->health > 0;
+}
+#endif
+
 /*
 =================
 Combat_FindEnemy
@@ -197,18 +224,27 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 	qboolean	hear = bot_hearsight->value != 0
 		&& !(bot_hearsighttest->value != 0 && (b->id % 2) != 0);
 
+#ifdef OZBOT_Q2RED
+	for (i = 1; i < globals.num_edicts; i++)
+#else
 	for (i = 1; i <= (int)maxclients->value; i++)
+#endif
 	{
 		edict_t	*o = g_edicts + i;
 		vec3_t	d;
 		float	dd;
 
+#ifdef OZBOT_Q2RED
+		if (!Combat_Hostile (self, o))
+			continue;
+#else
 		if (o == self || !o->inuse || !o->client)
 			continue;
 		if (o->deadflag || o->health <= 0)
 			continue;
 		if (o->client->resp.spectator)
 			continue;
+#endif
 		if (!visible (self, o))
 			continue;
 		if (Combat_WaterSurfaceBlocks (self, o))
@@ -222,6 +258,10 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 			&& !(b->threat_ent == o && level.time - b->threat_time < 2.0f)
 			&& !(dd < 700 && level.time - Bot_NoiseTime (o) < 1.0f)
 			&& !(hear && Bot_HeardRecently (o, dd))
+#ifdef OZBOT_Q2RED
+			// a monster attacking us is heard, the way gunfire is
+			&& !(!o->client && o->enemy == self && dd < 1000)
+#endif
 			&& !Combat_InFov (self, o))
 			continue;
 		if (dd < bestd)
@@ -250,16 +290,25 @@ static int Combat_CountThreats (bot_t *b)
 	edict_t	*self = b->ent;
 	int		i, n = 0;
 
+#ifdef OZBOT_Q2RED
+	for (i = 1; i < globals.num_edicts; i++)
+#else
 	for (i = 1; i <= (int)maxclients->value; i++)
+#endif
 	{
 		edict_t	*o = g_edicts + i;
 		vec3_t	d, ang, fwd;
 		float	dd;
 
+#ifdef OZBOT_Q2RED
+		if (!Combat_Hostile (self, o))
+			continue;
+#else
 		if (o == self || !o->inuse || !o->client)
 			continue;
 		if (o->deadflag || o->health <= 0 || o->client->resp.spectator)
 			continue;
+#endif
 		VectorSubtract (self->s.origin, o->s.origin, d);
 		d[2] = 0;
 		dd = VectorLength (d);
@@ -1070,10 +1119,15 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	if (!FRAMESYNC)
 	{
 		enemy = b->enemy;
+#ifdef OZBOT_Q2RED
+		if (!enemy || !Combat_Hostile (self, enemy))
+			return false;		// next keyframe re-evaluates properly
+#else
 		if (!enemy || !enemy->inuse || !enemy->client
 			|| enemy->deadflag || enemy->health <= 0
 			|| enemy->client->resp.spectator)
 			return false;		// next keyframe re-evaluates properly
+#endif
 
 		VectorSubtract (enemy->s.origin, self->s.origin, dir);
 		range = VectorLength (dir);

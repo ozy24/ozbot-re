@@ -1251,6 +1251,9 @@ Bot_Add
 =================
 */
 static qboolean bot_adding;	// true while Bot_Add runs ClientConnect for a bot
+#ifdef OZBOT_Q2RED
+static bot_t bot_hosted_pending;	// Bot_Add's record until the server picks the slot
+#endif
 
 static qboolean Bot_Add (void)
 {
@@ -1273,6 +1276,7 @@ static qboolean Bot_Add (void)
 	// spawned a replacement (seen 2026-10-13 on a dedicated mm-mcoil server:
 	// OzBot0 stopped ticking the instant a spectator joined).  Top-down, bots
 	// and humans only meet when the server is full (Bot_HumanConnecting).
+#ifndef OZBOT_Q2RED
 	for (k = 0; k < game.maxclients; k++)
 	{
 		i = (bot_slottop->value != 0) ? game.maxclients - 1 - k : k;
@@ -1298,6 +1302,14 @@ static qboolean Bot_Add (void)
 	b = &bots[i];
 	memset (b, 0, sizeof(*b));
 	b->ent = ent;
+#else
+	// q2red: the server owns the client slots.  It admits the bot and the
+	// game module picks its edict (OzHost_AddBot below), so the record is
+	// built on the side until the slot is known.
+	(void)i;
+	b = &bot_hosted_pending;
+	memset (b, 0, sizeof(*b));
+#endif
 	b->id  = bot_next_id++;
 	// bot_skilltest: genuine head-to-head A/B for bot_skill's effect (never
 	// properly measured -- an open question since Phase 4). Splits bots by id
@@ -1317,6 +1329,7 @@ static qboolean Bot_Add (void)
 	Info_SetValueForKey (userinfo, "hand", "2");
 	Info_SetValueForKey (userinfo, "fov", "90");
 
+#ifndef OZBOT_Q2RED
 	bot_adding = true;
 	k = ClientConnect (ent, userinfo);
 	bot_adding = false;
@@ -1328,6 +1341,19 @@ static qboolean Bot_Add (void)
 	}
 
 	ClientBegin (ent);
+#else
+	// the server runs the game's ClientConnect and ClientBegin itself
+	ent = OzHost_AddBot (userinfo);
+	if (!ent)
+	{
+		gi.dprintf ("ozbot: the server refused bot\n");
+		return false;
+	}
+	i = (int)(ent - g_edicts) - 1;
+	bots[i] = *b;
+	b = &bots[i];
+	b->ent = ent;
+#endif
 
 	b->inuse = true;
 	b->was_dead = false;
@@ -1418,6 +1444,50 @@ static void Bot_ClearAll (void)
 	for (i = 0; i < MAX_CLIENTS; i++)
 		memset (&bots[i], 0, sizeof(bots[i]));
 }
+
+#ifdef OZBOT_Q2RED
+/*
+=================
+Bot_KeepAcrossMap / Bot_ForgetSlot
+
+q2red: the server keeps bots connected across a level change, exactly as it
+keeps humans, so a new map keeps each bot's identity (slot, id, name, skill)
+and resets everything else.  Bot_ForgetSlot is the server telling us a slot
+went away (kicked, or the game dropped it).
+=================
+*/
+static void Bot_KeepAcrossMap (void)
+{
+	int		i;
+	bot_t	keep;
+
+	for (i = 0; i < MAX_CLIENTS; i++)
+	{
+		if (!bots[i].inuse)
+		{
+			memset (&bots[i], 0, sizeof(bots[i]));
+			continue;
+		}
+		memset (&keep, 0, sizeof(keep));
+		keep.inuse = true;
+		keep.ent = bots[i].ent;
+		keep.id = bots[i].id;
+		keep.skill_ovr = bots[i].skill_ovr;
+		memcpy (keep.netname, bots[i].netname, sizeof(keep.netname));
+		bots[i] = keep;
+		bots[i].next_wander_time = 0;
+		Bot_ResetNavState (&bots[i]);
+	}
+}
+
+void Bot_ForgetSlot (edict_t *ent)
+{
+	int i = (int)(ent - g_edicts) - 1;
+
+	if (i >= 0 && i < MAX_CLIENTS && bots[i].inuse && bots[i].ent == ent)
+		memset (&bots[i], 0, sizeof(bots[i]));
+}
+#endif
 
 //==========================================================================
 // navigation behavior
@@ -1573,6 +1643,10 @@ static void Bot_HearThink (bot_t *b)
 			continue;
 		if (who->deadflag || who->health <= 0 || who->client->resp.spectator)
 			continue;
+#ifdef OZBOT_Q2RED
+		if (OzHost_IsTeammate (self, who))
+			continue;		// a teammate's noise is not a lead
+#endif
 
 		radius = Bot_NoiseRadius (bot_noise_kind[i]);
 		VectorSubtract (bot_noise_pos[i], eyes, d);
@@ -2495,7 +2569,11 @@ void Bot_RunFrame (void)
 		if (bot_logged_map[0])
 			Goal_SaveFails (bot_logged_map);	// P4a: persist old map's hard-item knowledge
 												// (before Goal_Reset; uses load-time key snapshot)
+#ifndef OZBOT_Q2RED
 		Bot_ClearAll ();
+#else
+		Bot_KeepAcrossMap ();	// q2red bots stay connected across a level change
+#endif
 		Goal_Reset ();
 		memset (bot_noise_time, 0, sizeof(bot_noise_time));
 		memset (bot_noise_at, 0, sizeof(bot_noise_at));
@@ -2570,7 +2648,13 @@ void Bot_RunFrame (void)
 		// the slot, so we never drive (fight) a real player's edict.  Bot_Add
 		// then refills the population in a genuinely free slot.
 		{
+#ifndef OZBOT_Q2RED
 			if (strcmp (ent->client->pers.netname, b->netname) != 0)
+#else
+			// q2red: the server knows which clients are bots (and the game
+			// module may have decorated the name, e.g. MuffMode's "B|")
+			if (!OzHost_IsBot (ent))
+#endif
 			{
 				memset (b, 0, sizeof(*b));
 				continue;
