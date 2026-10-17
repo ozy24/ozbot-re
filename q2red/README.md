@@ -90,7 +90,20 @@ Cost: about 5% of one core and 26 MB for 5 bots, including the game simulating f
 more players. These are rerelease rules, not q2repro's 3.19 game code, so the numbers
 are a new epoch. They are not comparable with `STATS.md`.
 
-## Game types
+## Navs for a map pool (`tools/q2red_navs.py`)
+
+`py tools/q2red_navs.py --rig <server dir> --maps pool.txt -j 6` bakes a FROZEN nav for every
+map in a pool on q2red itself, with the server's own game module, using gen_nav's
+mature-to-peak method. q2red runs faster than real time under `timescale`, so 64 maps take
+about 20 minutes. Maps that already have a nav are kept (use `--force` to rebake). Keep the
+rig path short: q2red builds map paths in a 128-byte buffer.
+
+`baselines/nav_q2red_bloodyblastard/` holds the 64 navs deployed to Bloody Blastard on
+2026-10-17. They were baked against MuffMode 0.60 with its entity overrides. `POOL.txt` is
+the union of every `g_map_list` and `g_map_pool` in its `gt-*.cfg`. q2dm1-8 are the curated
+`nav_shipped` graphs, still learnable. Weak maps after a 4-bot, 90 s play test: `rdm4` (14
+pickups), `q2ctf1-3` (9-25); everything else collects 20-90.
+
 
 - **Teams.** Bots never target a teammate, and they ignore teammates' noise. Two
   clients are teammates when the server publishes the same non-zero `sv_entity_t`
