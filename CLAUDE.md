@@ -581,6 +581,18 @@ from before this are not comparable with defaults. The pre-change behaviour is
 `--cvar bot_sjpath 0 --cvar bot_preaim 0` (q2duel5 16×180 seed 700 md5 `429a6236`).
 Off-state gates for new levers are now taken against the new defaults.
 
+## Bot names (`bot_nameprefix`, `bot_namefile`, 2026-10-17)
+
+In-game names are `bot_nameprefix` (default `B|`) + a name from
+`<gamedir>/botnames.txt` (`bot_namefile`; versioned at `data/botnames.txt`, copied by
+`build_linux.sh` / `deploy.bat`, re-read each map). 500 pop-culture names, ≤13 chars
+so prefix + name fits the 15-char netname. The pick hashes the match seed + bot id
+(**never `random()`**, so the sim RNG is untouched — md5 unchanged) and is unique per
+server; no file → `B|Bot<id>` (the fastsim worker gamedirs). Slot ownership now
+compares names: `Bot_SlotHeldByHuman` uses `Bot_IsOurName`, the release guard
+compares `b->netname`. Verified: a human joining a full server evicts one bot cleanly
+and plays. **Telemetry still labels bots `OzBot<id>`** (keyed on id) — tools unchanged.
+
 ## Nav sinks: learned regions with no way out (2026-10-14)
 
 The learner only records traversals the bot already makes, so a region it only

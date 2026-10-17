@@ -1,0 +1,506 @@
+# ozbot-re bot names: one per line, '#' comments and blank lines ignored.
+# The in-game name is bot_nameprefix (default "B|") + a name from here,
+# clipped to Quake II's 15-character limit, so keep names to 13 characters
+# (spaces are fine).  Deployed to <gamedir>/botnames.txt (cvar bot_namefile);
+# re-read each map, so edits apply without a rebuild.
+
+Wolverine
+Judge Dredd
+Robocop
+T-1000
+Predator
+Ripley
+Mad Max
+Rambo
+John McClane
+Hans Gruber
+Darth Vader
+Boba Fett
+Han Solo
+Chewbacca
+Yoda
+Jabba
+Lando
+Kylo Ren
+Skeletor
+He-Man
+Optimus Prime
+Megatron
+Starscream
+Soundwave
+Grimlock
+Voltron
+Godzilla
+Mothra
+King Kong
+The Hulk
+Spider-Man
+Batman
+The Joker
+Bane
+Catwoman
+Deadpool
+Thanos
+Magneto
+Cyclops
+Gambit
+Sabretooth
+Juggernaut
+Venom
+Carnage
+Punisher
+Blade
+Hellboy
+The Mask
+Beetlejuice
+Freddy
+Pinhead
+Chucky
+Ghostface
+Pennywise
+Leatherface
+Indiana Jones
+Shaft
+Dirty Harry
+Rocky
+Ivan Drago
+Apollo Creed
+Clubber Lang
+Mr T
+B.A. Baracus
+Hannibal
+Murdock
+MacGyver
+Knight Rider
+KITT
+Airwolf
+Street Hawk
+The A-Team
+Robin Hood
+Maid Marian
+Paul Daniels
+Debbie McGee
+Bob Holness
+Bruce Forsyth
+Noel Edmonds
+Mr Blobby
+Tony Hart
+Morph
+Bob Ross
+Les Dennis
+Jim Bowen
+Bullseye
+Bob Monkhouse
+Cilla
+Anneka Rice
+Keith Chegwin
+Timmy Mallett
+Gordon Gopher
+Edd the Duck
+Zippy
+Bungle
+Bagpuss
+Mr Benn
+Postman Pat
+Jess the Cat
+Fireman Sam
+Bob Builder
+Wombles
+Paddington
+Basil Brush
+Sooty
+Sweep
+Orville
+Emu
+Rod Hull
+Keith Harris
+Roland Rat
+Treguard
+Ulrika
+Gordon Ramsay
+Delia
+Fanny Cradock
+Magnus
+Rachel Riley
+Dictionary Ed
+Mr Motivator
+Mystic Meg
+Russ Abbot
+Tommy Cooper
+Frank Spencer
+Del Boy
+Rodney
+Trigger
+Boycie
+Uncle Albert
+Basil Fawlty
+Manuel
+Sybil
+Blackadder
+Baldrick
+Mr Bean
+Captain Slow
+The Stig
+Clarkson
+Hamster
+Lynn
+David Brent
+Gareth
+Father Ted
+Dougal
+Father Jack
+Mrs Doyle
+Rimmer
+Lister
+The Cat
+Kryten
+Holly
+Hyacinth
+Duke Nukem
+Doomguy
+Ranger
+Bitterman
+Makron
+Strogg
+Gladiator
+Iron Maiden
+Berserker
+Shambler
+Vore
+Fiend
+Ogre
+Cacodemon
+Baron
+Cyberdemon
+Revenant
+Imp
+Pinky
+Lara Croft
+Alyx
+Barney
+G-Man
+Headcrab
+Master Chief
+Cortana
+Samus
+Ridley
+Sonic
+Knuckles
+Tails
+Robotnik
+Mario
+Luigi
+Wario
+Bowser
+Yoshi
+Donkey Kong
+Link
+Ganondorf
+Pikachu
+Snorlax
+Mewtwo
+Kirby
+Pac-Man
+Blinky
+Inky
+Clyde
+Solid Snake
+Raiden
+Ryu
+Ken
+Chun-Li
+Blanka
+Zangief
+M. Bison
+Sagat
+Akuma
+Scorpion
+Sub-Zero
+Raiden MK
+Goro
+Kano
+Lemmings
+Dizzy
+Jet Set Willy
+Monty Mole
+Sensible
+Worms
+Earthworm Jim
+Spyro
+Rayman
+Conker
+Banjo
+Kazooie
+Glados
+The Companion
+Lagzilla
+Spawn Camper
+Rocket Spam
+Quad Runner
+MegaHealthy
+Telefragger
+Gibs Galore
+Frag Magnet
+One Shot
+Ping 999
+Packet Loss
+Desync
+Rubberband
+Alt+F4
+Noob Tube
+Ragequit
+AFK
+Brb Toilet
+Mum Says Bed
+Pls Nerf
+GG No Re
+Get Good
+Nice Shot
+Aimbot Andy
+Wallhack Wal
+Shotgun Steve
+Blaster Only
+Grenade Gary
+Hyper Harry
+Chaingun Chas
+Railgun Ron
+BFG Bob
+Camping Carl
+Strafe Jumper
+Bunny Hopper
+Circle Strafe
+Back Pedal
+Hulk Hogan
+Big Daddy
+Haystacks
+Mick McManus
+Undertaker
+Kane
+Mankind
+Stone Cold
+The Rock
+Macho Man
+Andre
+Bret Hart
+Triple H
+Goldberg
+Sting
+Rey Mysterio
+Big Show
+Jocky Wilson
+Phil Taylor
+Eric Bristow
+Snooker Loopy
+Whirlwind
+Hurricane
+Rocket
+Steve Davis
+Gazza
+Vinnie
+Psycho
+Chopper
+Big Sam
+Eddie Eagle
+Frank Bruno
+Prince Naseem
+Nigel Benn
+Dangermouse
+Penfold
+Count Duckula
+Bananaman
+SuperTed
+Spotty
+Henry's Cat
+Roobarb
+Custard
+Dogtanian
+Ulysses 31
+Thundercats
+Lion-O
+Mumm-Ra
+Snarf
+Dr Claw
+Scooby Doo
+Shaggy
+Scrappy
+Velma
+Daphne
+Top Cat
+Wile E Coyote
+Road Runner
+Bugs Bunny
+Daffy
+Taz
+Yosemite Sam
+Marvin
+Foghorn
+Homer
+Bart
+Mr Burns
+Smithers
+Ned Flanders
+Moe
+Barney Gumble
+Ralph Wiggum
+Krusty
+Sideshow Bob
+Itchy
+Scratchy
+Duff Man
+Milhouse
+Nelson
+Groundskeeper
+Ferris
+Bueller
+Marty McFly
+Doc Brown
+Biff
+Gozer
+Slimer
+Stay Puft
+Zuul
+Venkman
+Gizmo
+Stripe
+Mogwai
+Gremlin
+ET
+Short Circuit
+Johnny Five
+HAL 9000
+Newt
+Hicks
+Vasquez
+Game Over Man
+Xenomorph
+Facehugger
+Neo
+Morpheus
+Trinity
+Agent Smith
+The Oracle
+The Dude
+Big Lebowski
+Forrest Gump
+Bubba
+Lt Dan
+Clarice
+Norman Bates
+Mr Blonde
+Mr Pink
+Mr Orange
+Vincent Vega
+Marsellus
+The Wolf
+Bridget Jones
+Shaun
+The Swan
+Freddie
+Bowie
+Ziggy
+Lemmy
+Ozzy
+Slash
+Axl
+Meat Loaf
+Bonnie Tyler
+Rick Astley
+Kylie
+Matt Goss
+Showaddywaddy
+Chesney
+Status Quo
+Mr Brightside
+Jarvis
+Noel
+Posh
+Scary
+Vengaboys
+Barbie Girl
+Mr Boombastic
+Vanilla Ice
+Terminator
+Plissken
+Rod n Jane
+O'Brien
+Vorderman
+Partridge
+Meldrew
+Tank Cmdr
+Freeman
+Kendo
+HBK
+Crafty Cockny
+Greenback
+Willo
+Gadget
+HK Phooey
+Worst Ever
+Treehorn
+Lecter
+PC Angel
+Butterman
+Shaky
+Rail Junkie
+Jason Donovan
+Jason Voorhes
+Wee Jimmy
+Gonzo
+Kermit
+Miss Piggy
+Animal
+Fozzie
+Beaker
+Statler
+Waldorf
+Swedish Chef
+Rizzo
+Tinky Winky
+Dipsy
+Laa-Laa
+Po
+Noo-Noo
+Mr Tumble
+Iggle Piggle
+Makka Pakka
+Upsy Daisy
+Teletubby
+Nan
+Uncle Keith
+Auntie Pat
+Big Kev
+Dave from IT
+Barry Scott
+Bang and Gone
+Cillit Bang
+Shake n Vac
+Mr Muscle
+Ronald
+The Colonel
+Mr Kipling
+Honey Monster
+Tetley Man
+Churchill
+Oh Yes
+Compo
+Clegg
+Foggy
+Nora Batty
+Gromit
+Wallace
+Chas n Dave
+Pob
+Grotbags
+Wizbit
+Trumpton
+Windy Miller
+Pugh Pugh
+Dibble
+Sid Snot
+Kenny Everett
+Cupid Stunt
+Mr Humphries
+Dont Panic
+Stupid Boy
+Godber
+Big Ron

@@ -78,6 +78,8 @@ cvar_t	*bot_sjpathtest;
 cvar_t	*bot_hearsight;
 cvar_t	*bot_hearsighttest;
 cvar_t	*bot_preaim;
+cvar_t	*bot_nameprefix;
+cvar_t	*bot_namefile;
 cvar_t	*bot_preaimtest;
 cvar_t	*bot_inputlog;
 cvar_t	*bot_ammoneed;
@@ -92,6 +94,12 @@ static char		bot_logged_map[MAX_QPATH];	// map the current log/nav is for
 // when each client slot last made weapon noise (bot_fov hearing; kept out of
 // gclient_t deliberately -- no vanilla struct edits)
 static float	bot_noise_time[MAX_CLIENTS];
+static unsigned	bot_name_seed;		// the match's RNG seed, reused for name picks
+#define BOT_NAMES_MAX	1024
+#define BOT_NAME_LEN	16		// == sizeof(pers.netname)
+
+static char		bot_names[BOT_NAMES_MAX][BOT_NAME_LEN];
+static int		bot_num_names = -1;	// -1 = not loaded yet
 // bot_hearing: the generalized registry beside the legacy weapon-fire slot
 static float	bot_noise_at[MAX_CLIENTS];		// when the last noise happened
 static int		bot_noise_kind[MAX_CLIENTS];	// NOISE_*
@@ -328,6 +336,8 @@ void Bot_Init (void)
 	bot_sjpathtest   = gi.cvar ("bot_sjpathtest", "0", 0);	// id-parity A/B of bot_sjpath bit 2 (odd ids: off)
 	bot_hearsight    = gi.cvar ("bot_hearsight", "0", 0);	// out-of-cone acquisition of a visible enemy we just heard
 	bot_hearsighttest = gi.cvar ("bot_hearsighttest", "0", 0);	// id-parity A/B of bot_hearsight (odd ids: off)
+	bot_nameprefix   = gi.cvar ("bot_nameprefix", "B|", 0);	// in-game name prefix ("" = none)
+	bot_namefile     = gi.cvar ("bot_namefile", "botnames.txt", 0);	// <gamedir>/<file>: one name per line
 	bot_preaim       = gi.cvar ("bot_preaim", "1", 0);		// look where a lost enemy will reappear (sight-legal pre-aim)
 	bot_preaimtest   = gi.cvar ("bot_preaimtest", "0", 0);	// id-parity A/B of bot_preaim (odd ids: off)
 	bot_sjlog        = gi.cvar ("bot_sjlog", "0", 0);		// strafe-jump controller event telemetry
@@ -476,10 +486,12 @@ void Bot_Init (void)
 			? (unsigned)bot_seed->value
 			: (unsigned)(time(NULL) ^ ((unsigned)_getpid() << 16));
 		srand (seed);
+		bot_name_seed = seed;
 		gi.dprintf ("ozbot: rng seed %u\n", seed);
 	}
 
 	memset (bots, 0, sizeof(bots));
+	bot_num_names = -1;	// re-read the name file each game
 	bot_next_id = 0;
 	bot_logged_map[0] = 0;
 
@@ -1095,22 +1107,142 @@ engine does NOT re-run ClientConnect on a level change ("Changing levels will
 NOT cause this to be called again", p_client.c), so the host's real userinfo is
 never re-applied, yet the host stays connected and keeps its client slot.  If
 Bot_Add grabbed that slot in the frames before the host's ClientBegin it would
-overwrite game.clients[i].pers with bot data (netname "OzBot<id>"); because the
+overwrite game.clients[i].pers with bot data (a bot netname); because the
 host's userinfo is never re-sent, the netname-release guard in Bot_RunFrame
 could then never detect the collision and the bot think-loop would drive
-(puppet) the human.  Bots always carry an "OzBot" netname, so a *connected*
+(puppet) the human.  Bots always carry a name from Bot_PickName, so a *connected*
 slot whose name is NOT ours is a human we must never claim.  Dedicated fastsim
 servers have no connected humans at map start, so this is inert there (the
 same-seed measurement gate is unaffected).
 =================
 */
+/*
+=================
+Bot names (bot_nameprefix / bot_namefile)
+
+In-game names are <prefix><name>, the name drawn from <gamedir>/<bot_namefile>
+(one per line, '#' comments and blanks ignored, loaded once).  The pick is a
+hash of the match's RNG seed and the bot id -- it never calls random(), so the
+simulation's RNG stream is untouched -- probed forward past names already in
+use, so a server never shows two bots with one name.  Without a usable file
+the name is <prefix>Bot<id>.  Names are clipped so prefix + name fits the
+15-character netname.  Telemetry keeps its own OzBot<id> label (keyed on id),
+so the analysis tools are unaffected.
+=================
+*/
+
+static void Bot_CopyName (char *dst, const char *src)
+{
+	strncpy (dst, src, BOT_NAME_LEN - 1);
+	dst[BOT_NAME_LEN - 1] = 0;
+}
+
+static void Bot_LoadNames (void)
+{
+	char	path[MAX_OSPATH], line[128];
+	FILE	*f;
+
+	bot_num_names = 0;
+	Com_sprintf (path, sizeof(path), "%s/%s", Bot_GameDir (), bot_namefile->string);
+	f = fopen (path, "r");
+	if (!f)
+	{
+		gi.dprintf ("ozbot: no bot name file %s (using Bot<id>)\n", path);
+		return;
+	}
+	while (bot_num_names < BOT_NAMES_MAX && fgets (line, sizeof(line), f))
+	{
+		char	*p = line, *e;
+
+		while (*p == ' ' || *p == '\t')
+			p++;
+		e = p + strlen (p);
+		while (e > p && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\t'))
+			*--e = 0;
+		if (!*p || *p == '#')
+			continue;
+		// userinfo can't carry these
+		if (strchr (p, '\\') || strchr (p, '"') || strchr (p, ';'))
+			continue;
+		Bot_CopyName (bot_names[bot_num_names], p);
+		bot_num_names++;
+	}
+	fclose (f);
+	gi.dprintf ("ozbot: loaded %d bot names from %s\n", bot_num_names, path);
+}
+
+static qboolean Bot_NameInUse (const char *nm)
+{
+	int	i;
+
+	for (i = 0; i < MAX_CLIENTS; i++)
+		if (bots[i].inuse && !strcmp (bots[i].netname, nm))
+			return true;
+	return false;
+}
+
+// the full in-game name, clipped to the netname size
+static void Bot_FullName (char *out, const char *base)
+{
+	char	tmp[64];
+
+	Com_sprintf (tmp, sizeof(tmp), "%s%s", bot_nameprefix->string, base);
+	Bot_CopyName (out, tmp);
+}
+
+static void Bot_PickName (bot_t *b, char *out)
+{
+	int	k;
+
+	if (bot_num_names < 0)
+		Bot_LoadNames ();
+	if (bot_num_names > 0)
+	{
+		unsigned h = bot_name_seed * 2654435761u + (unsigned)b->id * 40503u + 0x9e3779b9u;
+		h ^= h >> 15;
+		h *= 2246822519u;
+		h ^= h >> 13;
+		for (k = 0; k < bot_num_names; k++)
+		{
+			Bot_FullName (out, bot_names[(h + (unsigned)k) % (unsigned)bot_num_names]);
+			if (!Bot_NameInUse (out))
+				return;
+		}
+	}
+	{
+		char	base[32];
+		Com_sprintf (base, sizeof(base), "Bot%d", b->id);
+		Bot_FullName (out, base);
+	}
+}
+
+// is this a name a bot of ours could carry?  (slot ownership, Bot_SlotHeldByHuman)
+static qboolean Bot_IsOurName (const char *nm)
+{
+	char	full[BOT_NAME_LEN];
+	int		k;
+
+	if (!strncmp (nm, "OzBot", 5))
+		return true;			// a bot named by a pre-names build (map change)
+	if (bot_num_names < 0)
+		Bot_LoadNames ();
+	for (k = 0; k < bot_num_names; k++)
+	{
+		Bot_FullName (full, bot_names[k]);
+		if (!strcmp (nm, full))
+			return true;
+	}
+	Bot_FullName (full, "Bot");
+	return !strncmp (nm, full, strlen (full));
+}
+
 static qboolean Bot_SlotHeldByHuman (int i)
 {
 	gclient_t	*cl = &game.clients[i];
 
 	if (!cl->pers.connected)
 		return false;
-	return strncmp (cl->pers.netname, "OzBot", 5) != 0;
+	return !Bot_IsOurName (cl->pers.netname);
 }
 
 /*
@@ -1177,7 +1309,8 @@ static qboolean Bot_Add (void)
 		? (((b->id % 2) == 0) ? 0.9f : 0.1f)
 		: -1.0f;
 
-	Com_sprintf (name, sizeof(name), "OzBot%d", b->id);
+	Bot_PickName (b, name);
+	Bot_CopyName (b->netname, name);
 	userinfo[0] = 0;
 	Info_SetValueForKey (userinfo, "name", name);
 	Info_SetValueForKey (userinfo, "skin", "male/grunt");
@@ -1247,8 +1380,8 @@ void Bot_HumanConnecting (edict_t *ent)
 	i = (int)(ent - g_edicts) - 1;
 	if (i < 0 || i >= game.maxclients || !bots[i].inuse)
 		return;
-	gi.dprintf ("ozbot: a client is connecting into bot slot %d -- removing OzBot%d\n",
-		i, bots[i].id);
+	gi.dprintf ("ozbot: a client is connecting into bot slot %d -- removing %s\n",
+		i, bots[i].netname);
 	Bot_RemoveSlot (i);
 }
 
@@ -2437,9 +2570,7 @@ void Bot_RunFrame (void)
 		// the slot, so we never drive (fight) a real player's edict.  Bot_Add
 		// then refills the population in a genuinely free slot.
 		{
-			char	nm[32];
-			Com_sprintf (nm, sizeof(nm), "OzBot%d", b->id);
-			if (strcmp (ent->client->pers.netname, nm) != 0)
+			if (strcmp (ent->client->pers.netname, b->netname) != 0)
 			{
 				memset (b, 0, sizeof(*b));
 				continue;

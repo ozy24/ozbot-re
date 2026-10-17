@@ -44,6 +44,7 @@ build_game() {
         || { echo "[ozbot-re] GetGameAPI not exported"; exit 1; }
     mkdir -p "$Q2DIR/ozbotre"
     install -m 755 dist/gamex86_64.so "$Q2DIR/ozbotre/gamex86_64.so"
+    install -m 644 data/botnames.txt "$Q2DIR/ozbotre/botnames.txt"   # bot_namefile
     echo "[ozbot-re] Built dist/gamex86_64.so, deployed to $Q2DIR/ozbotre"
 }
 

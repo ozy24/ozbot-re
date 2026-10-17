@@ -242,6 +242,7 @@ typedef struct
 								// from goal_time precisely BECAUSE goal_time is
 								// advanced by that freeze and is not a clock
 	qboolean	lkp_noise;		// this sighting came from bot_hearing, not sight
+	char		netname[16];	// the in-game name this bot was given (Bot_Add)
 	// bot_preaim: own sighting record (pursuit consumes the LKP fields)
 	edict_t		*pa_ent;		// whose sighting (NULL = none)
 	vec3_t		pa_pos;			// their origin at the last sighting
@@ -427,6 +428,8 @@ extern cvar_t	*bot_hearsight;
 extern cvar_t	*bot_hearsighttest;
 qboolean Bot_HeardRecently (edict_t *who, float dist);
 extern cvar_t	*bot_preaim;
+extern cvar_t	*bot_nameprefix;
+extern cvar_t	*bot_namefile;
 extern cvar_t	*bot_preaimtest;
 qboolean Bot_PreaimOn (bot_t *b);
 qboolean Bot_PreaimPoint (bot_t *b, vec3_t out);
