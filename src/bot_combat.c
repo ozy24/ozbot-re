@@ -264,6 +264,11 @@ static edict_t *Combat_FindEnemy (bot_t *b)
 #endif
 			&& !Combat_InFov (self, o))
 			continue;
+#ifdef OZBOT_Q2RED
+		// CTF: whoever carries our flag is the target, ahead of a nearer foe
+		if (Ctf_CarriesFlagOf (o, Ctf_TeamOf (self)))
+			dd *= 0.25f;
+#endif
 		if (dd < bestd)
 		{
 			bestd = dd;

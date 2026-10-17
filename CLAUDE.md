@@ -68,6 +68,9 @@ Read `q2red/README.md` before touching it.
   numbers are not comparable with `STATS.md`.
 - **Two cvars exist only on q2red:** `bot_minplayers` (fill mode) and `bot_telemetry`
   (logs are off by default there).
+- **Whole hosted-only files go in `q2red/`, not `src/`.** `build_linux.sh` and
+  `build.bat` compile every `src/*.c`, so a new file there changes the q2repro DLL.
+  CTF play is `q2red/oz_ctf.c` for that reason, with its hooks in `src/` under the macro.
 
 ## Sim / measurement rig
 

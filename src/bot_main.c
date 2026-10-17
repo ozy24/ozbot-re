@@ -593,6 +593,10 @@ static void Bot_ResetNavState (bot_t *b)
 	b->replan_time  = level.time + 1.0;
 	b->progress_time = level.time;
 	b->pursuing     = false;	// bot_pursuit: a respawn ends any chase outright
+#ifdef OZBOT_Q2RED
+	b->ctf_kind     = CTF_NONE;
+	b->ctf_ent      = NULL;
+#endif
 	b->pursue_until = 0;
 	b->pursue_began = 0;
 	b->lkp_noise    = false;
@@ -697,6 +701,22 @@ qboolean Bot_ItemClaimed (edict_t *it, bot_t *self)
 	}
 	return false;
 }
+
+#ifdef OZBOT_Q2RED
+/* Another living bot is already on this CTF objective (q2red/oz_ctf.c). */
+qboolean Bot_CtfClaimed (bot_t *self, int kind, edict_t *ent)
+{
+	int	i;
+	for (i = 0; i < game.maxclients; i++)
+	{
+		bot_t *b = &bots[i];
+		if (b->inuse && b != self && b->ctf_kind == kind && b->ctf_ent == ent
+			&& b->ent && !b->ent->deadflag)
+			return true;
+	}
+	return false;
+}
+#endif
 
 /*
 =================
@@ -1521,6 +1541,10 @@ static void Bot_GoExplore (bot_t *b)
 	b->reroute_last_idx = 0;
 	b->reroute_idx_time = level.time;
 	b->steer_item    = NULL;	// fresh explore leg: no stale steering target
+#ifdef OZBOT_Q2RED
+	b->ctf_kind      = CTF_NONE;	// the CTF objective rode on this leg
+	b->ctf_ent       = NULL;
+#endif
 	// bot_pursuit: every goal teardown ends any chase riding on that goal leg.
 	// The sighting is dropped with it so a chase can never be resumed from a
 	// stale last-known position after the bot has moved on to something else.
@@ -1700,6 +1724,10 @@ static qboolean Bot_PursueTry (bot_t *b)
 		return false;
 	if (b->pursuing || b->enemy || b->flee)
 		return false;			// already chasing / can see them / running away
+#ifdef OZBOT_Q2RED
+	if (b->ctf_kind != CTF_NONE)
+		return false;			// a flag objective outranks a last-known position
+#endif
 	if (!b->lkp_time || level.time - b->lkp_time > BOT_PURSUE_FRESH)
 		return false;			// no sighting, or too stale to be worth walking to
 	if (!foe || !foe->inuse || !foe->client || foe->deadflag || foe->health <= 0
@@ -1921,6 +1949,21 @@ static void Bot_Navigate (bot_t *b)
 	}
 	else
 		Bot_PursueTry (b);
+
+#ifdef OZBOT_Q2RED
+	// CTF: a flag event (the enemy flag in our hands, ours dropped or stolen,
+	// a capture made, a carrier on the move) retires the current leg, so this
+	// frame's replan below picks the objective.  Inert on a map without flags.
+	if (b->mode == BOT_MODE_GOAL && Ctf_LegStale (b))
+	{
+		float delay = Ctf_ReplanDelay (b);	// before GoExplore clears the leg
+		if (b->pursuing)
+			Bot_PursueEnd (b, "ctf");
+		else
+			Bot_GoExplore (b);
+		b->replan_time = level.time + delay;
+	}
+#endif
 
 	if (b->mode == BOT_MODE_GOAL && b->goal_node >= 0 && b->goal_node < nav.num_nodes)
 	{
@@ -2328,7 +2371,16 @@ static void Bot_Navigate (bot_t *b)
 		// grab a *nearby* item opportunistically, but otherwise wander widely so
 		// the graph keeps growing into new areas (broad coverage -> connectivity
 		// -> more items become routable goals)
-		edict_t *it = stuck ? NULL : Goal_NearestItem (b, 350);
+		edict_t *it = NULL;
+#ifdef OZBOT_Q2RED
+		// CTF: walk at a flag the graph cannot route to, or one in sight,
+		// ahead of any item (touching it plays, and on a learning graph
+		// connects its spot)
+		if (!stuck)
+			it = Ctf_SteerTarget (b, 800);
+		if (!it)
+#endif
+		it = stuck ? NULL : Goal_NearestItem (b, 350);
 		if (it)
 			Bot_SteerToPoint (b, it->s.origin);
 		else
@@ -2341,6 +2393,11 @@ static void Bot_Navigate (bot_t *b)
 		int start = Nav_NearestNode (ent->s.origin);
 		int goal  = -1;
 
+#ifdef OZBOT_Q2RED
+		if (Ctf_Pick (b, start, &goal))
+			;	// a flag objective the graph can route to
+		else
+#endif
 		if (Goal_Select (b) && b->goal_item)
 			goal = Nav_NearestGoalNode (b->goal_item->s.origin);	// must match
 											// Goal_Select's resolution exactly
@@ -2375,6 +2432,11 @@ static void Bot_Navigate (bot_t *b)
 				Bot_LadderReset (b);
 				Bot_StrafeReset (b);	// fresh path: any runway is stale
 				Bot_PlaybackReset (b);
+#ifdef OZBOT_Q2RED
+				if (b->ctf_kind != CTF_NONE)
+					Bot_LogEvent (b, b->ctf_approach ? "ctf_approach" : Ctf_KindName (b->ctf_kind));
+				else
+#endif
 				if (b->goal_item)
 					Bot_LogItemEvent (b, "goal_item", Bot_ItemName (b->goal_item));
 				else
@@ -2391,6 +2453,11 @@ static void Bot_Navigate (bot_t *b)
 			// pair swapping.  An uncommitted pick claims nothing.
 			if (bot_decisive->value != 0)
 				b->goal_item = NULL;
+#ifdef OZBOT_Q2RED
+			b->ctf_kind = CTF_NONE;		// an uncommitted objective claims nothing
+			b->ctf_ent = NULL;
+			b->goal_timing = false;
+#endif
 		}
 	}
 }

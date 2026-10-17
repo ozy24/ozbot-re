@@ -716,6 +716,13 @@ gitem_t	itemlist[] =
 	OZ_ITEM ("key_red_key",				"Red Key",			0,	NULL,		ITK)
 	OZ_ITEM ("key_commander_head",		"Commander's Head",	0,	NULL,		ITK)
 	OZ_ITEM ("key_airstrike_target",	"Airstrike Marker",	0,	NULL,		ITK)
+	// CTF flags: no 3.19 item, but the objectives oz_ctf.c plays for.  id's
+	// and MMREX's classnames, then MuffMode's (only one pair resolves to an
+	// item id on a given mod; the other stays unmapped)
+	OZ_ITEM ("item_flag_team1",			"Red Flag",			0,	NULL,		0)
+	OZ_ITEM ("item_flag_team2",			"Blue Flag",		0,	NULL,		0)
+	OZ_ITEM ("item_flag_team_red",		"Red Flag",			0,	NULL,		0)
+	OZ_ITEM ("item_flag_team_blue",		"Blue Flag",		0,	NULL,		0)
 	OZ_ITEM (NULL,						"Health",			0,	NULL,		0)
 #undef OZ_ITEM
 	{ NULL }
@@ -1254,6 +1261,12 @@ qboolean OzHost_IsTeammate (edict_t *a, edict_t *b)
 	return ta != 0 && ta == tb;
 }
 
+int OzHost_Team (edict_t *ent)
+{
+	return (ent && ent >= g_edicts && ent - g_edicts < MAX_EDICTS)
+		? oz_extra[ent - g_edicts].team : 0;
+}
+
 qboolean OzHost_IsBot (edict_t *ent)
 {
 	return host->is_bot ((int)(ent - g_edicts)) ? true : false;
@@ -1545,6 +1558,7 @@ static void OZ_MapBegin (const char *mapname)
 	}
 	OZ_MapItems ();
 	OZ_ParseEntityString ();
+	Ctf_MapBegin ();
 	OZ_MirrorWorld (true);
 	oz_level_active = true;
 }
@@ -1595,6 +1609,7 @@ static void OZ_FrameBegin (void)
 	OZ_SetLevelTime ();
 	OZ_MirrorWorld (false);
 	OZ_Perceive ();
+	Ctf_Frame ();
 
 	memset (oz_cmd_ready, 0, sizeof(oz_cmd_ready));
 	for (i = 0; i < game.maxclients; i++)
