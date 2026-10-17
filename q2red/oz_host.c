@@ -1587,6 +1587,10 @@ static void OZ_FrameBegin (void)
 
 	if (!oz_level_active)
 		return;
+	// the host refreshed its mirrors on the way in; carry them into the
+	// 3.19 cvar_t copies, so an operator's `set bot_minplayers 2` (or any
+	// bot_* cvar) takes effect this frame, not at the next map
+	OZ_SyncCvars ();
 	level.framenum++;
 	OZ_SetLevelTime ();
 	OZ_MirrorWorld (false);
