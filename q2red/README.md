@@ -28,6 +28,7 @@ server:
 | `bot_minplayers N` | **q2red only.** Fill mode: humans plus bots are kept at N, and bots leave as people join (one slot is always kept free). Overrides `bot_count`; 0 is off. |
 | `addbot` / `kickbot` | The server's own commands. They raise or lower `bot_count` by one. |
 | `bot_add N` / `bot_remove N` / `bot_clear` / `nav_query <item>` | ozbot's commands. On q2repro they were `sv bot_add` and so on. |
+| a server-side `kick <slot>` | **q2red only.** Removing one of ozbot's bots this way (an operator, or a mod that picks its own bots, such as Rocket Arena 2's `ra2_bots`) lowers `bot_count` by one, so the bot isn't replaced. A mod that owns the numbers runs with `bot_count 0` and `bot_minplayers 0` and uses `addbot` and `kick`. In fill mode `bot_minplayers` still decides. |
 | `bot_telemetry 1` | **q2red only.** Turns on the per-tick JSONL telemetry in `<gamedir>/logs/`. It is off by default because a q2red server runs unattended and the logs grow without limit. Every other cvar keeps its q2repro default. |
 
 ## How it fits together
@@ -114,6 +115,18 @@ py tools/q2red_navs.py --rig /tmp/q2bb --maps ctfpool.txt -j 6 --force --score c
 The score line only ranks checkpoints, so check the result for a flag-to-flag route, not
 by the score.
 
+**Maps that come with a Kex nav** (`bots/navigation/<map>.nav`, NAV3), such as Rocket
+Arena 2's, which its `sv nav_bake` writes, are converted instead of learned. On an arena
+map the learner has little to learn from, because bots walk only where a mod puts them:
+
+```bash
+py tools/nav3_to_onav.py <game>/bots/navigation/ra2map1.nav <game>/nav/ra2map1.nav --floor-origins
+```
+
+`--floor-origins` is for bakers that write floor points (RA2's), not the standing origins
+the stock files hold. Teleport, pusher and train links are left out, because ozbot seeds
+them at load.
+
 `baselines/nav_q2red_bloodyblastard/` holds the 64 navs deployed to Bloody Blastard on
 2026-10-17. They were baked against MuffMode 0.60 with its entity overrides. `POOL.txt` is
 the union of every `g_map_list` and `g_map_pool` in its `gt-*.cfg`. q2dm1-8 are the curated
@@ -150,6 +163,13 @@ pool were rebaked on 2026-10-17 under CTF rules, seeded with those navs (see abo
   attackers take the flag. The rerelease doesn't publish which side is attacking, so
   defenders also try to take the flag until they have stood on it without getting it.
   After that they leave it alone for 30 s.
+- **Arenas** (`oz_arena.c`, Rocket Arena 2 and the like). On a map with no items and no
+  flags, each bot hunts the nearest live enemy in its own arena: the CTF carrier hunt,
+  re-routed as the target moves. With nobody to hunt it roams only inside its arena. An
+  arena is the part of the graph joined without teleport links, so bots never wander
+  through a lobby's teleporters. While its own player is a spectator (in a mod's lobby,
+  or observing a round) or frozen, a bot sends no buttons or moves; those would work
+  the mod's menus and cameras.
 - **No Horde tactics** beyond fighting.
 - **MMREX Horde needs a human.** MMREX ends a Horde match that has no playing human
   ("ALL FIGHTERS LOST", `MM_Horde_CheckDesertionDefeat`), so bots alone cannot run it.

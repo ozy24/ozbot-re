@@ -1391,6 +1391,10 @@ static qboolean Bot_Add (void)
 	return true;
 }
 
+#ifdef OZBOT_Q2RED
+static qboolean	bot_removing;	// inside Bot_RemoveSlot (see Bot_ForgetSlot)
+#endif
+
 /*
 =================
 Bot_RemoveSlot
@@ -1407,8 +1411,14 @@ static void Bot_RemoveSlot (int i)
 	ent = b->ent;
 	Bot_LogEvent (b, "remove");
 
+#ifdef OZBOT_Q2RED
+	bot_removing = true;	// the server's disconnect callback is ours, not a kick
+#endif
 	if (ent && ent->inuse)
 		ClientDisconnect (ent);
+#ifdef OZBOT_Q2RED
+	bot_removing = false;
+#endif
 
 	memset (b, 0, sizeof(*b));
 }
@@ -1506,12 +1516,16 @@ static void Bot_KeepAcrossMap (void)
 	}
 }
 
-void Bot_ForgetSlot (edict_t *ent)
+qboolean Bot_ForgetSlot (edict_t *ent)
 {
 	int i = (int)(ent - g_edicts) - 1;
 
 	if (i >= 0 && i < MAX_CLIENTS && bots[i].inuse && bots[i].ent == ent)
+	{
 		memset (&bots[i], 0, sizeof(bots[i]));
+		return !bot_removing;	// true: the server (or a mod's kick) took it
+	}
+	return false;
 }
 #endif
 
@@ -2410,7 +2424,12 @@ static void Bot_Navigate (bot_t *b)
 											// Goal_Select's resolution exactly
 
 		if (goal < 0)
+#ifdef OZBOT_Q2RED
+			goal = Arena_Active () ? Arena_RoamNode (start)	// stay in the arena
+				: Bot_PickGoal (start);
+#else
 			goal = Bot_PickGoal (start);	// nothing worth grabbing -> roam
+#endif
 
 		if (goal >= 0 && (goal != start || b->goal_item))
 		{
@@ -2483,6 +2502,23 @@ static void Bot_Think (bot_t *b, usercmd_t *cmd)
 
 	memset (cmd, 0, sizeof(*cmd));
 	cmd->msec = (byte)(FRAMETIME * 1000);
+
+#ifdef OZBOT_Q2RED
+	// out of the game (a mod's lobby or observers, a frozen player): do
+	// nothing.  An observer's buttons and moves work the mod's menus and
+	// cameras, and the stuck detector would blame the graph for standing
+	// still.  Back in, the bot starts its navigation afresh: it was moved.
+	if (ent->client->resp.spectator || ent->client->ps.pmove.pm_type == PM_FREEZE)
+	{
+		b->out_of_play = true;
+		return;
+	}
+	if (b->out_of_play)
+	{
+		b->out_of_play = false;
+		Bot_ResetNavState (b);
+	}
+#endif
 
 	if (ent->deadflag)
 	{

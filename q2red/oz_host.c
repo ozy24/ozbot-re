@@ -1559,6 +1559,7 @@ static void OZ_MapBegin (const char *mapname)
 	OZ_MapItems ();
 	OZ_ParseEntityString ();
 	Ctf_MapBegin ();
+	Arena_MapBegin ();
 	OZ_MirrorWorld (true);
 	oz_level_active = true;
 }
@@ -1610,6 +1611,7 @@ static void OZ_FrameBegin (void)
 	OZ_MirrorWorld (false);
 	OZ_Perceive ();
 	Ctf_Frame ();
+	Arena_Frame ();
 
 	memset (oz_cmd_ready, 0, sizeof(oz_cmd_ready));
 	for (i = 0; i < game.maxclients; i++)
@@ -1649,11 +1651,21 @@ static void OZ_ClientBegin (int32_t entnum, int32_t is_bot)
 
 static void OZ_ClientDisconnect (int32_t entnum, int32_t is_bot)
 {
+	int n;
+
 	(void)is_bot;
 	if (entnum > 0 && entnum < MAX_EDICTS)
 	{
 		oz_cmd_ready[entnum] = false;
-		Bot_ForgetSlot (&g_edicts[entnum]);
+		// a bot of ours that the server dropped (a mod's or operator's
+		// `kick <slot>`) lowers the population, or the manager would put a
+		// new bot straight back; in fill mode OZ_FillPopulation decides anyway
+		if (Bot_ForgetSlot (&g_edicts[entnum]))
+		{
+			OZ_SyncCvars ();
+			n = (int)OZ_FindCvar ("bot_count")->value - 1;
+			gi.cvar_set ("bot_count", va ("%d", n < 0 ? 0 : n));
+		}
 	}
 }
 
