@@ -1306,7 +1306,12 @@ static qboolean Nav_Load (const char *mapname)
 	Nav_Path (mapname, path, sizeof(path));
 	f = fopen (path, "rb");
 	if (!f)
+	{
+		// always shown (not a dprintf): a missing nav is the usual reason bots wander
+		gi.cprintf (NULL, PRINT_HIGH, "ozbot: no nav for %s (looked for %s); bots start with an empty graph\n",
+			mapname, path);
 		return false;
+	}
 
 	fread (&magic, sizeof(magic), 1, f);
 	fread (&version, sizeof(version), 1, f);
@@ -1314,7 +1319,7 @@ static qboolean Nav_Load (const char *mapname)
 	if (magic != NAV_MAGIC || (version != 1 && version != 2)
 		|| count < 0 || count > NAV_MAX_NODES)
 	{
-		gi.dprintf ("ozbot: nav file %s is incompatible; ignoring\n", path);
+		gi.cprintf (NULL, PRINT_HIGH, "ozbot: nav file %s is incompatible; ignoring\n", path);
 		fclose (f);
 		return false;
 	}
@@ -1352,7 +1357,7 @@ static qboolean Nav_Load (const char *mapname)
 		}
 	}
 
-	gi.dprintf ("ozbot: loaded nav %s (%d nodes%s)\n", path, count,
+	gi.cprintf (NULL, PRINT_HIGH, "ozbot: loaded nav %s (%d nodes%s)\n", path, count,
 		nav_frozen ? ", frozen" : "");
 	return true;
 }
