@@ -197,8 +197,14 @@ int Ctf_Want (bot_t *b, edict_t **ent, qboolean *timing)
 
 	*ent = NULL;
 	*timing = false;
-	if (!ctf_active || !b->ent || !b->ent->client || b->ent->deadflag)
+	if (!b->ent || !b->ent->client || b->ent->deadflag)
 		return CTF_NONE;
+	if (!ctf_active)
+	{
+		// an arena (no items, no flags): hunt the nearest enemy in it
+		*ent = Arena_Target (b);
+		return *ent ? CTF_HUNT : CTF_NONE;
+	}
 	team = OzHost_Team (b->ent);
 	if (!(enemy = Ctf_Enemy (team)))
 		return CTF_NONE;
@@ -283,7 +289,7 @@ qboolean Ctf_LegStale (bot_t *b)
 	int			want;
 	vec3_t		d;
 
-	if (!ctf_active)
+	if (!ctf_active && !Arena_Active ())
 		return b->ctf_kind != CTF_NONE;
 	want = Ctf_Want (b, &ent, &timing);
 
