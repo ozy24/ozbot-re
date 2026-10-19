@@ -1352,6 +1352,10 @@ static qboolean Bot_Add (void)
 	userinfo[0] = 0;
 	Info_SetValueForKey (userinfo, "name", name);
 	Info_SetValueForKey (userinfo, "skin", "male/grunt");
+	// as a rerelease client has: without it the game writes the player-skin config
+	// string with an empty dogtag while mods (Rocket Arena 2's team skins) write
+	// "default", so the string flips every respawn and Kex reloads the player's skin
+	Info_SetValueForKey (userinfo, "dogtag", "default");
 	Info_SetValueForKey (userinfo, "hand", "2");
 	Info_SetValueForKey (userinfo, "fov", "90");
 
