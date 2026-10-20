@@ -3,8 +3,15 @@
 # clipped to Quake II's 15-character limit, so keep names to 13 characters
 # (spaces are fine).  Deployed to <gamedir>/botnames.txt (cvar bot_namefile);
 # re-read each map, so edits apply without a rebuild.
+#
+# bot_persona (q2red default): each bot gets a skill offset from bot_skill and a
+# weapon habit, hashed from its name. A line can fix either after a '|', in any
+# order: a signed number is the offset (-0.5..+0.5), a word is the habit
+# (allround, sniper, rocket, brawler, grenadier). The habit is a tendency: each
+# life (and every 20-45s) the bot plays it 60% of the time, another style 40%.
+#   Wolverine | +0.25 | brawler
 
-Wolverine
+Wolverine | +0.25 | brawler
 Judge Dredd
 Robocop
 T-1000
@@ -91,7 +98,7 @@ Les Dennis
 Jim Bowen
 Bullseye
 Bob Monkhouse
-Cilla
+Cilla | -0.25
 Anneka Rice
 Keith Chegwin
 Timmy Mallett

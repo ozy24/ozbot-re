@@ -100,6 +100,11 @@ static unsigned	bot_name_seed;		// the match's RNG seed, reused for name picks
 
 static char		bot_names[BOT_NAMES_MAX][BOT_NAME_LEN];
 static int		bot_num_names = -1;	// -1 = not loaded yet
+// bot_persona: optional per-name annotations ("Wolverine | +0.2 | brawler")
+#define PERSONA_NO_SKILL	99.0f
+static float	bot_name_pskill[BOT_NAMES_MAX];	// skill offset, PERSONA_NO_SKILL = hash it
+static int		bot_name_pstyle[BOT_NAMES_MAX];	// PSTYLE_*, -1 = hash it
+static int		bot_picked_name = -1;			// bot_names index of the last Bot_PickName
 // bot_hearing: the generalized registry beside the legacy weapon-fire slot
 static float	bot_noise_at[MAX_CLIENTS];		// when the last noise happened
 static int		bot_noise_kind[MAX_CLIENTS];	// NOISE_*
@@ -180,6 +185,16 @@ void Bot_Init (void)
 	bot_forwardspeed = gi.cvar ("bot_forwardspeed", "400", 0);
 	bot_debug        = gi.cvar ("bot_debug", "0", 0);
 	bot_skill        = gi.cvar ("bot_skill", "0.6", 0);
+	// per-bot personas (Bot_SetPersona): each bot gets its own skill offset and
+	// weapon habit from its name, for servers where people play the bots.  On
+	// q2red by default; off on the q2repro rig, where it would only perturb the
+	// measurements (off-state byte-identical).
+#ifdef OZBOT_Q2RED
+	bot_persona      = gi.cvar ("bot_persona", "3", 0);
+#else
+	bot_persona      = gi.cvar ("bot_persona", "0", 0);
+#endif
+	bot_personaspread= gi.cvar ("bot_personaspread", "0.15", 0);	// max hashed skill offset
 	bot_seed         = gi.cvar ("bot_seed", "0", 0);
 	bot_quitafter    = gi.cvar ("bot_quitafter", "0", 0);	// >0: quit after N game seconds (times fastsim runs)
 	bot_rollout      = gi.cvar ("bot_rollout", "1", 0);
@@ -1163,6 +1178,34 @@ static void Bot_CopyName (char *dst, const char *src)
 	dst[BOT_NAME_LEN - 1] = 0;
 }
 
+static const char *bot_style_names[PSTYLE_COUNT] = {
+	"allround", "sniper", "rocket", "brawler", "grenadier"
+};
+
+// the annotation after a name's '|': a signed number is the skill offset, a
+// word is the weapon habit, in any order, separated by '|' or spaces
+static void Bot_ParsePersona (char *p, float *skill, int *style)
+{
+	char	*tok;
+
+	for (tok = strtok (p, "| \t"); tok; tok = strtok (NULL, "| \t"))
+	{
+		int	k;
+
+		if ((*tok >= '0' && *tok <= '9') || *tok == '+' || *tok == '-' || *tok == '.')
+		{
+			float v = (float)atof (tok);
+			if (v < -0.5f) v = -0.5f;
+			if (v > 0.5f) v = 0.5f;
+			*skill = v;
+			continue;
+		}
+		for (k = 0; k < PSTYLE_COUNT; k++)
+			if (!Q_stricmp (tok, (char *)bot_style_names[k]))
+				*style = k;
+	}
+}
+
 static void Bot_LoadNames (void)
 {
 	char	path[MAX_OSPATH], line[128];
@@ -1187,6 +1230,18 @@ static void Bot_LoadNames (void)
 			*--e = 0;
 		if (!*p || *p == '#')
 			continue;
+		bot_name_pskill[bot_num_names] = PERSONA_NO_SKILL;
+		bot_name_pstyle[bot_num_names] = -1;
+		if ((e = strchr (p, '|')) != NULL)
+		{
+			Bot_ParsePersona (e + 1, &bot_name_pskill[bot_num_names],
+				&bot_name_pstyle[bot_num_names]);
+			*e = 0;
+			while (e > p && (e[-1] == ' ' || e[-1] == '\t'))
+				*--e = 0;
+			if (!*p)
+				continue;
+		}
 		// userinfo can't carry these
 		if (strchr (p, '\\') || strchr (p, '"') || strchr (p, ';'))
 			continue;
@@ -1230,16 +1285,124 @@ static void Bot_PickName (bot_t *b, char *out)
 		h ^= h >> 13;
 		for (k = 0; k < bot_num_names; k++)
 		{
-			Bot_FullName (out, bot_names[(h + (unsigned)k) % (unsigned)bot_num_names]);
+			bot_picked_name = (int)((h + (unsigned)k) % (unsigned)bot_num_names);
+			Bot_FullName (out, bot_names[bot_picked_name]);
 			if (!Bot_NameInUse (out))
 				return;
 		}
 	}
+	bot_picked_name = -1;
 	{
 		char	base[32];
 		Com_sprintf (base, sizeof(base), "Bot%d", b->id);
 		Bot_FullName (out, base);
 	}
+}
+
+/*
+=================
+Bot_SetPersona  (bot_persona)
+
+A bot's personality comes from its NAME, not its id or the match seed, so
+Wolverine plays the same way on every map and every server and players can get
+to know him.  Two traits:
+  - a skill offset from bot_skill, so the dial still sets the average but one
+    bot is noticeably sharper than another.  The hash gives a triangular spread
+    in [-bot_personaspread, +bot_personaspread]: most bots near the dial, a few
+    at the ends.
+  - a weapon habit (PSTYLE_*), which biases Combat_PersonaSelect: 30% all-round,
+    20% each sniper / rocket / brawler, 10% grenadier.
+A botnames.txt line can fix either trait: "Wolverine | +0.25 | brawler".
+Never calls random(): the simulation's RNG stream is untouched.
+=================
+*/
+
+/*
+=================
+Bot_RollMood  (bot_persona)
+
+The habit is a tendency, not a rule: a 1v1 against a bot that always plays one
+way is solved in two rounds.  Each spawn, and every 20-45s of a long life (an
+RA2 round winner is respawned without dying), the bot picks the style it plays
+the next stretch with -- its own habit 60% of the time, otherwise one of the
+others.  Hashed from the match seed, the name and the roll count: varied from
+match to match, never random().
+=================
+*/
+#define MOOD_HABIT_PCT	60
+#define MOOD_MIN_SECS	20.0f
+#define MOOD_MAX_SECS	45.0f
+#define MOOD_WOBBLE		150.0f	// max per-weapon liking a mood adds (band units)
+
+void Bot_RollMood (bot_t *b)
+{
+	unsigned	h = b->persona_hash * 2654435761u ^ (bot_name_seed + 0x9e3779b9u)
+					^ (unsigned)b->mood_n * 40503u;
+	int			pct;
+
+	h ^= h >> 15;
+	h *= 2246822519u;
+	h ^= h >> 13;
+	pct = (int)(h % 100);
+	if (pct < MOOD_HABIT_PCT)
+		b->persona_mood = b->persona_style;
+	else
+		b->persona_mood = (b->persona_style + 1 + (int)((h >> 8) % (PSTYLE_COUNT - 1)))
+			% PSTYLE_COUNT;
+	// per-weapon wobble for this mood: which close-range gun a brawler or an
+	// all-rounder reaches for changes from mood to mood
+	{
+		int	k;
+		for (k = 0; k < PERSONA_NWPN; k++)
+		{
+			unsigned	w = (h ^ ((unsigned)k * 0x85ebca6bu)) * 2246822519u;
+			w ^= w >> 13;
+			b->mood_like[k] = MOOD_WOBBLE * (float)(w & 0xffff) / 65535.0f;
+		}
+	}
+	b->mood_until = level.time + MOOD_MIN_SECS
+		+ (MOOD_MAX_SECS - MOOD_MIN_SECS) * (float)((h >> 16) & 0xff) / 255.0f;
+	b->mood_n++;
+	if (bot_debug->value != 0)
+		gi.cprintf (NULL, PRINT_HIGH, "ozbot: %s plays %s for now\n", b->netname,
+			bot_style_names[b->persona_mood]);
+}
+static void Bot_SetPersona (bot_t *b, int name_idx)
+{
+	const char	*base = b->netname;
+	unsigned	h = 2166136261u;
+	float		u1, u2;
+	int			pct;
+
+	if (!strncmp (base, bot_nameprefix->string, strlen (bot_nameprefix->string)))
+		base += strlen (bot_nameprefix->string);
+	for (; *base; base++)
+		h = (h ^ (unsigned char)*base) * 16777619u;	// FNV-1a
+	h ^= h >> 16;
+	b->persona_hash = h;
+	u1 = (float)(h & 0xffff) / 65535.0f;
+	u2 = (float)((h >> 16) & 0xffff) / 65535.0f;
+	pct = (int)((h * 2654435761u) >> 16) % 100;
+
+	b->persona_skill = (u1 + u2 - 1.0f) * bot_personaspread->value;
+	b->persona_style = (pct < 30) ? PSTYLE_ALLROUND
+		: (pct < 50) ? PSTYLE_SNIPER
+		: (pct < 70) ? PSTYLE_ROCKET
+		: (pct < 90) ? PSTYLE_BRAWLER
+		: PSTYLE_GRENADIER;
+	if (name_idx >= 0 && name_idx < bot_num_names)
+	{
+		if (bot_name_pskill[name_idx] != PERSONA_NO_SKILL)
+			b->persona_skill = bot_name_pskill[name_idx];
+		if (bot_name_pstyle[name_idx] >= 0)
+			b->persona_style = bot_name_pstyle[name_idx];
+	}
+	b->persona_mood = b->persona_style;
+	b->mood_n = 0;
+	b->mood_until = 0;		// the first think rolls the opening mood
+	if (bot_persona->value != 0)
+		gi.cprintf (NULL, PRINT_HIGH, "ozbot: %s skill %+.2f, %s\n", b->netname,
+			b->persona_skill, bot_style_names[b->persona_style]);
 }
 
 // is this a name a bot of ours could carry?  (slot ownership, Bot_SlotHeldByHuman)
@@ -1349,6 +1512,7 @@ static qboolean Bot_Add (void)
 
 	Bot_PickName (b, name);
 	Bot_CopyName (b->netname, name);
+	Bot_SetPersona (b, bot_picked_name);
 	userinfo[0] = 0;
 	Info_SetValueForKey (userinfo, "name", name);
 	Info_SetValueForKey (userinfo, "skin", "male/grunt");
@@ -1513,6 +1677,10 @@ static void Bot_KeepAcrossMap (void)
 		keep.ent = bots[i].ent;
 		keep.id = bots[i].id;
 		keep.skill_ovr = bots[i].skill_ovr;
+		keep.persona_skill = bots[i].persona_skill;
+		keep.persona_style = bots[i].persona_style;
+		keep.persona_hash = bots[i].persona_hash;
+		keep.persona_mood = bots[i].persona_style;
 		memcpy (keep.netname, bots[i].netname, sizeof(keep.netname));
 		bots[i] = keep;
 		bots[i].next_wander_time = 0;
@@ -2841,7 +3009,11 @@ void Bot_RunFrame (void)
 			b->was_dead = false;
 			Bot_ResetNavState (b);		// don't link across the respawn jump
 			Bot_LogEvent (b, "spawn");
+			if (bot_persona->value != 0)
+				Bot_RollMood (b);
 		}
+		if (bot_persona->value != 0 && level.time >= b->mood_until)
+			Bot_RollMood (b);
 
 		Bot_Think (b, &cmd);
 		// bot_cmdlog: log the bot's own usercmd stream in the bot_inputlog

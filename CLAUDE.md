@@ -614,6 +614,40 @@ compares names: `Bot_SlotHeldByHuman` uses `Bot_IsOurName`, the release guard
 compares `b->netname`. Verified: a human joining a full server evicts one bot cleanly
 and plays. **Telemetry still labels bots `OzBot<id>`** (keyed on id) — tools unchanged.
 
+## Bot personas (`bot_persona`, q2red default **3**, q2repro 0, 2026-10-20)
+
+For servers where people play the bots (fun first, strength second). In an arena
+everyone holds every weapon, and the fixed rail-first `Combat_SelectWeapon` order
+made every bot a railgun bot: 1008 RA2 rounds on `~/q2ra2`, **100% of bot shots and
+kills were rail**. Bitmask:
+- **1 (`PERSONA_SKILL`)** — each bot plays at `bot_skill` + its own offset, a
+  triangular hash of its NAME in `±bot_personaspread` (0.15), so Wolverine is the
+  same opponent on every map and server and the dial still sets the average.
+- **2 (`PERSONA_WEAPON`)** — `Combat_PersonaSelect` (`bot_combat.c`): scores each
+  owned weapon by the target's distance outside its demo kill-range band; the
+  current *mood* widens liked bands; lower skill costs the rail (projectiles are
+  dodgeable). Hysteresis 100u, 1s dwell. Habits: allround/sniper/rocket/brawler/
+  grenadier (30/20/20/20/10%).
+- **Moods** (`Bot_RollMood`): the habit is a tendency — each spawn and every 20–45s
+  (an RA2 round winner respawns without dying) the bot plays its habit 60%, another
+  style 40%. Hashed from match seed + name + roll count, never `random()`.
+  Each mood also adds a 0–150 per-weapon liking wobble (`mood_like`). ⚠️ Without it
+  the SSG / chaingun / RL bands (all ~140–350u) tie, and a fixed tie-break let one
+  gun win every close fight: the first RA2 test fired the chaingun **zero** times.
+  RL/GL also pay a point-blank splash cost (<150u), and the GL band stops at 500u
+  (it is aimed flat; `bot_glead` is off). Replay the scorer across distances
+  before trusting a table change — a single run of 20 rounds is too thin.
+- `botnames.txt` can fix either trait: `Wolverine | +0.25 | brawler`.
+
+Why it's not on for q2repro: `bot_wpnselect` (the habit-free version) cost −7.7pt
+kill share under 3.20 switch animations. RA2's `fastswitch: 1` drops/raises in one
+frame each, but **a shot can't be cancelled** (`Weapon_HandleNewWeapon` waits out
+`WEAPON_FIRING`, 1.5s for the rail), so rail→rocket refire combos don't exist there.
+Off-state md5 unchanged (q2dm1 `652d5a2c`, q2dm2 `e95140de`, 8×60 seed 700).
+Persona lines print on the server console (`gi.cprintf`; q2red hides `dprintf`);
+`bot_debug 1` also prints each mood roll. Measure on RA2 with `ra2_stats 1`
+(per-weapon shots/held/kills per round in `ra2re/stats/`).
+
 ## Nav sinks: learned regions with no way out (2026-10-14)
 
 The learner only records traversals the bot already makes, so a region it only

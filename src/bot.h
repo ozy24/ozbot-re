@@ -76,6 +76,8 @@ float Bot_TickGain (float gain10);
 #define SJ_NONE			0
 #define SJ_ACTIVE		1
 
+#define PERSONA_NWPN	10	// weapons Combat_PersonaSelect scores (bot_persona)
+
 // per-bot runtime state, kept in a registry indexed by client slot
 // (0-based: registry index i corresponds to edict g_edicts[i+1]).
 typedef struct
@@ -85,6 +87,15 @@ typedef struct
 	int			id;				// stable bot id for logging/naming
 	float		skill_ovr;		// per-bot skill override for bot_skilltest
 								// head-to-head A/B; < 0 = use bot_skill global
+	float		persona_skill;	// bot_persona: this bot's offset from bot_skill
+	int			persona_style;	// bot_persona: PSTYLE_* weapon habit
+	unsigned	persona_hash;	// bot_persona: hash of the name (mood rolls)
+	int			persona_mood;	// bot_persona: the style this stretch of play uses
+	int			mood_n;			// bot_persona: moods rolled so far
+	float		mood_until;		// bot_persona: when the mood re-rolls
+	float		mood_like[PERSONA_NWPN];	// bot_persona: this mood's per-weapon wobble
+	float		wpn_switch_time;	// bot_persona: last persona weapon switch
+	int			wpn_choice;		// bot_persona: ITEM_INDEX+1 of the last choice (0 = none)
 
 	// movement intent (world space), decoupled from aim/facing so the bot can
 	// move toward a goal while looking/shooting elsewhere
@@ -514,6 +525,18 @@ float Combat_Strength (edict_t *e);	// effective toughness (health + armor)
 float Combat_AmmoFracForItem (edict_t *ent, gitem_t *ammo_item);
 extern cvar_t	*bot_skill;
 extern cvar_t	*bot_skilltest;
+// per-bot personas, from the bot's name (bot_main.c Bot_SetPersona)
+extern cvar_t	*bot_persona;		// bitmask: PERSONA_SKILL | PERSONA_WEAPON
+extern cvar_t	*bot_personaspread;	// max hashed skill offset from bot_skill
+void Bot_RollMood (bot_t *b);
+#define PERSONA_SKILL	1	// each bot's skill is bot_skill + its own offset
+#define PERSONA_WEAPON	2	// weapon choice by range + the bot's weapon habit
+#define PSTYLE_ALLROUND		0
+#define PSTYLE_SNIPER		1
+#define PSTYLE_ROCKET		2
+#define PSTYLE_BRAWLER		3
+#define PSTYLE_GRENADIER	4
+#define PSTYLE_COUNT		5
 // weapon-aware combat: per-weapon engagement range/style (demo-calibrated)
 extern cvar_t	*bot_wpntactic;		// weapon-appropriate range + engagement style
 extern cvar_t	*bot_wpntactictest;	// id-parity A/B (even ids get it, odd control)

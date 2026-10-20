@@ -11,6 +11,8 @@ navigation for the frame.
 
 cvar_t	*bot_skill;		// 0 (easy) .. 1 (hard)
 cvar_t	*bot_skilltest;	// head-to-head skill A/B; see Bot_Add in bot_main.c
+cvar_t	*bot_persona;		// per-bot personas (skill offset, weapon habit); see Bot_SetPersona
+cvar_t	*bot_personaspread;	// max hashed skill offset from bot_skill
 cvar_t	*bot_lead;		// lead moving targets by projectile flight time
 cvar_t	*bot_glead;		// grenade launcher: ballistic lob solve + lead (default 0)
 cvar_t	*bot_wpnall;		// weapon selection also considers the GL and BFG10K (default 0)
@@ -97,6 +99,9 @@ cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
 static float Skill (bot_t *b)
 {
 	float s = (b->skill_ovr >= 0.0f) ? b->skill_ovr : (bot_skill ? bot_skill->value : 0.6f);
+	// bot_persona: each bot plays at its own offset from the bot_skill dial
+	if (b->skill_ovr < 0.0f && bot_persona && ((int)bot_persona->value & PERSONA_SKILL))
+		s += b->persona_skill;
 	if (s < 0) s = 0;
 	if (s > 1) s = 1;
 	return s;
@@ -403,6 +408,7 @@ swap via client->newweapon on the next weapon think).
 // both defined later in the file (after Combat_SelectWeapon)
 static qboolean Combat_WpnSelectOn (bot_t *b);
 static void Combat_WeaponProfile (gitem_t *w, float *lo, float *hi, float *bias);
+static void Combat_PersonaSelect (bot_t *b);
 
 static void Combat_SelectWeapon (bot_t *b)
 {
@@ -425,6 +431,12 @@ static void Combat_SelectWeapon (bot_t *b)
 	int			nprio = all ? 10 : 8;
 	edict_t	*ent = b->ent;
 	int		i;
+
+	if (bot_persona && ((int)bot_persona->value & PERSONA_WEAPON) && Bot_Humanized (b))
+	{
+		Combat_PersonaSelect (b);
+		return;
+	}
 
 	// range-aware selection (bot_wpnselect): among the weapons we own + have ammo
 	// for, pick the one whose demo kill-range band [lo,hi] best fits the current
@@ -616,6 +628,145 @@ static qboolean Combat_WpnSelectOn (bot_t *b)
 		? ((b->id & 1) == 0)
 		: (bot_wpnselect && bot_wpnselect->value != 0);
 	return on && Bot_Humanized (b);
+}
+
+/*
+=================
+Combat_PersonaSelect  (bot_persona & PERSONA_WEAPON)
+
+Weapon choice for play against people, where variety and counterplay matter more
+than kill share.  The fixed rail-first order made every bot in an arena (where
+everyone holds everything) a railgun bot.  Here each owned weapon is scored by
+how far the target sits outside its demo kill-range band (Combat_WeaponProfile),
+and the bot's current mood (persona_mood, usually its habit -- Bot_RollMood) widens the bands of the weapons it
+likes, so a rocket bot keeps its launcher out to ~500u and only rails beyond.
+Each mood also wobbles every weapon's liking (mood_like, 0-150), or the near-
+identical SSG / chaingun / rocket bands would let one weapon win every close
+fight (the first RA2 test: the chaingun never fired once).
+Lower skill also costs the railgun: a weaker bot leans on projectiles, which a
+human can dodge.  Ties go to the liked weapon, then the stock order.
+
+bot_wpnselect, the habit-free version of this, lost -7.7pt kill share in
+3.20-rules deathmatch, mostly to raise/lower downtime.  RA2's fastswitch makes a
+switch one frame each way, and the strength cost is accepted here by design.  A
+held weapon is kept unless another scores clearly better (PSEL_HYST), and never
+re-switched within PSEL_DWELL seconds, so the choice doesn't flicker.
+=================
+*/
+#define PSEL_HYST		100.0f	// units of band penalty a switch must win by
+#define PSEL_DWELL		1.0f	// seconds between persona switches
+#define PSEL_IDLE_DIST	400.0f	// distance assumed with no target (the habit pick)
+#define PSEL_RAILSKILL	500.0f	// rail band-units per point of skill above/below 0.6
+#define PSEL_SPLASH_NEAR	150.0f	// RL/GL closer than this hurt the shooter...
+#define PSEL_SPLASH_COST	2.0f	// ...at this many band units per unit closer
+#define PSEL_GL_MAXHI		500.0f	// a flat-aimed grenade lands short beyond this
+
+// same order as Combat_SelectWeapon's prio10 (it breaks ties)
+static const char *psel_wpn[] = {
+	"bfg10k", "railgun", "rocket launcher", "hyperblaster", "chaingun",
+	"super shotgun", "grenade launcher", "machinegun", "shotgun", "blaster"
+};
+#define PSEL_NWPN	PERSONA_NWPN
+// how much each habit likes each weapon, in band-widening units
+static const float psel_like[PSTYLE_COUNT][PSEL_NWPN] = {
+	//  bfg   rail   rl    hb    cg    ssg   gl    mg  sg  blaster
+	{   0,    0,     0,    0,    0,    0,    0,    0,  0,  0 },	// allround
+	{   0,    200,   0,    0,    0,    0,    0,    0,  0,  0 },	// sniper
+	{   0,    0,     200,  0,    0,    0,    60,   0,  0,  0 },	// rocket
+	{   0,    0,     0,    120,  180,  180,  0,    0,  0,  0 },	// brawler
+	{   0,    0,     80,   0,    0,    0,    220,  0,  0,  0 },	// grenadier
+};
+// the weak guns stay last resorts whatever the range
+static const float psel_tier[PSEL_NWPN] = { 0, 0, 0, 0, 0, 0, 0, 100, 150, 400 };
+
+static float Combat_PersonaScore (bot_t *b, int i, gitem_t *w, float dist)
+{
+	float	lo, hi, bias, like, pen;
+	int		style = b->persona_mood;
+
+	if (style < 0 || style >= PSTYLE_COUNT)
+		style = PSTYLE_ALLROUND;
+	Combat_WeaponProfile (w, &lo, &hi, &bias);
+	if (i == 6)
+	{
+		// the GL's profile band is where players stand (350-800u), but the bot
+		// aims it flat (bot_glead is off), so choose it only where a lob lands
+		lo = 120;
+		hi = 400;
+	}
+	like = psel_like[style][i] + b->mood_like[i];
+	if (i == 1)
+		like += (Skill (b) - 0.6f) * PSEL_RAILSKILL;
+	if (like > 0)
+	{
+		lo -= like;
+		hi += like;
+		if (i == 6 && hi > PSEL_GL_MAXHI)
+			hi = PSEL_GL_MAXHI;
+	}
+	pen = (dist < lo) ? (lo - dist) : (dist > hi) ? (dist - hi) : 0.0f;
+	if (like < 0)
+		pen -= like;
+	if ((i == 2 || i == 6) && dist < PSEL_SPLASH_NEAR)
+		pen += (PSEL_SPLASH_NEAR - dist) * PSEL_SPLASH_COST;
+	return pen + psel_tier[i];
+}
+
+static void Combat_PersonaSelect (bot_t *b)
+{
+	edict_t	*ent = b->ent;
+	gitem_t	*held = ent->client->pers.weapon;
+	gitem_t	*cur, *best = NULL;
+	float	dist = PSEL_IDLE_DIST, bestsc = 1e18f, bestlike = -1e18f, cursc = -1;
+	int		i, style = b->persona_mood;
+
+	if (style < 0 || style >= PSTYLE_COUNT)
+		style = PSTYLE_ALLROUND;
+	// the weapon we're committed to: our last choice while its switch is still
+	// pending (a switch waits out the firing animation, and q2red's host clears
+	// newweapon every frame), else what we hold
+	cur = (b->wpn_choice > 0) ? &itemlist[b->wpn_choice - 1] : held;
+	if (!Combat_HasWeaponAmmo (ent, cur))
+		cur = held;
+	if (b->enemy && b->enemy->inuse)
+	{
+		vec3_t	d;
+		VectorSubtract (b->enemy->s.origin, ent->s.origin, d);
+		dist = VectorLength (d);
+	}
+	for (i = 0; i < PSEL_NWPN; i++)
+	{
+		gitem_t	*w = FindItem ((char *)psel_wpn[i]);
+		float	sc, like;
+
+		if (!w || !Combat_HasWeaponAmmo (ent, w))
+			continue;
+		sc = Combat_PersonaScore (b, i, w, dist);
+		like = psel_like[style][i] + b->mood_like[i];
+		if (w == cur)
+			cursc = sc;
+		if (sc < bestsc - 0.5f || (sc < bestsc + 0.5f && like > bestlike))
+		{
+			bestsc = sc;
+			bestlike = like;
+			best = w;
+		}
+	}
+	if (!best)
+		return;
+	if (cur && cur != best && cursc >= 0
+		&& (cursc <= bestsc + PSEL_HYST || level.time < b->wpn_switch_time + PSEL_DWELL))
+		best = cur;
+	if (bot_wpnsellog && bot_wpnsellog->value != 0)
+		Bot_LogWpnSel (b, best->pickup_name ? best->pickup_name : "",
+			(held && held->pickup_name) ? held->pickup_name : "", dist);
+	if (b->wpn_choice != ITEM_INDEX (best) + 1)
+	{
+		b->wpn_choice = ITEM_INDEX (best) + 1;
+		b->wpn_switch_time = level.time;
+	}
+	if (held != best && ent->client->newweapon != best)
+		ent->client->newweapon = best;
 }
 
 /*
