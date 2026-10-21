@@ -25,10 +25,13 @@ server:
 |---|---|
 | `sv_bot_brain ozbot` | q2red loads `ozbot_x64.so` from the game directory, then the base directory, at the next map. Empty (the default) means no bots. |
 | `bot_count N` | A fixed population. |
-| `bot_minplayers N` | **q2red only.** Fill mode: humans plus bots are kept at N, and bots leave as people join (one slot is always kept free). Overrides `bot_count`; 0 is off. |
+| `bot_skill K` | **The rerelease's scale, as its configs use it:** 0 Training, 1 Easy, 2 Normal (default), 3 Hard, 4 Ultra-Violence, 5 Nightmare; fractions are allowed. Mapped to ozbot's internal 0–1 as `0.15 + 0.15 × K` (3 = 0.60, ozbot's tuned default on q2repro; 5 = 0.90). The anchors are provisional: Kex's own bots can't run beside ozbot's. q2repro keeps the 0–1 scale. |
+| `bot_numBots N` | The rerelease's fixed count: exactly N bots when N > 0. Overrides the fill cvars below. |
+| `bot_minClients N` | The rerelease's fill mode, so a mod's per-gametype configs work as written: humans plus bots are kept at N, and bots leave as people join (one slot is always kept free). **0 means no bots**, -1 (the default) means off. Overrides `bot_count`. |
+| `bot_minplayers N` | **q2red only.** The same fill, used only while `bot_minClients` is -1. 0 is off. |
 | `addbot` / `kickbot` | The server's own commands. They raise or lower `bot_count` by one. |
 | `bot_add N` / `bot_remove N` / `bot_clear` / `nav_query <item>` | ozbot's commands. On q2repro they were `sv bot_add` and so on. |
-| a server-side `kick <slot>` | **q2red only.** Removing one of ozbot's bots this way (an operator, or a mod that picks its own bots, such as Rocket Arena 2's `ra2_bots`) lowers `bot_count` by one, so the bot isn't replaced. A mod that owns the numbers runs with `bot_count 0` and `bot_minplayers 0` and uses `addbot` and `kick`. In fill mode `bot_minplayers` still decides. |
+| a server-side `kick <slot>` | **q2red only.** Removing one of ozbot's bots this way (an operator, or a mod that picks its own bots, such as Rocket Arena 2's `ra2_bots`) lowers `bot_count` by one, so the bot isn't replaced. A mod that owns the numbers runs with `bot_count 0`, `bot_minplayers 0` and `bot_minClients` unset (-1), and uses `addbot` and `kick`. In fill mode the fill cvar still decides. |
 | `bot_telemetry 1` | **q2red only.** Turns on the per-tick JSONL telemetry in `<gamedir>/logs/`. It is off by default because a q2red server runs unattended and the logs grow without limit. Every other cvar keeps its q2repro default. |
 
 ## How it fits together

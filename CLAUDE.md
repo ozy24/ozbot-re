@@ -68,6 +68,14 @@ Read `q2red/README.md` before touching it.
   numbers are not comparable with `STATS.md`.
 - **Two cvars exist only on q2red:** `bot_minplayers` (fill mode) and `bot_telemetry`
   (logs are off by default there).
+- **The rerelease's bot cvars mean what they mean in Kex** (2026-10-21), so a mod's
+  configs work as written: `bot_skill` is read on the **0–5 scale** (Training..Nightmare,
+  default 2, fractions allowed) and mapped to the internal 0–1 as `0.15 + 0.15 × K`
+  (`Skill_Dial`, `bot_combat.c`; 3 = 0.60, the tuned q2repro default). The anchors are a
+  judgement: Kex's own bots can't run beside ozbot's on q2red. `bot_numBots N` (> 0) is a
+  fixed count and `bot_minClients N` the fill (0 = **no bots**, -1 = off); ozbot's
+  `bot_minplayers` is only the fallback while `bot_minClients` is -1 (`OZ_FillPopulation`).
+  q2repro keeps `bot_skill` 0–1 (q2repro module byte-identical).
 - **Whole hosted-only files go in `q2red/`, not `src/`.** `build_linux.sh` and
   `build.bat` compile every `src/*.c`, so a new file there changes the q2repro DLL.
   CTF play is `q2red/oz_ctf.c` for that reason, with its hooks in `src/` under the macro.

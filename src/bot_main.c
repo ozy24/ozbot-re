@@ -184,7 +184,11 @@ void Bot_Init (void)
 	bot_count        = gi.cvar ("bot_count", "0", 0);
 	bot_forwardspeed = gi.cvar ("bot_forwardspeed", "400", 0);
 	bot_debug        = gi.cvar ("bot_debug", "0", 0);
+#ifdef OZBOT_Q2RED
+	bot_skill        = gi.cvar ("bot_skill", "2", 0);		// the rerelease's 0-5 scale (Skill_Dial)
+#else
 	bot_skill        = gi.cvar ("bot_skill", "0.6", 0);
+#endif
 	// per-bot personas (Bot_SetPersona): each bot gets its own skill offset and
 	// weapon habit from its name, for servers where people play the bots.  On
 	// q2red by default; off on the q2repro rig, where it would only perturb the

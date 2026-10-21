@@ -97,9 +97,34 @@ cvar_t	*bot_hop;		// humanization: combat movement rhythm -- jump rate
 						// and strafe-leg lengths from the demo stats, momentum
 						// dip on reversals, commit to close fights (Phase 4)
 
+#ifdef OZBOT_Q2RED
+// q2red: bot_skill is the rerelease's own cvar, an integer 0 (Training) to 5
+// (Nightmare), default 2, and every server config is written in that scale.
+// Read it that way (fractions allowed) and map it linearly onto the 0..1 scale
+// the aim/reaction model was tuned in: Kex 3 = 0.60 (ozbot's tuned default),
+// 5 = 0.90 (Nightmare isn't flawless).  Provisional: Kex's own bots can't run
+// beside ozbot's on q2red, so the anchors are a judgement, not a measurement.
+#define KEX_SKILL_BASE	0.15f
+#define KEX_SKILL_STEP	0.15f
+#define KEX_SKILL_MAX	5.0f
+
+static float Skill_Dial (void)
+{
+	float k = bot_skill ? bot_skill->value : 2.0f;
+	if (k < 0) k = 0;
+	if (k > KEX_SKILL_MAX) k = KEX_SKILL_MAX;
+	return KEX_SKILL_BASE + KEX_SKILL_STEP * k;
+}
+#else
+static float Skill_Dial (void)
+{
+	return bot_skill ? bot_skill->value : 0.6f;
+}
+#endif
+
 static float Skill (bot_t *b)
 {
-	float s = (b->skill_ovr >= 0.0f) ? b->skill_ovr : (bot_skill ? bot_skill->value : 0.6f);
+	float s = (b->skill_ovr >= 0.0f) ? b->skill_ovr : Skill_Dial ();
 	// bot_persona: each bot plays at its own offset from the bot_skill dial
 	if (b->skill_ovr < 0.0f && bot_persona && ((int)bot_persona->value & PERSONA_SKILL))
 		s += b->persona_skill;

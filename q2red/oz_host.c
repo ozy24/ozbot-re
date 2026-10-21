@@ -95,6 +95,8 @@ static qboolean	oz_level_active;
 static qboolean	oz_name_prefixed;		// the mod prefixes bot names itself
 static cvar_t	*bot_telemetry_cv;		// see Bot_LogBeginLevel (#ifdef OZBOT_Q2RED)
 static cvar_t	*bot_minplayers_cv;		// fill mode, see OZ_FillPopulation
+static cvar_t	*bot_minclients_cv;		// the rerelease's fill cvar (-1 off, 0 no bots)
+static cvar_t	*bot_numbots_cv;		// the rerelease's fixed count (<= 0 off)
 
 /*
 ==============================================================================
@@ -1506,6 +1508,8 @@ static int OZ_Init (void)
 	sv_gravity = gi.cvar ("sv_gravity", "800", 0);
 	bot_telemetry_cv = gi.cvar ("bot_telemetry", "0", 0);
 	bot_minplayers_cv = gi.cvar ("bot_minplayers", "0", 0);
+	bot_minclients_cv = gi.cvar ("bot_minClients", "-1", 0);
+	bot_numbots_cv = gi.cvar ("bot_numBots", "-1", 0);
 
 	// MuffMode and MMREX prefix bot names themselves (bot_name_prefix, "B|");
 	// ozbot's own prefix would double it
@@ -1570,23 +1574,35 @@ static void OZ_MapEnd (void)
 }
 
 /*
-bot_minplayers N (q2red only, 0 = off): keep humans + bots at N, so a public
-server has opponents when it is quiet and the bots make room as people join.
-It drives bot_count, which the brain's population manager then meets one bot
-a frame.  Bots are real server clients here, so without this a server filled
+Fill mode drives bot_count, which the brain's population manager then meets one
+bot a frame.  Bots are real server clients here, so without it a server filled
 with bots would turn humans away.  Spectating humans count: they hold a slot.
+The rerelease's own cvars come first, so a mod's per-gametype configs work as
+written; ozbot's bot_minplayers is the fallback when they are off:
+  bot_numBots N    (> 0) exactly N bots
+  bot_minClients N (>= 0) keep humans + bots at N; 0 = no bots (Kex: "No Bots
+                   Allowed"), -1 (default) = off
+  bot_minplayers N (> 0, q2red only) the same fill, when bot_minClients is -1
+With all three off, bot_count is left to the operator or the mod (RA2's
+ra2_bots adds its own).
 */
 static void OZ_FillPopulation (void)
 {
-	int		i, humans = 0, want;
+	int		i, humans = 0, want, target;
 	cvar_t	*count;
 
-	if (!bot_minplayers_cv || bot_minplayers_cv->value <= 0)
+	if (bot_numbots_cv && bot_numbots_cv->value > 0)
+		target = -(int)bot_numbots_cv->value;		// < 0: a fixed count
+	else if (bot_minclients_cv && bot_minclients_cv->value >= 0)
+		target = (int)bot_minclients_cv->value;
+	else if (bot_minplayers_cv && bot_minplayers_cv->value > 0)
+		target = (int)bot_minplayers_cv->value;
+	else
 		return;
 	for (i = 1; i <= game.maxclients && i < oz_num_edicts; i++)
 		if (g_edicts[i].inuse && g_edicts[i].client && !host->is_bot (i))
 			humans++;
-	want = (int)bot_minplayers_cv->value - humans;
+	want = (target < 0) ? -target : target - humans;
 	if (want > game.maxclients - humans - 1)
 		want = game.maxclients - humans - 1;	// always leave a slot to join into
 	if (want < 0)
