@@ -104,6 +104,7 @@ static int		bot_num_names = -1;	// -1 = not loaded yet
 #define PERSONA_NO_SKILL	99.0f
 static float	bot_name_pskill[BOT_NAMES_MAX];	// skill offset, PERSONA_NO_SKILL = hash it
 static int		bot_name_pstyle[BOT_NAMES_MAX];	// PSTYLE_*, -1 = hash it
+static int		bot_name_pmodel[BOT_NAMES_MAX];	// BMODEL_*, the player model (male unless set)
 static int		bot_picked_name = -1;			// bot_names index of the last Bot_PickName
 // bot_hearing: the generalized registry beside the legacy weapon-fire slot
 static float	bot_noise_at[MAX_CLIENTS];		// when the last noise happened
@@ -1194,9 +1195,37 @@ static const char *bot_style_names[PSTYLE_COUNT] = {
 	"allround", "sniper", "rocket", "brawler", "grenadier"
 };
 
+// the player model a name's line can set ("Ripley | female"); the skin within it
+// is hashed from the name (Bot_PickSkin). The stock rerelease skins, less the
+// team (ctf_*, rogue_*) and special ones.
+enum { BMODEL_MALE, BMODEL_FEMALE, BMODEL_CYBORG, BMODEL_COUNT };
+static const char *bot_model_names[BMODEL_COUNT] = { "male", "female", "cyborg" };
+static const char *bot_model_skins[BMODEL_COUNT][16] = {
+	{ "cipher", "claymore", "flak", "grunt", "howitzer", "major", "nightops", "pointman",
+	  "psycho", "rampage", "razor", "recon", "scout", "sniper", "viper", NULL },
+	{ "athena", "brianna", "cobalt", "ensign", "jezebel", "jungle", "lotus", "stiletto",
+	  "venus", "voodoo", NULL },
+	{ "oni911", "ps9000", "tyr574", NULL },
+};
+
+// "model/skin" for a bot: its line's model (male by default), and one of that
+// model's skins from the name hash, so a bot looks the same on every map
+static void Bot_PickSkin (char *out, size_t size, int name_idx, unsigned hash)
+{
+	int	model = BMODEL_MALE, n = 0;
+
+	if (name_idx >= 0 && name_idx < bot_num_names && bot_name_pmodel[name_idx] >= 0)
+		model = bot_name_pmodel[name_idx];
+	while (bot_model_skins[model][n])
+		n++;
+	Com_sprintf (out, (int)size, "%s/%s", bot_model_names[model],
+		bot_model_skins[model][(hash >> 8) % (unsigned)n]);
+}
+
 // the annotation after a name's '|': a signed number is the skill offset, a
-// word is the weapon habit, in any order, separated by '|' or spaces
-static void Bot_ParsePersona (char *p, float *skill, int *style)
+// word is the weapon habit or the player model, in any order, separated by '|'
+// or spaces
+static void Bot_ParsePersona (char *p, float *skill, int *style, int *model)
 {
 	char	*tok;
 
@@ -1215,6 +1244,9 @@ static void Bot_ParsePersona (char *p, float *skill, int *style)
 		for (k = 0; k < PSTYLE_COUNT; k++)
 			if (!Q_stricmp (tok, (char *)bot_style_names[k]))
 				*style = k;
+		for (k = 0; k < BMODEL_COUNT; k++)
+			if (!Q_stricmp (tok, (char *)bot_model_names[k]))
+				*model = k;
 	}
 }
 
@@ -1244,10 +1276,11 @@ static void Bot_LoadNames (void)
 			continue;
 		bot_name_pskill[bot_num_names] = PERSONA_NO_SKILL;
 		bot_name_pstyle[bot_num_names] = -1;
+		bot_name_pmodel[bot_num_names] = -1;
 		if ((e = strchr (p, '|')) != NULL)
 		{
 			Bot_ParsePersona (e + 1, &bot_name_pskill[bot_num_names],
-				&bot_name_pstyle[bot_num_names]);
+				&bot_name_pstyle[bot_num_names], &bot_name_pmodel[bot_num_names]);
 			*e = 0;
 			while (e > p && (e[-1] == ' ' || e[-1] == '\t'))
 				*--e = 0;
@@ -1461,6 +1494,7 @@ static qboolean Bot_Add (void)
 	edict_t	*ent;
 	int		i, k;
 	char	userinfo[MAX_INFO_STRING];
+	char	skin[MAX_QPATH];
 	char	name[32];
 	bot_t	*b;
 
@@ -1525,9 +1559,10 @@ static qboolean Bot_Add (void)
 	Bot_PickName (b, name);
 	Bot_CopyName (b->netname, name);
 	Bot_SetPersona (b, bot_picked_name);
+	Bot_PickSkin (skin, sizeof(skin), bot_picked_name, b->persona_hash);
 	userinfo[0] = 0;
 	Info_SetValueForKey (userinfo, "name", name);
-	Info_SetValueForKey (userinfo, "skin", "male/grunt");
+	Info_SetValueForKey (userinfo, "skin", skin);
 	// as a rerelease client has: without it the game writes the player-skin config
 	// string with an empty dogtag while mods (Rocket Arena 2's team skins) write
 	// "default", so the string flips every respawn and Kex reloads the player's skin

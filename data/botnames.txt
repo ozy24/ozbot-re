@@ -10,18 +10,24 @@
 # (allround, sniper, rocket, brawler, grenadier). The habit is a tendency: each
 # life (and every 20-45s) the bot plays it 60% of the time, another style 40%.
 #   Wolverine | +0.25 | brawler
+#
+# A line can also set the player model: male (the default), female or cyborg.
+# The skin within the model is hashed from the name, so a bot always looks the
+# same. Tagged as close to the character as possible: women and female
+# characters female; robots, androids, AIs and cyborgs cyborg.
+#   Ripley | female
 
 Wolverine | +0.25 | brawler
 Judge Dredd
-Robocop
-T-1000
+Robocop | cyborg
+T-1000 | cyborg
 Predator
-Ripley
+Ripley | female
 Mad Max
 Rambo
 John McClane
 Hans Gruber
-Darth Vader
+Darth Vader | cyborg
 Boba Fett
 Han Solo
 Chewbacca
@@ -31,21 +37,21 @@ Lando
 Kylo Ren
 Skeletor
 He-Man
-Optimus Prime
-Megatron
-Starscream
-Soundwave
-Grimlock
-Voltron
+Optimus Prime | cyborg
+Megatron | cyborg
+Starscream | cyborg
+Soundwave | cyborg
+Grimlock | cyborg
+Voltron | cyborg
 Godzilla
-Mothra
+Mothra | female
 King Kong
 The Hulk
 Spider-Man
 Batman
 The Joker
 Bane
-Catwoman
+Catwoman | female
 Deadpool
 Thanos
 Magneto
@@ -79,14 +85,14 @@ Hannibal
 Murdock
 MacGyver
 Knight Rider
-KITT
-Airwolf
+KITT | cyborg
+Airwolf | cyborg
 Street Hawk
 The A-Team
 Robin Hood
-Maid Marian
+Maid Marian | female
 Paul Daniels
-Debbie McGee
+Debbie McGee | female
 Bob Holness
 Bruce Forsyth
 Noel Edmonds
@@ -98,8 +104,8 @@ Les Dennis
 Jim Bowen
 Bullseye
 Bob Monkhouse
-Cilla | -0.25
-Anneka Rice
+Cilla | -0.25 | female
+Anneka Rice | female
 Keith Chegwin
 Timmy Mallett
 Gordon Gopher
@@ -123,15 +129,15 @@ Rod Hull
 Keith Harris
 Roland Rat
 Treguard
-Ulrika
+Ulrika | female
 Gordon Ramsay
-Delia
-Fanny Cradock
+Delia | female
+Fanny Cradock | female
 Magnus
-Rachel Riley
+Rachel Riley | female
 Dictionary Ed
 Mr Motivator
-Mystic Meg
+Mystic Meg | female
 Russ Abbot
 Tommy Cooper
 Frank Spencer
@@ -142,7 +148,7 @@ Boycie
 Uncle Albert
 Basil Fawlty
 Manuel
-Sybil
+Sybil | female
 Blackadder
 Baldrick
 Mr Bean
@@ -150,46 +156,46 @@ Captain Slow
 The Stig
 Clarkson
 Hamster
-Lynn
+Lynn | female
 David Brent
 Gareth
 Father Ted
 Dougal
 Father Jack
-Mrs Doyle
+Mrs Doyle | female
 Rimmer
 Lister
 The Cat
-Kryten
-Holly
-Hyacinth
+Kryten | cyborg
+Holly | cyborg
+Hyacinth | female
 Duke Nukem
 Doomguy
 Ranger
 Bitterman
-Makron
-Strogg
-Gladiator
-Iron Maiden
-Berserker
+Makron | cyborg
+Strogg | cyborg
+Gladiator | cyborg
+Iron Maiden | cyborg
+Berserker | cyborg
 Shambler
 Vore
 Fiend
 Ogre
 Cacodemon
 Baron
-Cyberdemon
-Revenant
+Cyberdemon | cyborg
+Revenant | cyborg
 Imp
 Pinky
-Lara Croft
-Alyx
+Lara Croft | female
+Alyx | female
 Barney
 G-Man
 Headcrab
-Master Chief
-Cortana
-Samus
+Master Chief | cyborg
+Cortana | female
+Samus | female
 Ridley
 Sonic
 Knuckles
@@ -215,7 +221,7 @@ Solid Snake
 Raiden
 Ryu
 Ken
-Chun-Li
+Chun-Li | female
 Blanka
 Zangief
 M. Bison
@@ -237,9 +243,9 @@ Spyro
 Rayman
 Conker
 Banjo
-Kazooie
-Glados
-The Companion
+Kazooie | female
+Glados | cyborg
+The Companion | cyborg
 Lagzilla
 Spawn Camper
 Rocket Spam
@@ -330,8 +336,8 @@ Dr Claw
 Scooby Doo
 Shaggy
 Scrappy
-Velma
-Daphne
+Velma | female
+Daphne | female
 Top Cat
 Wile E Coyote
 Road Runner
@@ -372,26 +378,26 @@ Stripe
 Mogwai
 Gremlin
 ET
-Short Circuit
-Johnny Five
-HAL 9000
-Newt
+Short Circuit | cyborg
+Johnny Five | cyborg
+HAL 9000 | cyborg
+Newt | female
 Hicks
-Vasquez
+Vasquez | female
 Game Over Man
-Xenomorph
-Facehugger
+Xenomorph | cyborg
+Facehugger | cyborg
 Neo
 Morpheus
-Trinity
+Trinity | female
 Agent Smith
-The Oracle
+The Oracle | female
 The Dude
 Big Lebowski
 Forrest Gump
 Bubba
 Lt Dan
-Clarice
+Clarice | female
 Norman Bates
 Mr Blonde
 Mr Pink
@@ -399,7 +405,7 @@ Mr Orange
 Vincent Vega
 Marsellus
 The Wolf
-Bridget Jones
+Bridget Jones | female
 Shaun
 The Swan
 Freddie
@@ -410,9 +416,9 @@ Ozzy
 Slash
 Axl
 Meat Loaf
-Bonnie Tyler
+Bonnie Tyler | female
 Rick Astley
-Kylie
+Kylie | female
 Matt Goss
 Showaddywaddy
 Chesney
@@ -420,17 +426,17 @@ Status Quo
 Mr Brightside
 Jarvis
 Noel
-Posh
-Scary
+Posh | female
+Scary | female
 Vengaboys
-Barbie Girl
+Barbie Girl | female
 Mr Boombastic
 Vanilla Ice
-Terminator
+Terminator | cyborg
 Plissken
 Rod n Jane
 O'Brien
-Vorderman
+Vorderman | female
 Partridge
 Meldrew
 Tank Cmdr
@@ -440,7 +446,7 @@ HBK
 Crafty Cockny
 Greenback
 Willo
-Gadget
+Gadget | cyborg
 HK Phooey
 Worst Ever
 Treehorn
@@ -454,7 +460,7 @@ Jason Voorhes
 Wee Jimmy
 Gonzo
 Kermit
-Miss Piggy
+Miss Piggy | female
 Animal
 Fozzie
 Beaker
@@ -464,23 +470,23 @@ Swedish Chef
 Rizzo
 Tinky Winky
 Dipsy
-Laa-Laa
-Po
-Noo-Noo
+Laa-Laa | female
+Po | female
+Noo-Noo | cyborg
 Mr Tumble
 Iggle Piggle
 Makka Pakka
-Upsy Daisy
+Upsy Daisy | female
 Teletubby
-Nan
+Nan | female
 Uncle Keith
-Auntie Pat
+Auntie Pat | female
 Big Kev
 Dave from IT
 Barry Scott
 Bang and Gone
 Cillit Bang
-Shake n Vac
+Shake n Vac | female
 Mr Muscle
 Ronald
 The Colonel
@@ -492,12 +498,12 @@ Oh Yes
 Compo
 Clegg
 Foggy
-Nora Batty
+Nora Batty | female
 Gromit
 Wallace
 Chas n Dave
 Pob
-Grotbags
+Grotbags | female
 Wizbit
 Trumpton
 Windy Miller
@@ -505,7 +511,7 @@ Pugh Pugh
 Dibble
 Sid Snot
 Kenny Everett
-Cupid Stunt
+Cupid Stunt | female
 Mr Humphries
 Dont Panic
 Stupid Boy
