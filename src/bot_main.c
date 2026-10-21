@@ -195,6 +195,14 @@ void Bot_Init (void)
 	bot_persona      = gi.cvar ("bot_persona", "0", 0);
 #endif
 	bot_personaspread= gi.cvar ("bot_personaspread", "0.15", 0);	// max hashed skill offset
+	// bot_sprayhold (Combat_Aim): chaingun / hyperblaster bursts hold the trigger
+	// through aim wobble instead of releasing (and winding down) on a lapse.  On
+	// q2red, where people play the bots; off on the q2repro rig (byte-identical).
+#ifdef OZBOT_Q2RED
+	bot_sprayhold    = gi.cvar ("bot_sprayhold", "1", 0);
+#else
+	bot_sprayhold    = gi.cvar ("bot_sprayhold", "0", 0);
+#endif
 	bot_seed         = gi.cvar ("bot_seed", "0", 0);
 	bot_quitafter    = gi.cvar ("bot_quitafter", "0", 0);	// >0: quit after N game seconds (times fastsim runs)
 	bot_rollout      = gi.cvar ("bot_rollout", "1", 0);

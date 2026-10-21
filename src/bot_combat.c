@@ -13,6 +13,7 @@ cvar_t	*bot_skill;		// 0 (easy) .. 1 (hard)
 cvar_t	*bot_skilltest;	// head-to-head skill A/B; see Bot_Add in bot_main.c
 cvar_t	*bot_persona;		// per-bot personas (skill offset, weapon habit); see Bot_SetPersona
 cvar_t	*bot_personaspread;	// max hashed skill offset from bot_skill
+cvar_t	*bot_sprayhold;		// hold-to-fire weapons keep the trigger through aim wobble
 cvar_t	*bot_lead;		// lead moving targets by projectile flight time
 cvar_t	*bot_glead;		// grenade launcher: ballistic lob solve + lead (default 0)
 cvar_t	*bot_wpnall;		// weapon selection also considers the GL and BFG10K (default 0)
@@ -1131,6 +1132,15 @@ static float Combat_WeaponPrec (gitem_t *w)
 	return 0.0f;
 }
 
+// hold-to-fire weapons: they fire only while the trigger stays down
+#define SPRAY_RELEASE	2.0f	// a burst stops at this multiple of the fire gate
+
+static qboolean Combat_IsSprayWeapon (gitem_t *w)
+{
+	const char *nm = (w && w->pickup_name) ? w->pickup_name : "";
+	return strstr (nm, "Chaingun") || strstr (nm, "HyperBlaster") || strstr (nm, "Machinegun");
+}
+
 /*
 =================
 Combat_TargetLateral
@@ -1261,7 +1271,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	float	skill = Skill (b);
 	vec3_t	eyes, teyes, dir, ang, toenemy, strafe, comb;
 	float	turnstep, firethresh, reaction, err, range, aimoff, rc, precm;
-	qboolean aimtweak;
+	qboolean aimtweak, sprayhold;
 	qboolean blaster_transit = false;	// blaster-only: travel to a real weapon, fire defensively
 
 	// FRAMESYNC (40Hz adaptation): the whole combat DECISION layer --
@@ -1287,8 +1297,20 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 
 		VectorSubtract (enemy->s.origin, self->s.origin, dir);
 		range = VectorLength (dir);
+#ifdef OZBOT_Q2RED
+		// keep the trigger where the keyframe put it.  q2repro steps weapons
+		// only on keyframes (p_client.c), but a rerelease module thinks its
+		// weapons every tick and the hyperblaster / chaingun read the HELD
+		// button at the end of each cycle: a trigger down one tick in four
+		// wound them down after a shot or two.
+		if (b->fire_held)
+			cmd->buttons |= BUTTON_ATTACK;
+#endif
 		goto aim_held;
 	}
+#ifdef OZBOT_Q2RED
+	b->fire_held = false;		// this keyframe decides afresh
+#endif
 
 	enemy = Combat_FindEnemy (b);
 	if (!enemy)
@@ -1661,6 +1683,18 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	aimoff = (float)(fabs (AngleDelta (ang[YAW], b->aim[YAW]))
 	               + fabs (AngleDelta (ang[PITCH], b->aim[PITCH])));
 
+	// bot_sprayhold: the chaingun and hyperblaster only keep cycling while the
+	// trigger is HELD; one released keyframe winds them down (the hyperblaster
+	// spin-down is ~1s).  The fire gate above flickers against a close strafer,
+	// and a combat glance released the trigger every 1-3s, so a bot fired one or
+	// two bolts at a time.  Once a burst is going, keep it until the aim is
+	// clearly off (SPRAY_RELEASE x the gate) and don't glance away mid-burst --
+	// a human holds the button through aim wobble.
+	sprayhold = bot_sprayhold->value != 0 && Bot_Humanized (b) && b->spray_hold
+		&& Combat_IsSprayWeapon (self->client->pers.weapon);
+	if (sprayhold)
+		firethresh *= SPRAY_RELEASE;
+
 	// combat gaze-life (bot_gazelife): a human doesn't stare down one target --
 	// between shots they flick to check a flank or glance where they're running,
 	// then snap back to fire.  Run a brief, spaced glance: the VIEW leaves the
@@ -1679,7 +1713,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		{
 			if (level.time < b->cglance_until)
 				glancing = true;
-			else if (level.time >= b->cglance_next)
+			else if (level.time >= b->cglance_next && !sprayhold)
 			{
 				// start a brief glance off the aim (a flank/path check), or
 				// toward where we're running.  Kept mild + spaced: an aggressive
@@ -1713,6 +1747,9 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		if (!glancing && level.time >= b->reaction_until && aimoff < firethresh)
 		{
 			cmd->buttons |= BUTTON_ATTACK;
+#ifdef OZBOT_Q2RED
+			b->fire_held = true;
+#endif
 
 			// bot_aimlog: record this shot's aim error vs the enemy's TRUE
 			// bearing (no lead, matching the human demo metric) + target lateral
@@ -1749,6 +1786,10 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 			}
 		}
 	}
+
+	if (bot_sprayhold->value != 0)
+		b->spray_hold = (cmd->buttons & BUTTON_ATTACK)
+			&& Combat_IsSprayWeapon (self->client->pers.weapon);
 
 aim_held:
 	// 40Hz view smoothing (bot_aimsmooth): b->aim is the aim the 10Hz decision

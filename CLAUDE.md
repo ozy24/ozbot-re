@@ -648,7 +648,27 @@ Persona lines print on the server console (`gi.cprintf`; q2red hides `dprintf`);
 `bot_debug 1` also prints each mood roll. Measure on RA2 with `ra2_stats 1`
 (per-weapon shots/held/kills per round in `ra2re/stats/`).
 
-## Nav sinks: learned regions with no way out (2026-10-14)
+## Hold-to-fire weapons on q2red (`bot_sprayhold`, q2red default 1, q2repro 0, 2026-10-21)
+
+Symptom (reported in play): the hyperblaster fires one or two bolts, stops, repeats.
+Two causes, both invisible on q2repro:
+1. **The trigger was down one tick in four.** Combat decides at 10Hz (`FRAMESYNC`)
+   and the off-frames (`aim_held`) never set `BUTTON_ATTACK`. q2repro only steps
+   weapons on keyframes (`p_client.c` FRAMESYNC gate), so it never noticed; a
+   rerelease module thinks weapons **every tick** and the HB/chaingun read the
+   *held* button at the end of each cycle, so they wound down. Fixed under
+   `#ifdef OZBOT_Q2RED` (`fire_held`): off-frames keep the keyframe's trigger.
+2. **The 10Hz fire gate drops out mid-fight** (aim lag vs a close strafer, combat
+   glances every 1–3s). `bot_sprayhold`: once a chaingun/HB/MG burst runs, release
+   only at 2× the gate (`SPRAY_RELEASE`) and don't start a glance mid-burst.
+   Chaingun on RA2: mean burst 0.48 → 0.63s, short (0.1–0.3s) releases per burst
+   0.84 → 0.50. **Partial:** the target-reversal re-react beat (`reaction_until`)
+   still releases the trigger; letting a burst hold through it is the next step,
+   untested. Measure with `bot_telemetry 1` + `bot_cmdlog 1` set **before** the
+   `map` line (the log opens at map start), and count runs **per bot** — mixing
+   bots' input records into one sequence fakes a 1-on/1-off pattern.
+
+
 
 The learner only records traversals the bot already makes, so a region it only
 ever *falls into* (or spawns in) gets no exit link. A bot inside such a **sink**

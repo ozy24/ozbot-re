@@ -96,6 +96,10 @@ typedef struct
 	float		mood_like[PERSONA_NWPN];	// bot_persona: this mood's per-weapon wobble
 	float		wpn_switch_time;	// bot_persona: last persona weapon switch
 	int			wpn_choice;		// bot_persona: ITEM_INDEX+1 of the last choice (0 = none)
+	qboolean	spray_hold;		// bot_sprayhold: last keyframe fired a hold-to-fire weapon
+#ifdef OZBOT_Q2RED
+	qboolean	fire_held;		// the last combat keyframe pulled the trigger (Combat_Aim)
+#endif
 
 	// movement intent (world space), decoupled from aim/facing so the bot can
 	// move toward a goal while looking/shooting elsewhere
@@ -528,6 +532,7 @@ extern cvar_t	*bot_skilltest;
 // per-bot personas, from the bot's name (bot_main.c Bot_SetPersona)
 extern cvar_t	*bot_persona;		// bitmask: PERSONA_SKILL | PERSONA_WEAPON
 extern cvar_t	*bot_personaspread;	// max hashed skill offset from bot_skill
+extern cvar_t	*bot_sprayhold;		// hold-to-fire weapons keep the trigger through aim wobble
 void Bot_RollMood (bot_t *b);
 #define PERSONA_SKILL	1	// each bot's skill is bot_skill + its own offset
 #define PERSONA_WEAPON	2	// weapon choice by range + the bot's weapon habit
