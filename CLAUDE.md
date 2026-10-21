@@ -668,7 +668,7 @@ Two causes, both invisible on q2repro:
    `map` line (the log opens at map start), and count runs **per bot** — mixing
    bots' input records into one sequence fakes a 1-on/1-off pattern.
 
-
+## Nav sinks: learned regions with no way out (2026-10-14)
 
 The learner only records traversals the bot already makes, so a region it only
 ever *falls into* (or spawns in) gets no exit link. A bot inside such a **sink**
