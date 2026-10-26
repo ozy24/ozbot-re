@@ -34,6 +34,7 @@
 #ifndef Q2RED_BOT_BRAIN_H
 #define Q2RED_BOT_BRAIN_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -303,7 +304,23 @@ typedef struct q2red_bot_brain_s {
      * 2 InProgress, 3 Finished. NULL = always Error, as with no brain. */
     int32_t (*move_to_point)(int32_t bot, const float point[3], float tolerance);
     int32_t (*follow_actor)(int32_t bot, int32_t actor);
+
+    /* --- appended; present when `size` covers it (see Q2RED_BOT_BRAIN_HAS) --- */
+
+    /* A simulated player (sv_sim_puppets, DIVERGENCE(A64)): a network client
+     * the brain should play as if it were one of its bots. on = 1 when it
+     * enters the game (again after each map change), 0 when it leaves. The
+     * host then asks think() for it each frame; it is not a bot to the game
+     * or to is_bot(). NULL = the brain can't, and puppets stand still. */
+    void (*adopt)(int32_t entnum, int32_t on);
 } q2red_bot_brain_t;
+
+/* The table every version-1 brain fills: up to and including follow_actor. */
+#define Q2RED_BOT_BRAIN_BASE_SIZE \
+    (offsetof(q2red_bot_brain_t, follow_actor) + sizeof(((q2red_bot_brain_t *)0)->follow_actor))
+/* Whether `brain` provides the appended member `field`. */
+#define Q2RED_BOT_BRAIN_HAS(brain, field) \
+    ((brain)->size >= offsetof(q2red_bot_brain_t, field) + sizeof((brain)->field) && (brain)->field)
 
 typedef const q2red_bot_brain_t *(*q2red_bot_brain_entry_fn)(
     uint32_t api_version, const q2red_bot_host_t *host);

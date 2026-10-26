@@ -1112,7 +1112,7 @@ static int Bot_CountActive (void)
 {
 	int i, n = 0;
 	for (i = 0; i < game.maxclients; i++)
-		if (bots[i].inuse)
+		if (bots[i].inuse && !bots[i].adopted)	// a simulated player isn't a bot
 			n++;
 	return n;
 }
@@ -1640,7 +1640,7 @@ static qboolean Bot_RemoveOne (void)
 	for (k = 0; k < game.maxclients; k++)
 	{
 		i = (bot_slottop->value != 0) ? k : game.maxclients - 1 - k;
-		if (bots[i].inuse)
+		if (bots[i].inuse && !bots[i].adopted)	// the server owns those
 		{
 			Bot_RemoveSlot (i);
 			return true;
@@ -1686,6 +1686,7 @@ static void Bot_KeepAcrossMap (void)
 		}
 		memset (&keep, 0, sizeof(keep));
 		keep.inuse = true;
+		keep.adopted = bots[i].adopted;
 		keep.ent = bots[i].ent;
 		keep.id = bots[i].id;
 		keep.skill_ovr = bots[i].skill_ovr;
@@ -1702,14 +1703,64 @@ static void Bot_KeepAcrossMap (void)
 
 qboolean Bot_ForgetSlot (edict_t *ent)
 {
-	int i = (int)(ent - g_edicts) - 1;
+	int			i = (int)(ent - g_edicts) - 1;
+	qboolean	adopted;
 
 	if (i >= 0 && i < MAX_CLIENTS && bots[i].inuse && bots[i].ent == ent)
 	{
+		adopted = bots[i].adopted;
 		memset (&bots[i], 0, sizeof(bots[i]));
-		return !bot_removing;	// true: the server (or a mod's kick) took it
+		// true: the server (or a mod's kick) took one of our bots; a
+		// simulated player leaving is no change to the bot population
+		return !bot_removing && !adopted;
 	}
 	return false;
+}
+
+/*
+=================
+Bot_Adopt / Bot_Release
+
+q2red A64: the server asks us to play a simulated player - a network client
+that joined like a human. It gets a bot record like one of ours (persona,
+skill, navigation), but its client stays the server's: no ClientConnect here,
+and it isn't counted as a bot.
+=================
+*/
+void Bot_Adopt (edict_t *ent)
+{
+	int		i = (int)(ent - g_edicts) - 1;
+	bot_t	*b;
+	char	name[32];
+
+	if (i < 0 || i >= MAX_CLIENTS || !ent->client)
+		return;
+	b = &bots[i];
+	if (b->inuse && b->ent == ent && b->adopted)
+		return;		// again after a map change: Bot_KeepAcrossMap kept it
+	memset (b, 0, sizeof(*b));
+	b->id = bot_next_id++;
+	b->skill_ovr = -1.0f;
+	Bot_CopyName (name, ent->client->pers.netname);
+	if (!name[0])	// a lobby player's netname is a "##P<n>" token
+		Com_sprintf (name, sizeof(name), "sim%d", i + 1);
+	Bot_CopyName (b->netname, name);
+	Bot_SetPersona (b, -1);	// from the name, as for our own bots
+	b->ent = ent;
+	b->adopted = true;
+	b->inuse = true;
+	b->was_dead = false;
+	b->next_wander_time = level.time;
+	Bot_ResetNavState (b);
+	Bot_LogEvent (b, "adopt");
+}
+
+void Bot_Release (edict_t *ent)
+{
+	int i = (int)(ent - g_edicts) - 1;
+
+	if (i >= 0 && i < MAX_CLIENTS && bots[i].inuse && bots[i].adopted)
+		memset (&bots[i], 0, sizeof(bots[i]));
 }
 #endif
 
@@ -2946,8 +2997,9 @@ void Bot_RunFrame (void)
 			if (strcmp (ent->client->pers.netname, b->netname) != 0)
 #else
 			// q2red: the server knows which clients are bots (and the game
-			// module may have decorated the name, e.g. MuffMode's "B|")
-			if (!OzHost_IsBot (ent))
+			// module may have decorated the name, e.g. MuffMode's "B|");
+			// a simulated player it asked us to play is not one, but is ours
+			if (!b->adopted && !OzHost_IsBot (ent))
 #endif
 			{
 				memset (b, 0, sizeof(*b));

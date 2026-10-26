@@ -1718,6 +1718,20 @@ qboolean OzHost_TelemetryOn (void)
 	return bot_telemetry_cv && bot_telemetry_cv->value != 0;
 }
 
+// q2red A64: the server asks us to play a simulated player (sv_sim_puppets)
+static void OZ_Adopt (int32_t entnum, int32_t on)
+{
+	if (entnum < 1 || entnum >= MAX_EDICTS)
+		return;
+	if (on)
+		Bot_Adopt (&g_edicts[entnum]);
+	else
+	{
+		Bot_Release (&g_edicts[entnum]);
+		oz_cmd_ready[entnum] = false;
+	}
+}
+
 static const q2red_bot_brain_t oz_brain = {
 	Q2RED_BOT_BRAIN_API_VERSION,
 	sizeof(q2red_bot_brain_t),
@@ -1738,6 +1752,7 @@ static const q2red_bot_brain_t oz_brain = {
 	OZ_Sound,
 	NULL,
 	NULL,
+	OZ_Adopt,
 };
 
 __attribute__((visibility("default")))
