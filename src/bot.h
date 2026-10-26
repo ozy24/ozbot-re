@@ -299,6 +299,12 @@ typedef struct
 	float		eng_bias;		// style: >0 press/close, <0 defensive/give-ground
 	int			eng_intent;		// ENG_* engagement intent (bot_wpnlog telemetry)
 
+	// q2red: a simulated player the server asked us to play (q2red A64,
+	// sv_sim_puppets). Its client is a network client, not one of our bots,
+	// so the not-a-bot release in Bot_RunFrame and the population
+	// bookkeeping in Bot_ForgetSlot leave it alone.
+	qboolean	adopted;
+
 	// transition tracking for event logging
 	qboolean	was_dead;
 	int			death_mod;		// MOD_* of the pending death (stashed by
@@ -712,6 +718,8 @@ qboolean	OzHost_IsBot (edict_t *ent);
 qboolean	OzHost_IsTeammate (edict_t *a, edict_t *b);
 qboolean	OzHost_TelemetryOn (void);
 qboolean	Bot_ForgetSlot (edict_t *ent);
+void		Bot_Adopt (edict_t *ent);	// q2red A64: play a simulated player
+void		Bot_Release (edict_t *ent);
 
 // capture the flag (q2red/oz_ctf.c)
 enum { CTF_NONE, CTF_TAKE, CTF_CAPTURE, CTF_HOLD, CTF_RETURN, CTF_HUNT };
