@@ -335,6 +335,9 @@ void G_UnicastClient (edict_t *ent, qboolean reliable);	// gi.unicast, skips bot
 qboolean Bot_ItemClaimed (edict_t *it, bot_t *self);
 qboolean Bot_Survives (bot_t *b);
 qboolean Bot_Dodges (bot_t *b);
+float Bot_Trainee (void);		// 0 at bot_skill >= 0 .. 1 at the trainee floor (-3), bot_combat.c
+#define TRAINEE_NO_DODGE	0.5f	// at or past this (bot_skill -1.5): no rocket dodge
+#define TRAINEE_NO_SJ		0.5f	// at or past this: no strafe-jump travel
 // A* link-type mask for this bot: capabilities toggled off exclude their
 // link types from pathing (bot_navmask; NAV_MASK_ALL passthrough when off)
 int Bot_NavMask (bot_t *b);

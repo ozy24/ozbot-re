@@ -701,6 +701,8 @@ static float Item_RespawnEta (edict_t *it)
 {
 	if (Goal_ItemAvailable (it))
 		return 0;
+	if (Bot_Trainee () > 0)
+		return 99999.0f;	// trainee levels never time a respawn
 
 	// BUG (found by the bot_control funnel telemetry, 2026-07-22): the shipped
 	// test below is `!(it->flags & FL_RESPAWN)`, and FL_RESPAWN is NEVER set on

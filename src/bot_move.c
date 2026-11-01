@@ -2046,7 +2046,7 @@ qboolean Bot_StrafeThink (bot_t *b)
 	float	speed, desired_heading, yaw;
 	int		node;
 
-	if (bot_strafejump->value == 0)
+	if (bot_strafejump->value == 0 || Bot_Trainee () >= TRAINEE_NO_SJ)
 	{
 		if (b->sj_state != SJ_NONE)
 			Bot_StrafeReset (b);	// cvar flipped off mid-chain

@@ -119,11 +119,13 @@ static float Skill_Dial (void)
 // Trainee levels: bot_skill below 0 (down to -3) goes on past Training, for an
 // opponent a learning bot can beat and climb from.  0 at bot_skill >= 0 (every
 // existing setting unchanged); at -3: 0.6 s more reaction, three times the aim
-// error and spread, and a firing threshold 15 deg wider.  Movement, items and
-// weapon choice are untouched: only the hands get worse.
+// error and spread, and a firing threshold 15 deg wider.  The legs and the item
+// plan get worse too (Bot_Trainee's callers): no item timing at any trainee
+// level, combat strafing down to 40% at -3, no rocket dodge from -1.5, no
+// strafe-jump travel from -1.5.  Weapon choice is untouched.
 #define TRAINEE_FLOOR	-3.0f
 
-static float Trainee (void)
+float Bot_Trainee (void)
 {
 	float k = bot_skill ? bot_skill->value : 2.0f;
 	if (k >= 0) return 0.0f;
@@ -131,7 +133,7 @@ static float Trainee (void)
 	return k / TRAINEE_FLOOR;
 }
 #else
-static float Trainee (void)
+float Bot_Trainee (void)
 {
 	return 0.0f;
 }
@@ -1368,7 +1370,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 
 	if (b->enemy != enemy)
 	{
-		reaction = 0.1f + (1.0f - skill) * 0.4f + Trainee () * 0.6f;
+		reaction = 0.1f + (1.0f - skill) * 0.4f + Bot_Trainee () * 0.6f;
 		if (aimtweak)
 			reaction *= bot_aimreact->value;
 		b->enemy = enemy;
@@ -1657,7 +1659,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		// Shrink the spread and correct faster to buy the texture for free.
 		// (constants are per authored 10Hz frame; the FRAMESYNC gate above
 		// keeps that cadence at any server tick rate)
-		float	sd    = 0.26f * (1.0f - skill) * 7.0f * (1.0f + 2.0f * Trainee ());
+		float	sd    = 0.26f * (1.0f - skill) * 7.0f * (1.0f + 2.0f * Bot_Trainee ());
 		float	theta = 0.35f + 0.30f * skill;
 		float	sigma = sd * (float)sqrt (theta * (2.0f - theta));
 		float	sweep, sweep_sign;
@@ -1711,7 +1713,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	}
 	else
 	{
-		err = (1.0f - skill) * 7.0f * (1.0f + 2.0f * Trainee ());
+		err = (1.0f - skill) * 7.0f * (1.0f + 2.0f * Bot_Trainee ());
 		if (aimtweak)
 			err *= bot_aimerr->value;
 		err *= precm;		// bot_aimprec: precision-weapon error scale-up
@@ -1722,7 +1724,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->aim[PITCH] = ApproachAngle (b->aim[PITCH], ang[PITCH], turnstep);
 	}
 
-	firethresh = 3.0f + (1.0f - skill) * 12.0f + Trainee () * 15.0f;
+	firethresh = 3.0f + (1.0f - skill) * 12.0f + Bot_Trainee () * 15.0f;
 	if (aimtweak)
 		firethresh *= bot_aimfire->value;
 	aimoff = (float)(fabs (AngleDelta (ang[YAW], b->aim[YAW]))
@@ -1901,7 +1903,7 @@ aim_held:
 		// bot_dodge: an incoming rocket overrides the strafe with a directed
 		// sidestep out of its path (perpendicular to the rocket's travel).
 		// Bot_Dodges folds in both the cvar and the id-parity test harness.
-		if (Bot_Dodges (b))
+		if (Bot_Dodges (b) && Bot_Trainee () < TRAINEE_NO_DODGE)
 		{
 			Combat_RocketThreat (self, b);		// refreshes dir/until on a threat
 			rkt_dodge = (level.time < b->dodge_rkt_until);
@@ -1953,6 +1955,7 @@ aim_held:
 		sw = 1.0f;
 		if (!rkt_dodge && rhythm && level.time - b->dodge_flip_time < 0.2f)
 			sw = 0.5f;
+		sw *= 1.0f - 0.6f * Bot_Trainee ();	// trainee levels: lazier strafing
 
 		// approach if far, back off if too close; when fleeing, always
 		// disengage (movement is decoupled from aim, so the bot retreats
