@@ -115,7 +115,27 @@ static float Skill_Dial (void)
 	if (k > KEX_SKILL_MAX) k = KEX_SKILL_MAX;
 	return KEX_SKILL_BASE + KEX_SKILL_STEP * k;
 }
+
+// Trainee levels: bot_skill below 0 (down to -3) goes on past Training, for an
+// opponent a learning bot can beat and climb from.  0 at bot_skill >= 0 (every
+// existing setting unchanged); at -3: 0.6 s more reaction, three times the aim
+// error and spread, and a firing threshold 15 deg wider.  Movement, items and
+// weapon choice are untouched: only the hands get worse.
+#define TRAINEE_FLOOR	-3.0f
+
+static float Trainee (void)
+{
+	float k = bot_skill ? bot_skill->value : 2.0f;
+	if (k >= 0) return 0.0f;
+	if (k < TRAINEE_FLOOR) k = TRAINEE_FLOOR;
+	return k / TRAINEE_FLOOR;
+}
 #else
+static float Trainee (void)
+{
+	return 0.0f;
+}
+
 static float Skill_Dial (void)
 {
 	return bot_skill ? bot_skill->value : 0.6f;
@@ -1348,7 +1368,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 
 	if (b->enemy != enemy)
 	{
-		reaction = 0.1f + (1.0f - skill) * 0.4f;
+		reaction = 0.1f + (1.0f - skill) * 0.4f + Trainee () * 0.6f;
 		if (aimtweak)
 			reaction *= bot_aimreact->value;
 		b->enemy = enemy;
@@ -1637,7 +1657,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		// Shrink the spread and correct faster to buy the texture for free.
 		// (constants are per authored 10Hz frame; the FRAMESYNC gate above
 		// keeps that cadence at any server tick rate)
-		float	sd    = 0.26f * (1.0f - skill) * 7.0f;
+		float	sd    = 0.26f * (1.0f - skill) * 7.0f * (1.0f + 2.0f * Trainee ());
 		float	theta = 0.35f + 0.30f * skill;
 		float	sigma = sd * (float)sqrt (theta * (2.0f - theta));
 		float	sweep, sweep_sign;
@@ -1691,7 +1711,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	}
 	else
 	{
-		err = (1.0f - skill) * 7.0f;
+		err = (1.0f - skill) * 7.0f * (1.0f + 2.0f * Trainee ());
 		if (aimtweak)
 			err *= bot_aimerr->value;
 		err *= precm;		// bot_aimprec: precision-weapon error scale-up
@@ -1702,7 +1722,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		b->aim[PITCH] = ApproachAngle (b->aim[PITCH], ang[PITCH], turnstep);
 	}
 
-	firethresh = 3.0f + (1.0f - skill) * 12.0f;
+	firethresh = 3.0f + (1.0f - skill) * 12.0f + Trainee () * 15.0f;
 	if (aimtweak)
 		firethresh *= bot_aimfire->value;
 	aimoff = (float)(fabs (AngleDelta (ang[YAW], b->aim[YAW]))
