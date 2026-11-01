@@ -25,7 +25,7 @@ server:
 |---|---|
 | `sv_bot_brain ozbot` | q2red loads `ozbot_x64.so` from the game directory, then the base directory, at the next map. Empty (the default) means no bots. |
 | `bot_count N` | A fixed population. |
-| `bot_skill K` | **The rerelease's scale, as its configs use it:** 0 Training, 1 Easy, 2 Normal (default), 3 Hard, 4 Ultra-Violence, 5 Nightmare; fractions are allowed. Mapped to ozbot's internal 0–1 as `0.15 + 0.15 × K` (3 = 0.60, ozbot's tuned default on q2repro; 5 = 0.90). The anchors are provisional: Kex's own bots can't run beside ozbot's. q2repro keeps the 0–1 scale. |
+| `bot_skill K` | **The rerelease's scale, as its configs use it:** 0 Training, 1 Easy, 2 Normal (default), 3 Hard, 4 Ultra-Violence, 5 Nightmare; fractions are allowed. Mapped to ozbot's internal 0–1 as `0.15 + 0.15 × K` (3 = 0.60, ozbot's tuned default on q2repro; 5 = 0.90). The anchors are provisional: Kex's own bots can't run beside ozbot's. q2repro keeps the 0–1 scale. **Trainee levels below 0** (q2red only, down to -3): Training's skill plus, at -3, 0.6 s more reaction, three times the aim error and spread and a firing threshold 15° wider (linear in between); movement, items and weapon choice unchanged. For an opponent a learning bot can beat and climb from. |
 | `bot_numBots N` | The rerelease's fixed count: exactly N bots when N > 0. Overrides the fill cvars below. |
 | `bot_minClients N` | The rerelease's fill mode, so a mod's per-gametype configs work as written: humans plus bots are kept at N, and bots leave as people join (one slot is always kept free). **0 means no bots**, -1 (the default) means off. Overrides `bot_count`. |
 | `bot_minplayers N` | **q2red only.** The same fill, used only while `bot_minClients` is -1. 0 is off. |
