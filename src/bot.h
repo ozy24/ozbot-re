@@ -335,9 +335,23 @@ void G_UnicastClient (edict_t *ent, qboolean reliable);	// gi.unicast, skips bot
 qboolean Bot_ItemClaimed (edict_t *it, bot_t *self);
 qboolean Bot_Survives (bot_t *b);
 qboolean Bot_Dodges (bot_t *b);
+#ifdef OZBOT_Q2RED
 float Bot_Trainee (void);		// 0 at bot_skill >= 0 .. 1 at the trainee floor (-3), bot_combat.c
 #define TRAINEE_NO_DODGE	0.5f	// at or past this (bot_skill -1.5): no rocket dodge
 #define TRAINEE_NO_SJ		0.5f	// at or past this: no strafe-jump travel
+
+// bot_fair (q2red/oz_fair.c): ozbot-re under a learning bot's senses
+extern cvar_t	*bot_fair;
+void Fair_Init (void);
+void Fair_Frame (void);
+qboolean Fair_On (void);
+qboolean Goal_Believed (bot_t *b, edict_t *it);
+float Fair_RespawnEta (bot_t *b, edict_t *it);
+qboolean Fair_Enemy (edict_t *enemy, vec3_t origin, vec3_t velocity, float *viewheight);
+#define GOAL_AVAIL(b, it)	Goal_Believed (b, it)
+#else
+#define GOAL_AVAIL(b, it)	Goal_ItemAvailable (it)
+#endif
 // A* link-type mask for this bot: capabilities toggled off exclude their
 // link types from pathing (bot_navmask; NAV_MASK_ALL passthrough when off)
 int Bot_NavMask (bot_t *b);

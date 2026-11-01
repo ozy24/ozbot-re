@@ -186,6 +186,7 @@ void Bot_Init (void)
 	bot_debug        = gi.cvar ("bot_debug", "0", 0);
 #ifdef OZBOT_Q2RED
 	bot_skill        = gi.cvar ("bot_skill", "2", 0);		// the rerelease's 0-5 scale (Skill_Dial)
+	Fair_Init ();		// bot_fair, bot_fairdelay (q2red/oz_fair.c)
 #else
 	bot_skill        = gi.cvar ("bot_skill", "0.6", 0);
 #endif
@@ -1998,7 +1999,7 @@ static qboolean Bot_PursueTry (bot_t *b)
 
 	// an item we're already nearly on top of beats a chase -- finishing the
 	// cheap thing first is the same logic bot_commit applies to goal selection
-	if (b->goal_item && Goal_ItemAvailable (b->goal_item))
+	if (b->goal_item && GOAL_AVAIL (b, b->goal_item))
 	{
 		VectorSubtract (b->goal_item->s.origin, ent->s.origin, d);
 		if (VectorLength (d) < BOT_PURSUE_NEARGOAL)
@@ -2252,7 +2253,7 @@ static void Bot_Navigate (bot_t *b)
 		// resolve item state: grabbed/taken, or still waiting on a respawn
 		if (b->goal_item)
 		{
-			qboolean avail = Goal_ItemAvailable (b->goal_item);
+			qboolean avail = GOAL_AVAIL (b, b->goal_item);
 
 			if (b->goal_timing)
 			{
@@ -2498,11 +2499,11 @@ static void Bot_Navigate (bot_t *b)
 		if (!Bot_FollowPath (b))
 		{
 			// arrived at the goal node
-			if (b->goal_item && (Goal_ItemAvailable (b->goal_item) || b->goal_timing))
+			if (b->goal_item && (GOAL_AVAIL (b, b->goal_item) || b->goal_timing))
 			{
 				// home in on the item (or hold on the spot while we wait for it
 				// to respawn) until we touch it or time out
-				qboolean waiting = b->goal_timing && !Goal_ItemAvailable (b->goal_item);
+				qboolean waiting = b->goal_timing && !GOAL_AVAIL (b, b->goal_item);
 				// bot_control: cap the wait-on-spot.  Timing the route is meant to
 				// land the bot here as the item spawns, so a LONG wait means the
 				// estimate was wrong -- and a bot camped on a spawn that never pays
@@ -2578,7 +2579,7 @@ static void Bot_Navigate (bot_t *b)
 		// final approach: home straight in only when the item is close AND we
 		// have a clear shot to it; otherwise keep following the learned path
 		// (which now ends at the item) so we don't wall-bump around corners
-		if (b->goal_item && (Goal_ItemAvailable (b->goal_item) || b->goal_timing))
+		if (b->goal_item && (GOAL_AVAIL (b, b->goal_item) || b->goal_timing))
 		{
 			vec3_t	dv;
 			VectorSubtract (b->goal_item->s.origin, ent->s.origin, dv);
@@ -2903,6 +2904,10 @@ void Bot_RunFrame (void)
 		}
 		return;
 	}
+
+#ifdef OZBOT_Q2RED
+	Fair_Frame ();		// bot_fair's senses: the enemy's past states, items seen and heard
+#endif
 
 	// new map?  the engine wiped g_edicts; save the old graph, reset, and
 	// start fresh logging + nav for the new map.

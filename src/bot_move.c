@@ -2046,7 +2046,11 @@ qboolean Bot_StrafeThink (bot_t *b)
 	float	speed, desired_heading, yaw;
 	int		node;
 
+#ifdef OZBOT_Q2RED
 	if (bot_strafejump->value == 0 || Bot_Trainee () >= TRAINEE_NO_SJ)
+#else
+	if (bot_strafejump->value == 0)
+#endif
 	{
 		if (b->sj_state != SJ_NONE)
 			Bot_StrafeReset (b);	// cvar flipped off mid-chain

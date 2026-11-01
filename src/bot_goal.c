@@ -701,8 +701,6 @@ static float Item_RespawnEta (edict_t *it)
 {
 	if (Goal_ItemAvailable (it))
 		return 0;
-	if (Bot_Trainee () > 0)
-		return 99999.0f;	// trainee levels never time a respawn
 
 	// BUG (found by the bot_control funnel telemetry, 2026-07-22): the shipped
 	// test below is `!(it->flags & FL_RESPAWN)`, and FL_RESPAWN is NEVER set on
@@ -797,12 +795,19 @@ qboolean Goal_Select (bot_t *b)
 		if (Goal_ItemInHazard (it))
 			continue;	// bot_hazard: sunken weapon drops are bait, not goals
 
-		avail = Goal_ItemAvailable (it);
+		avail = GOAL_AVAIL (b, it);
 		eta = 0;
 		if (!avail)
 		{
 			if (!Item_HighValue (it))
 				continue;
+#ifdef OZBOT_Q2RED
+			if (Bot_Trainee () > 0)
+				eta = 99999.0f;			// trainee levels never time a respawn
+			else if (Fair_On ())
+				eta = Fair_RespawnEta (b, it);	// bot_fair: only what it saw or heard
+			else
+#endif
 			eta = Item_RespawnEta (it);
 			if (eta <= 0)
 				continue;
@@ -1041,7 +1046,7 @@ edict_t *Goal_NearestItem (bot_t *b, float maxdist)
 	for (i = (int)game.maxclients + 1; i < globals.num_edicts; i++)
 	{
 		it = g_edicts + i;
-		if (!Goal_ItemAvailable (it))
+		if (!GOAL_AVAIL (b, it))
 			continue;
 		if (decisive && Goal_OnCooldown (it))
 			continue;			// never steer at what we just abandoned
@@ -1065,7 +1070,7 @@ edict_t *Goal_NearestItem (bot_t *b, float maxdist)
 		{
 			float	curd;
 
-			if (Goal_ItemAvailable (b->steer_item)
+			if (GOAL_AVAIL (b, b->steer_item)
 				&& !Goal_OnCooldown (b->steer_item)
 				&& Item_Score (b, b->steer_item, &curd) > 0
 				&& curd < maxdist

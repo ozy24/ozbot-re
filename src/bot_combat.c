@@ -133,7 +133,7 @@ float Bot_Trainee (void)
 	return k / TRAINEE_FLOOR;
 }
 #else
-float Bot_Trainee (void)
+static float Bot_Trainee (void)
 {
 	return 0.0f;
 }
@@ -1448,6 +1448,10 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 			qboolean believe = (bot_enemymodeltest->value != 0)
 				? ((b->id & 1) == 0)
 				: (bot_enemymodel->value != 0);
+#ifdef OZBOT_Q2RED
+			if (Fair_On ())
+				believe = true;			// bot_fair: no omniscient health read
+#endif
 			float theirs = believe ? Bot_BeliefStrength (b, enemy)
 								   : Combat_Strength (enemy);
 			if (believe)
@@ -1483,6 +1487,20 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 	eyes[2] += self->viewheight;
 	VectorCopy (enemy->s.origin, teyes);
 	teyes[2] += enemy->viewheight;
+#ifdef OZBOT_Q2RED
+	// bot_fair: aim at the enemy as seen bot_fairdelay ago (oz_fair.c)
+	vec3_t		fair_org, fair_vel;
+	float		fair_vh;
+	qboolean	fair_aim = Fair_Enemy (enemy, fair_org, fair_vel, &fair_vh);
+	if (fair_aim)
+	{
+		VectorCopy (fair_org, teyes);
+		teyes[2] += fair_vh;
+	}
+#define AIM_ENEMY_VEL	(fair_aim ? fair_vel : enemy->velocity)
+#else
+#define AIM_ENEMY_VEL	enemy->velocity
+#endif
 
 	// lead a moving target by the projectile's flight time, scaled by skill
 	// (hitscan weapons need no lead; aim error below still applies on top)
@@ -1495,7 +1513,7 @@ qboolean Combat_Aim (bot_t *b, usercmd_t *cmd, float *facing_yaw, float *facing_
 		{
 			VectorSubtract (teyes, eyes, dir);
 			VectorMA (teyes, skill * VectorLength (dir) / pspeed,
-			          enemy->velocity, teyes);
+			          AIM_ENEMY_VEL, teyes);
 		}
 	}
 
@@ -1903,7 +1921,11 @@ aim_held:
 		// bot_dodge: an incoming rocket overrides the strafe with a directed
 		// sidestep out of its path (perpendicular to the rocket's travel).
 		// Bot_Dodges folds in both the cvar and the id-parity test harness.
+#ifdef OZBOT_Q2RED
 		if (Bot_Dodges (b) && Bot_Trainee () < TRAINEE_NO_DODGE)
+#else
+		if (Bot_Dodges (b))
+#endif
 		{
 			Combat_RocketThreat (self, b);		// refreshes dir/until on a threat
 			rkt_dodge = (level.time < b->dodge_rkt_until);
@@ -1955,7 +1977,9 @@ aim_held:
 		sw = 1.0f;
 		if (!rkt_dodge && rhythm && level.time - b->dodge_flip_time < 0.2f)
 			sw = 0.5f;
+#ifdef OZBOT_Q2RED
 		sw *= 1.0f - 0.6f * Bot_Trainee ();	// trainee levels: lazier strafing
+#endif
 
 		// approach if far, back off if too close; when fleeing, always
 		// disengage (movement is decoupled from aim, so the bot retreats
