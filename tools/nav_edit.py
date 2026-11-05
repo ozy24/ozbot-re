@@ -9,7 +9,7 @@ Matches Nav_Load / Nav_Save in src/bot_nav.c:
             3 pad, float cost)
 
 Link types: 0 WALK, 1 FALL, 2 JUMP, 3 TELEPORT, 4 WATER, 5 PLAT,
-            6 PLAYBOOK, 7 TRAIN
+            6 PLAYBOOK, 7 TRAIN, 8 PUSH
 
 Usage:
   py tools/nav_edit.py dump <file.nav> [--near x,y,z[,r]]
@@ -57,6 +57,8 @@ def link_cost(a, b, typ):
         return 64.0 + d * 0.6
     if typ == 7:  # TRAIN
         return d + 1500.0
+    if typ == 8:  # PUSH (jump pad)
+        return 96.0
     return d  # WALK
 
 
